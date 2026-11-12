@@ -1,0 +1,78 @@
+--- a/crates/reims-vgpu-window/src/native/linux/input.rs
++++ b/crates/reims-vgpu-window/src/native/linux/input.rs
+@@ -137,6 +137,8 @@
+ pub(crate) struct Input {
+     /// The keys the guest was told are down.
+     keys: KeyState,
++    /// Windows desktop integration: do not capture on click.
++    free_pointer: bool,
+     /// Who gets the keyboard.
+     capture: Capture,
+     /// The `BUTTON_*` bits of the buttons the guest was told are down.
+@@ -154,7 +156,11 @@
+ impl Input {
+     /// Nothing held, nothing captured, no keyboard.
+     pub(crate) fn new() -> Input {
+-        Input::default()
++        Input {
++            free_pointer: cfg!(windows) && std::env::var("REIMS_VGPU_WINDOW_FREE_POINTER")
++                .is_ok_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")),
++            ..Input::default()
++        }
+     }
+ 
+     /// Whether input, the keyboard and the pointer, is captured.
+@@ -170,7 +176,9 @@
+ 
+     /// What the title ends with: the release chord while captured, that a click captures while not.
+     pub(crate) fn title_suffix(&self) -> &'static str {
+-        if self.is_captured() {
++        if self.free_pointer {
++            " \u{2014} free pointer (host shortcuts enabled)"
++        } else if self.is_captured() {
+             CAPTURED_SUFFIX
+         } else {
+             UNCAPTURED_SUFFIX
+@@ -216,7 +224,9 @@
+                 .focused_at
+                 .is_some_and(|t| timestamp.saturating_sub(t) < FOCUS_CLICK_NS);
+         let was_captured = self.is_captured();
+-        let forward = if was_captured {
++        let forward = if self.free_pointer {
++            !focusing
++        } else if was_captured {
+             true
+         } else {
+             self.capture.click_in_image(!focusing).forward
+@@ -375,6 +385,31 @@
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++
++    #[test]
++    fn free_pointer_click_and_drag_do_not_confine() {
++        let mut input = focused();
++        input.free_pointer = true;
++        let r = input.button_down(BUTTON_LEFT, 1_000_000_000, &at((10.0, 10.0)));
++        assert!(!r.capture_changed && !input.is_captured());
++        assert_eq!(input.pointer_confinement(at((10.0, 10.0)).image), None);
++        input.moved(&at((150.0, 10.0)));
++        input.button_up(BUTTON_LEFT, &at((150.0, 10.0)));
++        assert_eq!(input.take(), vec![pointer(20, 20, BUTTON_LEFT), pointer(199, 20, BUTTON_LEFT), pointer(199, 20, 0)]);
++    }
++
++    #[test]
++    fn free_pointer_focus_click_is_not_forwarded() {
++        let mut input = Input::default();
++        input.free_pointer = true;
++        input.focus_gained(1_000_000_000);
++        input.button_down(BUTTON_LEFT, 1_010_000_000, &at((10.0, 10.0)));
++        assert!(!input.is_captured());
++        assert!(input.take().is_empty());
++        input.button_down(BUTTON_LEFT, 2_000_000_000, &at((10.0, 10.0)));
++        assert_eq!(input.take(), vec![pointer(20, 20, BUTTON_LEFT)]);
++    }
++
+ 
+     /// A 100×50 image at the window's origin, a 200×100 guest mode, the pointer at `point`.
+     fn at(point: (f64, f64)) -> At {

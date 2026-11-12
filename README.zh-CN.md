@@ -1,5 +1,9 @@
 # weims-vgpu
 
+[下载 Weims Manager 1.0](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0)：Windows 安装包，默认英文、可切换中文，支持检测并自动准备运行环境。
+
+新增 Windows [Weims Manager 1.0 配置器](manager/README.zh-CN.md)：图形化配置、恢复镜像准备与独立虚拟机显示窗口。
+
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
 在 Windows 上使用 WHPX 和 Vulkan 运行 Reims 新图形通道。本项目沿用新通道的客户机驱动和协议，通过 Windows section 共享客户机 RAM，解决此前 Windows 移植中观察到的严重回写卡顿。
@@ -10,7 +14,7 @@
 
 ## 构建与启动
 
-[完整复现指南](docs/reproduce.md) 提供工具安装、固定源码版本、补丁应用、编译、客户机驱动注入和启动步骤。仓库发布源码补丁和脚本，不提供 macOS 系统盘或宿主预编译程序。需要自行准备可启动的 macOS 虚拟机及 OpenCore、OVMF 文件。
+[完整复现指南](docs/reproduce.md) 提供工具安装、固定源码版本、补丁应用、编译、客户机驱动注入和启动步骤。仓库发布源码补丁、脚本与带对应源码的宿主运行包，不提供 macOS 系统盘。需要自行准备可启动的 macOS 虚拟机及 OpenCore、OVMF 文件。
 
 ```powershell
 git clone https://github.com/H0yeR404/weims-vgpu

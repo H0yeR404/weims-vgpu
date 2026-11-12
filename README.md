@@ -1,5 +1,9 @@
 # weims-vgpu
 
+[Download Weims Manager 1.0](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0) — Windows installer, English by default, optional Chinese, and automatic runtime setup.
+
+The Windows [Weims Manager 1.0](manager/README.md) adds a graphical configuration utility with recovery-image preparation and independent VM windows.
+
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
 Run the Reims graphics lane on Windows with WHPX and Vulkan. This independent integration preserves the new guest graphics protocol while sharing Windows guest-RAM sections with the host renderer, addressing the severe copy-path slowdown observed in the earlier Windows port.
@@ -10,7 +14,7 @@ The owner-supplied screenshot shows macOS Tahoe, 8 vCPUs, 32 GiB RAM and a rough
 
 ## Build and run
 
-Follow the [complete reproduction guide](docs/reproduce.md) for tools, fixed source revisions, patch application, build commands, guest-driver injection and VM startup. This repository distributes source patches and scripts, not macOS disks or prebuilt host binaries. Supply your own working macOS VM, OpenCore and OVMF files.
+Follow the [complete reproduction guide](docs/reproduce.md) for tools, fixed source revisions, patch application, build commands, guest-driver injection and VM startup. This repository distributes source patches and scripts, and versioned host runtime releases, but not macOS disks. Supply your own working macOS VM, OpenCore and OVMF files.
 
 ```powershell
 git clone https://github.com/H0yeR404/weims-vgpu

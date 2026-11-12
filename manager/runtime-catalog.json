@@ -1,0 +1,14 @@
+{
+  "Runtime": {
+    "Version": "weims-runtime-1.0",
+    "Url": "https://github.com/H0yeR404/weims-vgpu/releases/download/v1.0/weims-runtime-1.0-win-x64.zip",
+    "Sha256": "7dec11cb1ef1f437acb7672e51d0bff10c7dd1bb515cdb7ca2cdb8d44cec015d",
+    "MaxBytes": 88754676
+  },
+  "PowerShell": {
+    "Version": "powershell-7.7.0",
+    "Url": "https://github.com/PowerShell/PowerShell/releases/download/v7.7.0/PowerShell-7.7.0-win-x64.zip",
+    "Sha256": "7c74e03b20a75b59715847439d046a6214b1863ee79b187872980f139bb4a05f",
+    "MaxBytes": 115330228
+  }
+}

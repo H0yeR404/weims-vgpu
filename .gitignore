@@ -8,3 +8,6 @@ vm/
 .env
 logs/
 __pycache__/
+**/bin/
+**/obj/
+manager/artifacts/

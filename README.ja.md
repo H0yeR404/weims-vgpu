@@ -1,5 +1,9 @@
 # weims-vgpu
 
+[Weims Manager 1.0 をダウンロード](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0)：Windows インストーラー、英語（既定）・中国語 UI、実行環境の自動セットアップ。
+
+Windows 向け [Weims Manager 1.0](manager/README.md) を追加しました。復元イメージの準備と仮想マシン設定を GUI で行い、VM の表示ウィンドウは独立して動作します。UI は英語（既定）と中国語に対応しています。
+
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
 Windows 上で WHPX と Vulkan を使い、Reims の新しいグラフィックス経路を動かすための統合プロジェクトです。新しいゲストドライバーとプロトコルを維持しながら、Windows の section によってゲスト RAM を共有し、従来の Windows 移植で発生していた深刻な書き戻し遅延に対処します。
@@ -10,7 +14,7 @@ Windows 上で WHPX と Vulkan を使い、Reims の新しいグラフィック�
 
 ## ビルドと起動
 
-[再現手順](docs/reproduce.md) に、ツールの導入、固定したソースの取得、パッチ適用、ビルド、ゲストドライバーの組み込み、起動方法を記載しています。このリポジトリはソースパッチとスクリプトを配布します。macOS のディスクやホスト用バイナリは含みません。起動可能な macOS VM と OpenCore、OVMF は各自で用意してください。
+[再現手順](docs/reproduce.md) に、ツールの導入、固定したソースの取得、パッチ適用、ビルド、ゲストドライバーの組み込み、起動方法を記載しています。このリポジトリはソースパッチとスクリプトを配布します。リリースには対応ソース付きのホスト実行環境を提供しますが、macOS ディスクは含みません。起動可能な macOS VM と OpenCore、OVMF は各自で用意してください。
 
 ```powershell
 git clone https://github.com/H0yeR404/weims-vgpu
