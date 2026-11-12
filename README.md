@@ -27,7 +27,6 @@ pwsh -File scripts/build.ps1
 
 ## Tested environment
 
-Host configuration reported by the owner's Fastfetch screenshot (2026-11-12):
 
 | Component | Configuration |
 | --- | --- |
