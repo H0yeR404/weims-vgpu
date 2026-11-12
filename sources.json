@@ -1,0 +1,23 @@
+[
+  {
+    "name": "reims",
+    "url": "https://github.com/steelbrain/reims-vgpu",
+    "base": "a7761508c0e7fca7a49385e0b62b3c92f06b0ca0",
+    "patch": "patches/reims.patch",
+    "sha256": "60e88df76a84248dcfe7d0209db2b3d264cc7031ad50fb40153e9500deb8a661"
+  },
+  {
+    "name": "qemu",
+    "url": "https://github.com/steelbrain/qemu-reims-vgpu",
+    "base": "c2fb9b92d1c191ebc6ad67e6d92e8f72e5347b30",
+    "patch": "patches/qemu.patch",
+    "sha256": "b2fc4b5fc196fac540fe30e747f87a5f4441a00c5a41e1cdcfbb1f50c4158e89"
+  },
+  {
+    "name": "metal2vulkan",
+    "url": "https://github.com/steelbrain/metal2vulkan",
+    "base": "ef7af82fe4de4853b82d4b6133b6ce79c386d5a8",
+    "patch": "patches/metal2vulkan.patch",
+    "sha256": "d9ce0c47d78f34cd1adb5e65bb18b938f3059ddd1137840e1fc2474c2662b8b3"
+  }
+]

@@ -1,0 +1,10 @@
+weims-vgpu integration scripts and documentation are licensed under GPL-2.0-or-later.
+See licenses/GPL-2.0-or-later.txt for the complete terms and warranty disclaimer.
+
+Patches are modifications to third-party software, not a relicensing:
+Reims vGPU and metal2vulkan: GPL-2.0-or-later OR LGPL-3.0-or-later.
+QEMU: original per-file licenses apply; see licenses/qemu-NOTICE.txt,
+licenses/qemu-COPYING.txt and licenses/qemu-COPYING.LIB.txt.
+
+The user-supplied screenshot documents a running installation. It does not grant
+rights to Apple software, trademarks, applications or wallpaper shown.

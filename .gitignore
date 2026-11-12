@@ -1,0 +1,10 @@
+sources/
+build/
+vm/
+*.qcow2
+*.vhdx
+*.iso
+*.fd
+.env
+logs/
+__pycache__/

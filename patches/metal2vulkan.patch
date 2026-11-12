@@ -1,0 +1,699 @@
+diff --git a/crates/metal2vulkan-runtime/src/device/mod.rs b/crates/metal2vulkan-runtime/src/device/mod.rs
+index cb4fe458..14c32530 100644
+--- a/crates/metal2vulkan-runtime/src/device/mod.rs
++++ b/crates/metal2vulkan-runtime/src/device/mod.rs
+@@ -1375,6 +1375,17 @@ impl Device {
+ }
+ 
+ impl Device {
++    /// The queue family the first move of an image over dma-buf pages acquires it for: the
++    /// device's one family, or `VK_QUEUE_FAMILY_IGNORED` where its images are concurrent among
++    /// several (`sharing.rs`), as Vulkan has an acquire of such an image name it. Here, not in
++    /// `dma_buf.rs`, for the callers built where that module is not (a rebind's swaps).
++    pub(super) fn foreign_acquirer(&self) -> u32 {
++        match &self.shared().queue_families[..] {
++            [family] => *family,
++            _ => vk::QUEUE_FAMILY_IGNORED,
++        }
++    }
++
+     /// `registryID`: an identifier of the physical device, from its `deviceUUID`.
+     pub fn registry_id(&self) -> u64 {
+         properties::registry_id(&self.properties().device_uuid)
+diff --git a/crates/metal2vulkan-runtime/src/dma_buf.rs b/crates/metal2vulkan-runtime/src/dma_buf.rs
+index 4ec80cbd..105a31fd 100644
+--- a/crates/metal2vulkan-runtime/src/dma_buf.rs
++++ b/crates/metal2vulkan-runtime/src/dma_buf.rs
+@@ -1156,16 +1156,6 @@ impl Device {
+         }
+     }
+ 
+-    /// The queue family the first move of an image over dma-buf pages acquires it for: the
+-    /// device's one family, or `VK_QUEUE_FAMILY_IGNORED` where its images are concurrent among
+-    /// several (`sharing.rs`), as Vulkan has an acquire of such an image name it.
+-    pub(super) fn foreign_acquirer(&self) -> u32 {
+-        match &self.shared().queue_families[..] {
+-            [family] => *family,
+-            _ => vk::QUEUE_FAMILY_IGNORED,
+-        }
+-    }
+-
+     /// [`Device::dma_buf_image`]'s image made and checked, unbound, with the request for its
+     /// pages; why not where the device makes none before the source is asked.
+     pub(super) fn dma_buf_image_unbound(
+diff --git a/crates/metal2vulkan-runtime/src/exit_guard.rs b/crates/metal2vulkan-runtime/src/exit_guard.rs
+index 1b4b753e..6c8acedc 100644
+--- a/crates/metal2vulkan-runtime/src/exit_guard.rs
++++ b/crates/metal2vulkan-runtime/src/exit_guard.rs
+@@ -1718,8 +1718,11 @@ fn install() {
+     unsafe { on_exit(exit_handler, std::ptr::null_mut()) };
+ }
+ 
+-/// Register [`exit_handler`] with the C library's exit handlers.
+-#[cfg(all(unix, not(all(target_os = "linux", target_env = "gnu"))))]
++/// Register [`exit_handler`] with the C library's exit handlers. On Windows that is the linked
++/// CRT's `atexit`, which covers the CRT's `exit` and a return from `main`, not `ExitProcess`
++/// (Rust's `std::process::exit` among its callers), a forced termination, or a DLL unloaded under
++/// the loader lock.
++#[cfg(any(all(unix, not(all(target_os = "linux", target_env = "gnu"))), windows))]
+ fn install() {
+     INSTALLED.fetch_add(1, Ordering::Relaxed);
+     // SAFETY: `exit_handler` is a function with no arguments that never unwinds. Registration
+@@ -1728,8 +1731,8 @@ fn install() {
+     unsafe { libc::atexit(exit_handler) };
+ }
+ 
+-/// Nothing to register: the runtime is built for unix hosts, whose exit order the hook relies on.
+-#[cfg(not(unix))]
++/// Nothing to register on a host without a C exit handler the runtime knows.
++#[cfg(not(any(unix, windows)))]
+ fn install() {}
+ 
+ // The GNU C library's `on_exit(3)` (`<stdlib.h>`), which `libc` does not declare: `function` is
+@@ -1765,7 +1768,7 @@ extern "C" fn exit_handler(status: std::ffi::c_int, _: *mut std::ffi::c_void) {
+ 
+ /// The exit handler, where it learns no status (`atexit`): the hook waits at most [`BOUND`], or
+ /// [`MAKING_BOUND`] while a making is in progress, and returns.
+-#[cfg(all(unix, not(all(target_os = "linux", target_env = "gnu"))))]
++#[cfg(any(all(unix, not(all(target_os = "linux", target_env = "gnu"))), windows))]
+ extern "C" fn exit_handler() {
+     hook(
+         &GUARD,
+diff --git a/crates/metal2vulkan-runtime/src/gpu_time.rs b/crates/metal2vulkan-runtime/src/gpu_time.rs
+index 1cc6125e..ee67ff29 100644
+--- a/crates/metal2vulkan-runtime/src/gpu_time.rs
++++ b/crates/metal2vulkan-runtime/src/gpu_time.rs
+@@ -225,7 +225,8 @@ const _: () = assert!(PLAIN * SLOTS <= SAMPLE_BUFFER_TIMESTAMPS);
+ 
+ /// The host time now, in seconds of the clock the runtime's GPU and kernel times count (the
+ /// module documentation): `CLOCK_UPTIME_RAW` on macOS, which `mach_absolute_time` and
+-/// `CACurrentMediaTime` count, and `CLOCK_MONOTONIC_RAW` elsewhere on Unix.
++/// `CACurrentMediaTime` count, and `CLOCK_MONOTONIC_RAW` elsewhere on Unix; on Windows the
++/// performance counter (`QueryPerformanceCounter`).
+ pub fn host_time() -> f64 {
+     host_nanos() as f64 / 1e9
+ }
+@@ -236,7 +237,13 @@ pub(crate) fn host_nanos() -> u64 {
+     {
+         read_clock(BASE).unwrap_or(0)
+     }
+-    #[cfg(not(unix))]
++    // Windows' performance counter, which a device's calibration reads too
++    // (`VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR`, [`host_domain`]).
++    #[cfg(windows)]
++    {
++        performance_counter::now().unwrap_or(0)
++    }
++    #[cfg(not(any(unix, windows)))]
+     {
+         use std::sync::OnceLock;
+         use std::time::Instant;
+@@ -267,6 +274,54 @@ fn read_clock(clock: libc::clockid_t) -> Option<u64> {
+     Some(seconds * 1_000_000_000 + nanos)
+ }
+ 
++/// Windows' host clock: the performance counter (`QueryPerformanceCounter`), in nanoseconds
++/// since the system started, as `CLOCK_MONOTONIC_RAW` counts on Unix. It is the clock of Vulkan's
++/// `VK_TIME_DOMAIN_QUERY_PERFORMANCE_COUNTER_KHR`, whose values are the counter's ticks.
++#[cfg(windows)]
++mod performance_counter {
++    use std::sync::OnceLock;
++
++    #[link(name = "kernel32")]
++    unsafe extern "system" {
++        fn QueryPerformanceCounter(count: *mut i64) -> i32;
++        fn QueryPerformanceFrequency(frequency: *mut i64) -> i32;
++    }
++
++    /// The counter's ticks per second, fixed while the system runs: `None` where the system
++    /// answers none.
++    fn frequency() -> Option<u64> {
++        static FREQUENCY: OnceLock<Option<u64>> = OnceLock::new();
++        *FREQUENCY.get_or_init(|| {
++            let mut frequency = 0i64;
++            // SAFETY: the call writes one integer to the live output.
++            let answered = unsafe { QueryPerformanceFrequency(&mut frequency) } != 0;
++            let frequency = u64::try_from(frequency).ok().filter(|&ticks| ticks > 0);
++            frequency.filter(|_| answered)
++        })
++    }
++
++    /// `ticks` of the counter in nanoseconds: whole seconds and the rest apart, so no product
++    /// passes 64 bits before the counter itself would (centuries of uptime).
++    pub(super) fn nanos(ticks: u64) -> Option<u64> {
++        let frequency = frequency()?;
++        let (seconds, rest) = (ticks / frequency, ticks % frequency);
++        let rest = u128::from(rest) * 1_000_000_000 / u128::from(frequency);
++        seconds
++            .checked_mul(1_000_000_000)?
++            .checked_add(u64::try_from(rest).ok()?)
++    }
++
++    /// The counter now, in nanoseconds.
++    pub(super) fn now() -> Option<u64> {
++        let mut ticks = 0i64;
++        // SAFETY: the call writes one integer to the live output.
++        if unsafe { QueryPerformanceCounter(&mut ticks) } == 0 {
++            return None;
++        }
++        nanos(u64::try_from(ticks).ok()?)
++    }
++}
++
+ /// The host clock behind a Vulkan host time domain, where the runtime can read it.
+ #[cfg(unix)]
+ fn domain_clock(domain: vk::TimeDomainKHR) -> Option<libc::clockid_t> {
+@@ -297,7 +352,13 @@ pub(crate) fn host_domain(offered: &[vk::TimeDomainKHR]) -> Option<vk::TimeDomai
+             .chain(preferred)
+             .find(|domain| offered.contains(domain))
+     }
+-    #[cfg(not(unix))]
++    // Windows' performance counter, the host's clock there ([`host_nanos`]).
++    #[cfg(windows)]
++    {
++        let counter = vk::TimeDomainKHR::QUERY_PERFORMANCE_COUNTER;
++        offered.contains(&counter).then_some(counter)
++    }
++    #[cfg(not(any(unix, windows)))]
+     {
+         None
+     }
+@@ -889,7 +950,19 @@ impl Calibration {
+                 deviation: deviation.saturating_add(around),
+             })
+         }
+-        #[cfg(not(unix))]
++        // The domain is the host's clock itself ([`host_domain`]): its value is the performance
++        // counter's ticks, read onto the host's nanoseconds as `host_nanos` reads the counter.
++        #[cfg(windows)]
++        {
++            Some(Reading {
++                pair: Pair {
++                    ticks: values[0],
++                    host: performance_counter::nanos(values[1])?,
++                },
++                deviation,
++            })
++        }
++        #[cfg(not(any(unix, windows)))]
+         {
+             None
+         }
+diff --git a/crates/metal2vulkan-runtime/src/host_memory.rs b/crates/metal2vulkan-runtime/src/host_memory.rs
+index edfa5223..df8ae253 100644
+--- a/crates/metal2vulkan-runtime/src/host_memory.rs
++++ b/crates/metal2vulkan-runtime/src/host_memory.rs
+@@ -118,6 +118,9 @@ use std::ops::Range;
+ use std::ptr::NonNull;
+ use std::sync::{Arc, Mutex};
+ 
++#[cfg(windows)]
++mod windows;
++
+ /// Host memory a buffer or heap wraps without a copy: a pointer whose bytes the caller vouches for
+ /// (the `pointer` of `newBufferWithBytesNoCopy:length:options:deallocator:`), and, as runtime
+ /// extensions, a source of dma-bufs of its pages for a device that refuses the pointer itself
+@@ -665,8 +668,14 @@ pub(super) fn host_page() -> Option<u64> {
+     u64::try_from(page).ok().filter(|&page| page > 0)
+ }
+ 
++/// Windows' page size, not its allocation granularity (`GetSystemInfo`).
++#[cfg(windows)]
++pub(super) fn host_page() -> Option<u64> {
++    windows::host_page()
++}
++
+ /// The host's page size, where the runtime knows how to ask for it: not on this system.
+-#[cfg(not(unix))]
++#[cfg(not(any(unix, windows)))]
+ pub(super) fn host_page() -> Option<u64> {
+     None
+ }
+@@ -1066,9 +1075,22 @@ pub(super) fn queried_permitted(
+     Some(true)
+ }
+ 
+-/// Refuse the window's pages unless the process can write them: no check off Linux (MoltenVK
+-/// hands the range to Metal, which reads read-only pages).
+-#[cfg(not(target_os = "linux"))]
++/// Refuse Windows pages the process cannot write before asking the driver to import them
++/// (`VirtualQuery` over the window: committed, writable, no guard page): NVIDIA's Windows driver
++/// refuses read-only section views as out of device memory. Nothing is counted in `counts`
++/// (`WorkCounts::host_mappings_queried` is Linux's).
++#[cfg(windows)]
++pub(super) fn refuse_unwritable(window: &ImportWindow, _counts: &Counters) -> Result<(), Error> {
++    if windows::writable(window.start, window.size) {
++        Ok(())
++    } else {
++        Err(not_importable())
++    }
++}
++
++/// Refuse the window's pages unless the process can write them: no check off Linux and Windows
++/// (MoltenVK hands the range to Metal, which reads read-only pages).
++#[cfg(not(any(target_os = "linux", windows)))]
+ pub(super) fn refuse_unwritable(_window: &ImportWindow, _counts: &Counters) -> Result<(), Error> {
+     Ok(())
+ }
+diff --git a/crates/metal2vulkan-runtime/src/host_memory/windows.rs b/crates/metal2vulkan-runtime/src/host_memory/windows.rs
+new file mode 100644
+index 00000000..0109b677
+--- /dev/null
++++ b/crates/metal2vulkan-runtime/src/host_memory/windows.rs
+@@ -0,0 +1,151 @@
++//! Windows' host page size and committed, writable import windows: `GetSystemInfo` and
++//! `VirtualQuery`. The driver still decides which pointers and memory types it can import.
++
++use std::ffi::c_void;
++use std::mem::MaybeUninit;
++
++/// `SYSTEM_INFO` (sysinfoapi.h).
++#[repr(C)]
++struct SystemInfo {
++    processor_architecture: u32,
++    page_size: u32,
++    minimum_application_address: *mut c_void,
++    maximum_application_address: *mut c_void,
++    active_processor_mask: usize,
++    number_of_processors: u32,
++    processor_type: u32,
++    allocation_granularity: u32,
++    processor_level: u16,
++    processor_revision: u16,
++}
++
++/// `MEMORY_BASIC_INFORMATION` (winnt.h).
++#[repr(C)]
++struct MemoryBasicInformation {
++    base_address: *const c_void,
++    allocation_base: *const c_void,
++    allocation_protect: u32,
++    #[cfg(target_pointer_width = "64")]
++    partition_id: u16,
++    region_size: usize,
++    state: u32,
++    protect: u32,
++    kind: u32,
++}
++
++#[link(name = "kernel32")]
++unsafe extern "system" {
++    fn GetSystemInfo(info: *mut SystemInfo);
++    fn VirtualQuery(at: *const c_void, info: *mut MemoryBasicInformation, length: usize) -> usize;
++}
++
++/// Whether every byte lies in committed writable pages, including across adjacent section views.
++pub(super) fn writable(start: u64, size: u64) -> bool {
++    const MEM_COMMIT: u32 = 0x1000;
++    const PAGE_GUARD: u32 = 0x100;
++    // PAGE_READWRITE, WRITECOPY, EXECUTE_READWRITE, EXECUTE_WRITECOPY.
++    const WRITABLE: u32 = 0x04 | 0x08 | 0x40 | 0x80;
++    let Some(end) = start.checked_add(size) else {
++        return false;
++    };
++    let (Ok(mut at), Ok(end)) = (usize::try_from(start), usize::try_from(end)) else {
++        return false;
++    };
++    while at < end {
++        let mut info = MaybeUninit::<MemoryBasicInformation>::zeroed();
++        let length = std::mem::size_of::<MemoryBasicInformation>();
++        // SAFETY: VirtualQuery reads no bytes at the queried address and writes only the output.
++        let got = unsafe { VirtualQuery(at as *const c_void, info.as_mut_ptr(), length) };
++        if got != length {
++            return false;
++        }
++        // SAFETY: the query filled the complete output.
++        let info = unsafe { info.assume_init() };
++        if info.state != MEM_COMMIT
++            || info.protect & PAGE_GUARD != 0
++            || info.protect & WRITABLE == 0
++        {
++            return false;
++        }
++        let base = info.base_address as usize;
++        let Some(next) = base.checked_add(info.region_size) else {
++            return false;
++        };
++        if base > at || next <= at {
++            return false;
++        }
++        at = next;
++    }
++    true
++}
++
++/// The process's page size; allocation granularity is a separate, larger alignment.
++pub(super) fn host_page() -> Option<u64> {
++    let mut info = MaybeUninit::<SystemInfo>::zeroed();
++    // SAFETY: GetSystemInfo writes one SYSTEM_INFO to the live, correctly sized output.
++    let info = unsafe {
++        GetSystemInfo(info.as_mut_ptr());
++        info.assume_init()
++    };
++    (info.page_size != 0).then_some(u64::from(info.page_size))
++}
++
++const _: () = {
++    assert!(std::mem::offset_of!(SystemInfo, page_size) == 4);
++    assert!(std::mem::size_of::<SystemInfo>() == 24 + 3 * std::mem::size_of::<usize>());
++    assert!(
++        std::mem::size_of::<MemoryBasicInformation>()
++            == if cfg!(target_pointer_width = "64") {
++                48
++            } else {
++                28
++            }
++    );
++};
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[link(name = "kernel32")]
++    unsafe extern "system" {
++        fn VirtualAlloc(at: *mut c_void, length: usize, kind: u32, protect: u32) -> *mut c_void;
++        fn VirtualProtect(at: *mut c_void, length: usize, protect: u32, old: *mut u32) -> i32;
++        fn VirtualFree(at: *mut c_void, length: usize, kind: u32) -> i32;
++    }
++
++    #[test]
++    fn the_query_accepts_only_committed_writable_pages() {
++        let page = host_page().unwrap() as usize;
++        // SAFETY: a fresh two-page private allocation, released below.
++        let at = unsafe { VirtualAlloc(std::ptr::null_mut(), 2 * page, 0x3000, 0x04) };
++        assert!(!at.is_null());
++        let start = at as u64;
++        assert!(writable(start, 2 * page as u64));
++        let mut old = 0;
++        // SAFETY: changes only this allocation's second page.
++        assert_ne!(
++            unsafe { VirtualProtect(at.add(page), page, 0x02, &mut old) },
++            0
++        );
++        assert!(!writable(start, 2 * page as u64));
++        // SAFETY: as above, now inaccessible, then guarded.
++        assert_ne!(
++            unsafe { VirtualProtect(at.add(page), page, 0x01, &mut old) },
++            0
++        );
++        assert!(!writable(start, 2 * page as u64));
++        assert_ne!(
++            unsafe { VirtualProtect(at.add(page), page, 0x104, &mut old) },
++            0
++        );
++        assert!(!writable(start, 2 * page as u64));
++        // SAFETY: decommit its second page; the reserved address cannot be reused meanwhile.
++        assert_ne!(unsafe { VirtualFree(at.add(page), page, 0x4000) }, 0);
++        assert!(writable(start, page as u64));
++        assert!(!writable(start, 2 * page as u64));
++        assert!(!writable(u64::MAX, page as u64));
++        // SAFETY: releases the reservation this test owns, including the committed first page.
++        assert_ne!(unsafe { VirtualFree(at, 0, 0x8000) }, 0);
++    }
++}
+diff --git a/crates/metal2vulkan-runtime/src/host_ram.rs b/crates/metal2vulkan-runtime/src/host_ram.rs
+index d82618ed..f15bc234 100644
+--- a/crates/metal2vulkan-runtime/src/host_ram.rs
++++ b/crates/metal2vulkan-runtime/src/host_ram.rs
+@@ -299,6 +299,7 @@ impl HostRam {
+     /// (the device's, or one making an object over it), with no lock of the runtime's held, and
+     /// is kept with each import it made until that import is freed. A source that fails, or
+     /// answers otherwise, leaves the chunk to its pointer. No Metal counterpart.
++    #[cfg(unix)]
+     pub fn with_dma_buf(mut self, source: DmaBufSource) -> HostRam {
+         self.dma_buf = Some(source);
+         self
+@@ -347,6 +348,7 @@ impl HostRam {
+     /// the RAM's pointer) it is never called. No Metal counterpart.
+     ///
+     /// [`BlitCommandEncoder::copy_from_host_ram`]: crate::BlitCommandEncoder::copy_from_host_ram
++    #[cfg(unix)]
+     pub fn with_dma_buf_of_runs(mut self, source: DmaBufRunsSource, most_runs: usize) -> HostRam {
+         self.dma_buf_runs = Some((source, most_runs.max(1)));
+         self
+diff --git a/crates/metal2vulkan-runtime/src/in_place_check.rs b/crates/metal2vulkan-runtime/src/in_place_check.rs
+index e31eae27..92c40926 100644
+--- a/crates/metal2vulkan-runtime/src/in_place_check.rs
++++ b/crates/metal2vulkan-runtime/src/in_place_check.rs
+@@ -1462,6 +1462,7 @@ impl ClassPages {
+ /// allocation, to which no image is bound. A dma-buf's dedicated allocation is taken: its
+ /// textures' images are bound to a dedicated import of its own dma-buf, as the product's are
+ /// wherever no image binds in the memory (`texture.rs`'s `exported_dma_buf_alias`).
++#[cfg(unix)]
+ fn exported_pages(
+     device: &Device,
+     export: MemoryExport,
+@@ -1492,6 +1493,19 @@ fn exported_pages(
+     Ok(ClassPages { buffer, start })
+ }
+ 
++/// No memory is exported as a file descriptor on this system (`exported_memory.rs` is Unix's):
++/// the classes of exported pages are never made.
++#[cfg(not(unix))]
++fn exported_pages(
++    _device: &Device,
++    _export: MemoryExport,
++    _length: u64,
++) -> Result<ClassPages, Unmade> {
++    Err(Unmade::lasting(
++        "the system exports no memory as a file descriptor",
++    ))
++}
++
+ /// Where `buffer`'s byte 0 lies for the CPU; why not, where it has no contents.
+ fn contents(buffer: &Buffer) -> Result<NonNull<u8>, Unmade> {
+     (buffer.contents()).ok_or_else(|| Unmade::passing("its buffer has no contents"))
+diff --git a/crates/metal2vulkan-runtime/src/lib.rs b/crates/metal2vulkan-runtime/src/lib.rs
+index 9e216b6a..f676e674 100644
+--- a/crates/metal2vulkan-runtime/src/lib.rs
++++ b/crates/metal2vulkan-runtime/src/lib.rs
+@@ -80,9 +80,9 @@ mod derived;
+ mod descriptor_arena;
+ mod detach;
+ mod device;
+-#[cfg(unix)]
+ mod dirty_pages;
+ mod dispatch_execute;
++#[cfg(unix)]
+ mod dma_buf;
+ mod draw_source;
+ mod driver_defects;
+@@ -138,6 +138,11 @@ mod host_ram;
+ mod host_residency;
+ #[cfg(unix)]
+ mod host_shared_pointers;
++// Off Unix, what the modules built on every system name of `dma_buf` and `host_residency`.
++#[cfg(not(unix))]
++mod non_unix;
++#[cfg(not(unix))]
++use non_unix::{dma_buf, host_residency};
+ mod image_barrier;
+ mod image_plan;
+ mod in_place;
+diff --git a/crates/metal2vulkan-runtime/src/non_unix.rs b/crates/metal2vulkan-runtime/src/non_unix.rs
+new file mode 100644
+index 00000000..553fd691
+--- /dev/null
++++ b/crates/metal2vulkan-runtime/src/non_unix.rs
+@@ -0,0 +1,173 @@
++//! What the modules built on every system name of the two that are Unix's alone, where the crate
++//! is built off Unix (Windows): `dma_buf.rs` (a dma-buf is a file descriptor) and
++//! `host_residency.rs` (which keeps dma-bufs' descriptors within `RLIMIT_NOFILE`). Nothing here
++//! makes a dma-buf or releases an import while idle: each item is the answer of a system that has
++//! neither, under the name and signature its Unix counterpart has, so that the callers read the
++//! same on both. `lib.rs` names the two modules below `dma_buf` and `host_residency`.
++
++/// `dma_buf.rs` off Unix.
++pub(crate) mod dma_buf {
++    use crate::error::Error;
++    use crate::host_memory::Importer;
++    use crate::memory::Placement;
++    use crate::Device;
++    use ash::vk;
++    use std::ops::Range;
++
++    /// A source of dma-bufs of host pages: none can be made on this system, as
++    /// `host_memory::Source` is none (`HostRam::with_dma_buf` and `HostMemory::with_dma_buf` are
++    /// Unix's), so an `Option` of it is always `None`.
++    pub(crate) type DmaBufSource = std::convert::Infallible;
++
++    /// A source of dma-bufs of run lists (`HostRam::with_dma_buf_of_runs`, Unix's): none.
++    pub(crate) type DmaBufRunsSource = std::convert::Infallible;
++
++    const DMA_BUF: vk::ExternalMemoryHandleTypeFlags =
++        vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT;
++
++    /// The memory an image in place is made for: `dma_buf.rs`'s `ModifierMemory`, variant for
++    /// variant, of which this system's textures take `Host` (host pages imported by their
++    /// pointer) and `Own` (the runtime's own memory).
++    #[allow(dead_code)]
++    #[derive(Clone, Copy, PartialEq, Eq)]
++    pub(crate) enum ModifierMemory {
++        DmaBuf,
++        Host,
++        Own,
++        Exported(vk::ExternalMemoryHandleTypeFlags),
++    }
++
++    impl std::fmt::Debug for ModifierMemory {
++        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++            match self {
++                ModifierMemory::DmaBuf => f.write_str("DmaBuf"),
++                ModifierMemory::Host => f.write_str("Host"),
++                ModifierMemory::Own => f.write_str("Own"),
++                ModifierMemory::Exported(handle) => write!(f, "Exported({:#x})", handle.as_raw()),
++            }
++        }
++    }
++
++    #[allow(dead_code)]
++    impl ModifierMemory {
++        /// The external memory handle type the image is made for; none for the runtime's own
++        /// memory of no export.
++        pub(crate) fn handle_type(self) -> Option<vk::ExternalMemoryHandleTypeFlags> {
++            match self {
++                ModifierMemory::DmaBuf => Some(DMA_BUF),
++                ModifierMemory::Host => {
++                    Some(vk::ExternalMemoryHandleTypeFlags::HOST_ALLOCATION_EXT)
++                }
++                ModifierMemory::Own => None,
++                ModifierMemory::Exported(handle) => Some(handle),
++            }
++        }
++
++        /// The memory, in words.
++        pub(crate) fn words(self) -> &'static str {
++            match self {
++                ModifierMemory::DmaBuf => "dma-bufs",
++                ModifierMemory::Host => "host allocations",
++                ModifierMemory::Own => "the runtime's own memory",
++                ModifierMemory::Exported(DMA_BUF) => "the runtime's memory exported as dma-bufs",
++                ModifierMemory::Exported(_) => {
++                    "the runtime's memory exported as opaque file descriptors"
++                }
++            }
++        }
++
++        /// The external memory features the image's handle type must have.
++        pub(crate) fn needs(self) -> vk::ExternalMemoryFeatureFlags {
++            match self {
++                ModifierMemory::Exported(_) => vk::ExternalMemoryFeatureFlags::EXPORTABLE,
++                ModifierMemory::DmaBuf | ModifierMemory::Host | ModifierMemory::Own => {
++                    vk::ExternalMemoryFeatureFlags::IMPORTABLE
++                }
++            }
++        }
++
++        /// Whether the image is bound at an offset of memory it shares.
++        pub(crate) fn shared_memory(self) -> bool {
++            match self {
++                ModifierMemory::Host | ModifierMemory::Exported(_) => true,
++                ModifierMemory::DmaBuf | ModifierMemory::Own => false,
++            }
++        }
++    }
++
++    impl Device {
++        /// Whether the device makes `DRM_FORMAT_MOD_LINEAR` images, as `dma_buf.rs` answers it: it
++        /// enables `VK_EXT_image_drm_format_modifier` beside its dma-buf imports, which no device
++        /// of this system has, and no image is laid out by DRM format modifier here either way
++        /// (`texture/in_place_image.rs`'s `pitched_image`).
++        pub(crate) fn makes_modifier_images(&self) -> bool {
++            (self.shared().host_import.as_ref())
++                .is_ok_and(|importer| importer.makes_dma_buf_images())
++        }
++
++        /// Whether the device imports a pointer to shared memory, which `host_shared_pointers.rs`
++        /// asks of it by an import on Unix: not asked here. `host_ram.rs` asks only for a RAM
++        /// whose ranges it finds shared, which it finds on Linux alone, where a device met
++        /// refuses them; as there, no device is taken to refuse them.
++        pub(crate) fn imports_shared_host_pointers_now(&self) -> Result<bool, Error> {
++            Ok(true)
++        }
++
++        /// `dma_buf.rs`'s, of a source that cannot be.
++        ///
++        /// # Safety
++        ///
++        /// None: no source exists to call it with.
++        pub(crate) unsafe fn ram_takes_dma_bufs(
++            &self,
++            _importer: &Importer,
++            _page: Range<u64>,
++            source: &DmaBufSource,
++        ) -> bool {
++            match *source {}
++        }
++
++        /// `dma_buf.rs`'s, of a source that cannot be.
++        ///
++        /// # Safety
++        ///
++        /// None: no source exists to call it with.
++        pub(crate) unsafe fn ram_span_as_dma_buf(
++            &self,
++            _importer: &Importer,
++            _span: Range<u64>,
++            source: &DmaBufSource,
++        ) -> Result<(vk::Buffer, Placement), Error> {
++            match *source {}
++        }
++
++        /// `dma_buf.rs`'s, of a source that cannot be.
++        ///
++        /// # Safety
++        ///
++        /// None: no source exists to call it with.
++        pub(crate) unsafe fn ram_runs_as_dma_buf(
++            &self,
++            _importer: &Importer,
++            _runs: &[Range<u64>],
++            source: &DmaBufRunsSource,
++        ) -> Result<(vk::Buffer, Placement), Error> {
++            match *source {}
++        }
++    }
++}
++
++/// `host_residency.rs` off Unix: its windows, which a guest RAM's idle chunks share
++/// (`host_ram.rs`). No import of a no-copy buffer is released while idle here (`buffer.rs`).
++pub(crate) mod host_residency {
++    use std::time::Duration;
++
++    /// How long an import waits idle before its first release.
++    pub(crate) const IDLE: Duration = Duration::from_secs(2);
++
++    /// The longest an import waits idle, its window doubled at each import again.
++    pub(crate) const IDLE_MOST: Duration = Duration::from_secs(64);
++
++    /// How often the residency thread looks for idle imports.
++    pub(crate) const TICK: Duration = Duration::from_millis(500);
++}
+diff --git a/crates/metal2vulkan-runtime/src/rebind.rs b/crates/metal2vulkan-runtime/src/rebind.rs
+index bece8a95..b3463279 100644
+--- a/crates/metal2vulkan-runtime/src/rebind.rs
++++ b/crates/metal2vulkan-runtime/src/rebind.rs
+@@ -794,6 +794,10 @@ impl ImportHold {
+             ImportHold::Held(held) => *self = ImportHold::Waiting(Arc::downgrade(held)),
+             #[cfg(unix)]
+             ImportHold::Waiting(_) => {}
++            // No import is releasable off Unix: the enum has no variant, which a match of a
++            // reference to it must still answer.
++            #[cfg(not(unix))]
++            _ => {}
+         }
+     }
+ 
+diff --git a/crates/metal2vulkan-runtime/src/texture.rs b/crates/metal2vulkan-runtime/src/texture.rs
+index d30837cd..977b2a19 100644
+--- a/crates/metal2vulkan-runtime/src/texture.rs
++++ b/crates/metal2vulkan-runtime/src/texture.rs
+@@ -171,7 +171,6 @@ mod in_place_image;
+ pub(super) mod kept_image;
+ pub(super) mod linear_alignment;
+ pub(super) mod requirements;
+-#[cfg(unix)]
+ mod rotation;
+ mod route;
+ mod shared;
