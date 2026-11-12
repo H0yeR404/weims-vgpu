@@ -27,6 +27,7 @@ pwsh -File scripts/build.ps1
 
 ## Tested environment
 
+> **Compatibility note:** This project has only been tested and confirmed working on the machine listed below. Other devices are theoretically supported, but compatibility and successful operation require actual testing.
 
 | Component | Configuration |
 | --- | --- |
