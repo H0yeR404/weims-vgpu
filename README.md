@@ -25,7 +25,27 @@ pwsh -File scripts/fetch.ps1
 pwsh -File scripts/build.ps1
 ```
 
-The tested setup uses Windows x64, WHPX, an RTX 4090 Laptop GPU, Vulkan, 8 vCPUs, 32 GiB RAM and 1920×1080. The implementation passed 22 C API tests. One 10-second drag test measured 54.17 unique FPS, with a maximum 211 ms frame gap. These are limited measurements, not universal performance or stability guarantees. Shared guest memory still involves host device caches and is not full zero-copy.
+## Tested environment
+
+Host configuration reported by the owner's Fastfetch screenshot (2026-11-12):
+
+| Component | Configuration |
+| --- | --- |
+| Laptop | Lenovo Legion Y9000P IRX8H (82WQ) |
+| Host OS | Windows 11 Pro for Workstations, x86_64 |
+| Windows build | 10.0.26300.9550 (reported as 26H2 by Fastfetch) |
+| CPU | Intel Core i9-13900HX, 32 logical processors |
+| GPU | NVIDIA GeForce RTX 4090 Laptop GPU, 15.67 GiB reported VRAM |
+| Host RAM | 95.81 GiB reported usable memory |
+| Host display | CU34G4 external monitor, 3440 × 1440 at 180 Hz |
+| Host shell | PowerShell 7.6.9 |
+| Virtualization / graphics | WHPX / Vulkan, shared guest-memory graphics path |
+| Tested guest | macOS Tahoe, 8 vCPUs, 32 GiB RAM, 200 GiB virtual system disk |
+| Guest resolution | 1920 × 1080 |
+
+This is the tested machine, not a minimum or recommended specification. Host display refresh rate is separate from guest rendering FPS. The host's existing PowerShell version is also separate from the pinned PowerShell 7.7.0 package used by automatic setup when needed.
+
+The implementation passed 22 C API tests. One 10-second drag test measured 54.17 unique FPS, with a maximum 211 ms frame gap. These are limited measurements, not universal performance or stability guarantees. Shared guest memory still involves host device caches and is not full zero-copy.
 
 ## Upstream and licensing
 

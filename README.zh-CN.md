@@ -27,7 +27,27 @@ pwsh -File scripts/build.ps1
 
 编译后，在原虚拟机关机的情况下复制系统盘；将新通道的 Graft、ReimsGraphics、RgfxGate 注入 OpenCore 副本，再运行 `scripts/init-vm.ps1` 生成配置，使用 `scripts/start.ps1` 启动。完整参数见复现指南。默认 QMP 4444 和 SSH 2222 仅绑定本机，避免与已有虚拟机冲突。新旧实例的独立磁盘不会自动同步。
 
-已测试环境为 Windows x64、WHPX、RTX 4090 Laptop GPU、Vulkan、8 vCPU、32 GiB 内存和 1920×1080。实现通过 22 项 C API 测试；一次 10 秒拖窗测试记录 54.17 个不同画面/秒，最大帧间隔 211 ms。这不是严格同场景的新旧对照，也不代表长期稳定性或所有显卡表现。共享内存仍包含宿主 device cache 和必要复制，并非全程零拷贝。
+## 本机测试环境
+
+宿主机配置依据仓库所有者提供的 Fastfetch 截图记录（2026-11-12）：
+
+| 项目 | 配置 |
+| --- | --- |
+| 笔记本 | 联想拯救者 Legion Y9000P IRX8H（82WQ） |
+| 宿主系统 | Windows 11 专业工作站版，x86_64 |
+| Windows 构建 | 10.0.26300.9550（Fastfetch 标识为 26H2） |
+| CPU | Intel Core i9-13900HX，32 个逻辑处理器 |
+| GPU | NVIDIA GeForce RTX 4090 Laptop GPU，报告显存 15.67 GiB |
+| 宿主内存 | 报告可用总量 95.81 GiB |
+| 宿主显示器 | CU34G4 外接显示器，3440 × 1440，180 Hz |
+| 宿主 Shell | PowerShell 7.6.9 |
+| 虚拟化 / 图形 | WHPX / Vulkan，客户机内存共享图形通道 |
+| 测试客户机 | macOS Tahoe，8 vCPU，32 GiB 内存，200 GiB 虚拟系统盘 |
+| 客户机分辨率 | 1920 × 1080 |
+
+以上是已测试设备，并非最低或推荐配置。宿主显示器刷新率不等于客户机渲染帧率。宿主已有的 PowerShell 版本也不同于自动准备功能在需要时下载的固定 PowerShell 7.7.0 版本。
+
+实现通过 22 项 C API 测试；一次 10 秒拖窗测试记录 54.17 个不同画面/秒，最大帧间隔 211 ms。这不是严格同场景的新旧对照，也不代表长期稳定性或所有显卡表现。共享内存仍包含宿主 device cache 和必要复制，并非全程零拷贝。
 
 ## 上游与许可证
 
