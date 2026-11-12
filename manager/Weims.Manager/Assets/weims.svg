@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#11152E"/><stop offset="0.55" stop-color="#171B3D"/><stop offset="1" stop-color="#30245B"/></linearGradient>
+  <radialGradient id="halo" cx="0.49" cy="0.38" r="0.65"><stop offset="0" stop-color="#7359F9" stop-opacity=".31"/><stop offset="1" stop-color="#7359F9" stop-opacity="0"/></radialGradient>
+  <linearGradient id="top" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9B8EFF"/><stop offset="1" stop-color="#5166EA"/></linearGradient>
+  <linearGradient id="left" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#343CAA"/><stop offset="1" stop-color="#283173"/></linearGradient>
+  <linearGradient id="right" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1BA6DD"/><stop offset="1" stop-color="#1D5DCD"/></linearGradient>
+  <linearGradient id="trace" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#78F8F5"/><stop offset="1" stop-color="#8C8CFF"/></linearGradient>
+  <clipPath id="c"><rect x="8" y="8" width="240" height="240" rx="56"/></clipPath>
+</defs>
+<rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bg)"/>
+<g clip-path="url(#c)">
+ <rect x="8" y="8" width="240" height="240" fill="url(#halo)"/>
+ <path d="M35 83 H61 M28 105 H56 M35 151 H61 M29 173 H59 M198 83 H221 M201 105 H228 M198 151 H222 M198 173 H227" stroke="url(#trace)" stroke-width="7" stroke-linecap="round" opacity=".69"/>
+ <circle cx="30" cy="83" r="5" fill="#55E9EF"/><circle cx="225" cy="173" r="5" fill="#9D85FF"/>
+ <path d="M128 45 L207 91 L207 166 L128 213 L49 166 L49 91 Z" fill="#0A0F27" stroke="#5B5ECC" stroke-width="3" opacity=".9"/>
+ <path d="M128 57 L195 97 L128 137 L61 97 Z" fill="url(#top)" stroke="#C7BDFF" stroke-opacity=".67" stroke-width="2"/>
+ <path d="M61 97 L128 137 L128 199 L61 159 Z" fill="url(#left)"/>
+ <path d="M195 97 L128 137 L128 199 L195 159 Z" fill="url(#right)"/>
+ <path d="M61 97 L128 137 L195 97 M128 137 V199" stroke="#D7D6FF" stroke-opacity=".36" stroke-width="2" fill="none"/>
+ <path d="M102 98 L128 83 L155 99 L128 114 Z" fill="#17214E" stroke="#A5F9FF" stroke-width="3"/>
+ <path d="M102 98 L128 113 L154 99" fill="none" stroke="#72E7FE" stroke-width="3"/>
+ <circle cx="128" cy="97" r="6" fill="#D1FFFF"/>
+ <path d="M83 120 L104 132 M83 142 L104 154 M151 151 L174 138 M151 170 L174 156" stroke="#9CBBFF" stroke-opacity=".6" stroke-width="5" stroke-linecap="round"/>
+ <path d="M43 29 Q126 -10 211 36" stroke="#FFFFFF" stroke-width="2" opacity=".055" fill="none"/>
+</g>
+</svg>

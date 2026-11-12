@@ -1,8 +1,8 @@
 # weims-vgpu
 
-[Weims Manager 1.0 をダウンロード](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0)：Windows インストーラー、英語（既定）・中国語 UI、実行環境の自動セットアップ。
+[Weims Manager 1.0.1 をダウンロード](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0.1)：Windows インストーラー、英語（既定）・中国語 UI、実行環境の自動セットアップ。
 
-Windows 向け [Weims Manager 1.0](manager/README.md) を追加しました。復元イメージの準備と仮想マシン設定を GUI で行い、VM の表示ウィンドウは独立して動作します。UI は英語（既定）と中国語に対応しています。
+Windows 向け [Weims Manager 1.0.1](manager/README.md) を追加しました。復元イメージの準備と仮想マシン設定を GUI で行い、VM の表示ウィンドウは独立して動作します。UI は英語（既定）と中国語に対応しています。
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 

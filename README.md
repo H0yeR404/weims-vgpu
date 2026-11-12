@@ -1,8 +1,8 @@
 # weims-vgpu
 
-[Download Weims Manager 1.0](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0) — Windows installer, English by default, optional Chinese, and automatic runtime setup.
+[Download Weims Manager 1.0.1](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0.1) — Windows installer, English by default, optional Chinese, and automatic runtime setup.
 
-The Windows [Weims Manager 1.0](manager/README.md) adds a graphical configuration utility with recovery-image preparation and independent VM windows.
+The Windows [Weims Manager 1.0.1](manager/README.md) adds a graphical configuration utility with recovery-image preparation and independent VM windows.
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 

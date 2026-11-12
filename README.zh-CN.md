@@ -1,8 +1,8 @@
 # weims-vgpu
 
-[下载 Weims Manager 1.0](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0)：Windows 安装包，默认英文、可切换中文，支持检测并自动准备运行环境。
+[下载 Weims Manager 1.0.1](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0.1)：Windows 安装包，默认英文、可切换中文，支持检测并自动准备运行环境。
 
-新增 Windows [Weims Manager 1.0 配置器](manager/README.zh-CN.md)：图形化配置、恢复镜像准备与独立虚拟机显示窗口。
+新增 Windows [Weims Manager 1.0.1 配置器](manager/README.zh-CN.md)：图形化配置、恢复镜像准备与独立虚拟机显示窗口。
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
