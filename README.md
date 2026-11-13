@@ -55,7 +55,15 @@ Install MSYS2 to `C:\msys64` or update the paths below accordingly.
 
 **Step 2 — Configure MSYS2**
 
-Open **MSYS2 UCRT64** and run:
+These commands run in **Windows MSYS2 UCRT64, not WSL2**. MSYS2 uses `pacman`, but its `mingw-w64-ucrt-x86_64-*` packages are Windows build tools, not Arch Linux packages. Debian/Ubuntu `apt`, Arch `pacman` and Fedora `dnf` cannot replace this step for the native Windows build.
+
+Open **Start → MSYS2 UCRT64**, or launch it from **Windows PowerShell**:
+
+```powershell
+& 'C:\msys64\msys2_shell.cmd' -defterm -here -no-start -ucrt64
+```
+
+In the newly opened shell, verify `echo "$MSYSTEM"` prints `UCRT64`. If it does not, stop and open the correct terminal. Run the following commands **inside that UCRT64 shell**, not directly in PowerShell, Command Prompt, Git Bash or a WSL terminal:
 
 ```sh
 pacman -Syu
@@ -72,7 +80,7 @@ pacman -S --needed git make diffutils bison flex mtools \
 
 **Step 3 — Download and build Weims**
 
-Open **PowerShell 7** on Windows:
+Return to **PowerShell 7 on Windows** for the following commands. `scripts/build.ps1` invokes MSYS2 as needed and targets Windows executables; it is not a Linux build script:
 
 ```powershell
 git clone https://github.com/H0yeR404/weims-vgpu.git
@@ -231,6 +239,42 @@ pwsh -File scripts/start.ps1
 Use a fresh destination disk path, never an existing disk you want to keep. This example expects a QCOW2 source and flattens its backing chain while retaining logical capacity. `init-vm.ps1` uses the selected disk directly for writes and refuses an existing `vm/default` directory. Review `vm/default/state/config.json` before starting: CLI defaults are 8 vCPUs, 32 GiB RAM, `1920x1080`, QMP `4444` and SSH `2222`. Adjust resources and avoid port conflicts. Unlike the Manager, the CLI requires `WEIMS_OSK`; saved command logs redact it, but QEMU receives it in process arguments.
 
 Release captured input with **Ctrl+Alt+Win** or **Ctrl+Alt+Home**. Shut down inside macOS. If QEMU remains after guest shutdown, `pwsh -File scripts/start.ps1 -Exit` closes the emulator; it is not a substitute for normal guest shutdown. Never open the same writable disk in two instances.
+
+### Optional: WSL2 tools for inspecting or preparing EFI files
+
+Skip this section for the Windows workflow above. WSL2 can provide Linux tools for inspecting files or preparing a copied raw FAT OpenCore image; the packages below are **not** a replacement build environment for Windows QEMU/Reims. They do not enable WHPX or supply the Windows Vulkan driver.
+
+If you already use WSL2, run the following in **Windows PowerShell** to list installed distributions and enter one. Replace `Ubuntu` with its exact installed name (for example `Debian`, `Arch`, or the Fedora name shown by the list):
+
+```powershell
+wsl --list --verbose
+wsl -d Ubuntu
+```
+
+Confirm the selected distribution uses WSL version `2` in the list. Inside the Linux shell, inspect `/etc/os-release` with `cat /etc/os-release`, then use **only the matching package commands** below. These commands assume a user with `sudo` access; a root shell can omit `sudo`.
+
+**Debian / Ubuntu — inside WSL2:**
+
+```sh
+sudo apt update
+sudo apt install git python3 mtools
+```
+
+**Arch Linux — inside WSL2:**
+
+```sh
+sudo pacman -Syu --needed git python mtools
+```
+
+**Fedora — inside WSL2:**
+
+```sh
+sudo dnf install git python3 mtools
+```
+
+The EFI helper requires **Python 3.11 or newer** for `tomllib`. Check `python3 --version` and `python3 -c 'import tomllib'`; if unavailable, use a distribution release providing Python 3.11+ or the MSYS2 preparation path above.
+
+Windows paths differ between shells: `C:\VM-inputs\OpenCore.img` is `/c/VM-inputs/OpenCore.img` in MSYS2 and `/mnt/c/VM-inputs/OpenCore.img` in WSL2. In WSL2, change to the actual repository path, such as `cd /mnt/d/Coding/weims-vgpu`, and run the EFI helper as `python3 scripts/prepare-opencore.py vm/boot-work/EFI` instead of `/ucrt64/bin/python.exe ...`. Use this only as an alternative for the copied-image EFI preparation step, with sources already fetched; do not run both preparation paths on the same copy. Run Windows `ocvalidate`, builds and VM startup back in Windows PowerShell. Type `exit` to leave WSL2.
 
 ### Notes
 

@@ -51,7 +51,15 @@ Manager 自动准备的是 Windows 运行环境；macOS 恢复镜像、兼容的
 
 **步骤 2 — 配置 MSYS2**
 
-打开 **MSYS2 UCRT64**，执行：
+这里使用的是 **Windows 上的 MSYS2 UCRT64，不是 WSL2**。MSYS2 虽然使用 `pacman`，但 `mingw-w64-ucrt-x86_64-*` 是 Windows 构建工具包，不是 Arch Linux 软件包。Debian/Ubuntu 的 `apt`、Arch 的 `pacman` 和 Fedora 的 `dnf` 均不能替代这一步的 Windows 原生构建环境。
+
+从 **Windows 开始菜单 → MSYS2 UCRT64** 打开终端，或在 **Windows PowerShell** 中运行：
+
+```powershell
+& 'C:\msys64\msys2_shell.cmd' -defterm -here -no-start -ucrt64
+```
+
+在新打开的终端中执行 `echo "$MSYSTEM"`，确认输出为 `UCRT64`；否则请先打开正确的终端。下面的命令必须在 **UCRT64 终端内**执行，不要直接粘贴到 PowerShell、命令提示符、Git Bash 或 WSL 终端：
 
 ```sh
 pacman -Syu
@@ -66,7 +74,7 @@ pacman -S --needed git make diffutils bison flex mtools \
 
 **步骤 3 — 下载并构建 Weims**
 
-在 Windows **PowerShell 7** 中执行：
+返回 **Windows PowerShell 7** 执行以下命令。`scripts/build.ps1` 会按需调用 MSYS2，目标是 Windows 可执行程序，并非 Linux 构建脚本：
 
 ```powershell
 git clone https://github.com/H0yeR404/weims-vgpu.git
@@ -219,6 +227,42 @@ pwsh -File scripts/start.ps1
 目标磁盘必须使用新路径，不要覆盖需要保留的已有磁盘。此例要求源盘为 QCOW2，转换会合并其 backing chain 并保持逻辑容量。`init-vm.ps1` 会直接写入所选系统盘，并拒绝已有的 `vm/default` 目录。启动前检查 `vm/default/state/config.json`：命令行默认 8 vCPU、32 GiB 内存、`1920x1080`、QMP `4444`、SSH `2222`。调整资源并避免端口冲突。与 Manager 不同，命令行要求设置 `WEIMS_OSK`；保存的命令日志会隐藏该值，但 QEMU 的进程参数仍会接收它。
 
 按 **Ctrl+Alt+Win** 或 **Ctrl+Alt+Home** 释放捕获的输入。先在 macOS 内正常关机；若之后 QEMU 仍未退出，可执行 `pwsh -File scripts/start.ps1 -Exit` 关闭模拟器，这不能代替正常关机。不要让两个实例同时打开同一可写磁盘。
+
+### 可选：使用 WSL2 工具检查或准备 EFI 文件
+
+按前文 Windows 流程操作时可跳过本节。WSL2 可提供检查文件、处理 OpenCore raw FAT 镜像副本的 Linux 工具；下面的软件包**不能替代 Windows QEMU/Reims 构建环境**，也不会启用 WHPX 或安装 Windows Vulkan 驱动。
+
+如果已有 WSL2，在 **Windows PowerShell** 中列出已安装发行版并进入其中一个。将 `Ubuntu` 替换为列表中的准确名称，例如 `Debian`、`Arch` 或实际显示的 Fedora 名称：
+
+```powershell
+wsl --list --verbose
+wsl -d Ubuntu
+```
+
+确认列表中目标发行版的 WSL 版本为 `2`。进入 Linux 终端后，用 `cat /etc/os-release` 确认发行版，**仅执行与该发行版对应的一组命令**。以下假设用户具有 `sudo` 权限；若当前是 root，可省略 `sudo`。
+
+**Debian / Ubuntu — 在 WSL2 内执行：**
+
+```sh
+sudo apt update
+sudo apt install git python3 mtools
+```
+
+**Arch Linux — 在 WSL2 内执行：**
+
+```sh
+sudo pacman -Syu --needed git python mtools
+```
+
+**Fedora — 在 WSL2 内执行：**
+
+```sh
+sudo dnf install git python3 mtools
+```
+
+EFI 辅助脚本因使用 `tomllib` 而要求 **Python 3.11 或更新版本**。执行 `python3 --version` 和 `python3 -c 'import tomllib'` 检查；若不满足，使用提供 Python 3.11+ 的发行版版本，或改用前文 MSYS2 准备流程。
+
+不同终端中的路径也不同：Windows 的 `C:\VM-inputs\OpenCore.img` 在 MSYS2 中是 `/c/VM-inputs/OpenCore.img`，在 WSL2 中是 `/mnt/c/VM-inputs/OpenCore.img`。使用 WSL2 时先进入实际仓库路径，例如 `cd /mnt/d/Coding/weims-vgpu`，将 EFI 辅助命令改为 `python3 scripts/prepare-opencore.py vm/boot-work/EFI`，不要使用 `/ucrt64/bin/python.exe ...`。此方式仅用于替代镜像副本的 EFI 准备步骤，并要求源码已获取；不要对同一副本重复执行两套准备流程。Windows `ocvalidate`、构建及虚拟机启动仍在 Windows PowerShell 中执行。输入 `exit` 退出 WSL2。
 
 ### 备注
 

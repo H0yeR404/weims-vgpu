@@ -51,7 +51,15 @@ MSYS2 は `C:\msys64` にインストールするか、以下のパスを実際�
 
 **手順 2 — MSYS2 を設定**
 
-**MSYS2 UCRT64** を開いて実行します。
+ここで使うのは **Windows の MSYS2 UCRT64 であり、WSL2 ではありません**。MSYS2 は `pacman` を使用しますが、`mingw-w64-ucrt-x86_64-*` は Windows ビルド用パッケージで、Arch Linux のパッケージではありません。Debian/Ubuntu の `apt`、Arch の `pacman`、Fedora の `dnf` で、この Windows ネイティブビルド環境を置き換えることはできません。
+
+**Windows のスタートメニュー → MSYS2 UCRT64** を開くか、**Windows PowerShell** から起動します。
+
+```powershell
+& 'C:\msys64\msys2_shell.cmd' -defterm -here -no-start -ucrt64
+```
+
+開いた端末で `echo "$MSYSTEM"` を実行し、`UCRT64` と表示されることを確認します。違う場合は正しい端末を開き直してください。以下は **UCRT64 端末内**で実行し、PowerShell、コマンドプロンプト、Git Bash、WSL の端末には直接貼り付けないでください。
 
 ```sh
 pacman -Syu
@@ -66,7 +74,7 @@ pacman -S --needed git make diffutils bison flex mtools \
 
 **手順 3 — Weims を取得してビルド**
 
-Windows の **PowerShell 7** で実行します。
+**Windows の PowerShell 7** に戻って実行します。`scripts/build.ps1` は必要に応じて MSYS2 を呼び出し、Windows 実行ファイルを生成します。Linux 用のビルドスクリプトではありません。
 
 ```powershell
 git clone https://github.com/H0yeR404/weims-vgpu.git
@@ -219,6 +227,42 @@ pwsh -File scripts/start.ps1
 出力ディスクには新しいパスを使い、保存したい既存ディスクを上書きしないでください。この例は QCOW2 ソースを前提とし、論理容量を維持して backing chain を統合します。`init-vm.ps1` は指定ディスクを直接書き込みに使用し、既存の `vm/default` ディレクトリを拒否します。起動前に `vm/default/state/config.json` を確認してください。CLI の既定値は 8 vCPU、32 GiB RAM、`1920x1080`、QMP `4444`、SSH `2222` です。リソースとポート競合を確認します。Manager と異なり CLI は `WEIMS_OSK` を要求します。保存されるコマンドログでは伏せられますが、QEMU のプロセス引数には渡されます。
 
 入力キャプチャは **Ctrl+Alt+Win** または **Ctrl+Alt+Home** で解除できます。まず macOS 内で正常終了してください。その後も QEMU が残る場合は `pwsh -File scripts/start.ps1 -Exit` で終了できますが、通常のゲスト終了の代用にはしないでください。同じ書き込み可能なディスクを 2 つのインスタンスで同時に開かないでください。
+
+### 任意：WSL2 のツールで EFI ファイルを確認・準備
+
+前述の Windows 手順では、この節は不要です。WSL2 の Linux ツールはファイルの確認や OpenCore raw FAT イメージのコピーの準備に使えますが、以下のパッケージは **Windows QEMU/Reims のビルド環境の代わりにはなりません**。WHPX の有効化や Windows Vulkan ドライバーの導入も行いません。
+
+WSL2 を既に利用している場合は、**Windows PowerShell** で導入済みディストリビューションを一覧表示して、そのうちの 1 つを開きます。`Ubuntu` は一覧の正確な名前（`Debian`、`Arch`、または表示された Fedora の名前など）に変更してください。
+
+```powershell
+wsl --list --verbose
+wsl -d Ubuntu
+```
+
+一覧で対象の WSL バージョンが `2` であることを確認します。Linux の端末内で `cat /etc/os-release` を使ってディストリビューションを確認し、**該当するコマンドだけ**を実行してください。以下は `sudo` 権限のあるユーザーを想定しています。root の場合は `sudo` を省略できます。
+
+**Debian / Ubuntu — WSL2 内で実行：**
+
+```sh
+sudo apt update
+sudo apt install git python3 mtools
+```
+
+**Arch Linux — WSL2 内で実行：**
+
+```sh
+sudo pacman -Syu --needed git python mtools
+```
+
+**Fedora — WSL2 内で実行：**
+
+```sh
+sudo dnf install git python3 mtools
+```
+
+EFI 補助スクリプトは `tomllib` を使うため **Python 3.11 以降**が必要です。`python3 --version` と `python3 -c 'import tomllib'` で確認してください。利用できない場合は Python 3.11 以降を提供するディストリビューションのバージョンか、前述の MSYS2 手順を使用します。
+
+パスも端末によって異なります。Windows の `C:\VM-inputs\OpenCore.img` は MSYS2 では `/c/VM-inputs/OpenCore.img`、WSL2 では `/mnt/c/VM-inputs/OpenCore.img` です。WSL2 では実際のリポジトリの場所（例：`cd /mnt/d/Coding/weims-vgpu`）に移動し、EFI 補助コマンドを `/ucrt64/bin/python.exe ...` ではなく `python3 scripts/prepare-opencore.py vm/boot-work/EFI` に変更します。これはソース取得済みの状態で、コピーしたイメージの EFI 準備だけを置き換える方法です。同じコピーに両方の準備手順を実行しないでください。Windows の `ocvalidate`、ビルド、VM 起動は Windows PowerShell に戻って実行します。`exit` で WSL2 を終了できます。
 
 ### 注意事項
 
