@@ -3,14 +3,28 @@ param(
     [string]$Vm = 'default', [switch]$Exit, [switch]$DryRun, [switch]$NoDisk,
     [string]$LogSpec = 'info', [string]$Qemu = '',
     [ValidateSet('', '0', '1')][string]$PfIntercept = '', [ValidateSet('', '0', '1')][string]$MmioBql = '',
-    [switch]$WhpxStats, [string]$Affinity = ''
+    [switch]$WhpxStats, [string]$Affinity = '',
+    [ValidateSet('', 'legacy', 'auto', 'fixed')][string]$DisplayMode = ''
 )
 $ErrorActionPreference = 'Stop'
 if ($Vm -notmatch '^[a-zA-Z0-9_-]+$') { throw 'Invalid VM name' }
 $Root = Split-Path $PSScriptRoot; $VmDir = "$Root\vm\$Vm"
 $Dist = "$Root\build\port-dist"
-if (!$Qemu) { $Qemu = "$Root\build\port-qemu\qemu-system-x86_64.exe" }
+if (!$Qemu) {
+    $Qemu = "$Root\build\manager-display-runtime\qemu-system-x86_64.exe"
+    if (!(Test-Path $Qemu)) { $Qemu = "$Root\build\port-qemu\qemu-system-x86_64.exe" }
+}
 $c = Get-Content -Raw "$VmDir\state\config.json" | ConvertFrom-Json
+if (!$DisplayMode) { $DisplayMode = if ($c.display_mode) { $c.display_mode } else { 'legacy' } }
+if ($DisplayMode -notin 'legacy','auto','fixed') { throw 'Invalid display_mode' }
+if ($DisplayMode -ne 'legacy') {
+    $runtimeDir = Split-Path $Qemu
+    $marker = Get-Content -Raw "$runtimeDir/weims-display-v1.json" | ConvertFrom-Json
+    if ($marker.capability -ne 'adaptive-display-v1' -or $marker.dll_sha256 -ne (Get-FileHash "$runtimeDir/reims_vgpu_c.dll" -Algorithm SHA256).Hash) { throw 'A matching adaptive-display runtime is required' }
+}
+$env:WEIMS_DISPLAY_MODE = $DisplayMode
+$env:REIMS_VGPU_WINDOW_FREE_POINTER = if ($c.free_pointer) { '1' } else { '0' }
+$env:REIMS_VGPU_WINDOW_BORDERLESS = if ($c.borderless) { '1' } else { '0' }
 $runtimePath = "$VmDir\state\runtime.json"
 
 function Send-Qmp([int]$Port, [string]$Command) {

@@ -13,6 +13,7 @@ public sealed record LaunchPlan(List<string> Arguments, Dictionary<string, strin
     public static LaunchPlan Build(VmConfig c, EngineSettings engine, string run, string osk, string name)
     {
         c.Validate(); engine.Validate();
+        engine.ValidateDisplay(c);
         osk = ResolveOsk(osk);
         if (osk.Length != 64 || osk.Any(ch => ch <= 32 || ch > 126 || ch == ',')) throw new InvalidDataException(Text.Get("WEIMS_OSK 覆盖值应为 64 个 ASCII 字符，不能包含空格或换行。移除该环境变量即可使用内置默认值。", "WEIMS_OSK must contain 64 ASCII characters without spaces or line breaks. Remove the override to use the built-in default."));
         if (c.FreePointer && !engine.SupportsFreePointer) throw new InvalidOperationException(Text.Get("当前显示后端不支持自由鼠标。请安装输入扩展版或关闭此选项。", "This display backend does not support free pointer. Install the input extension or disable this option."));
@@ -32,11 +33,12 @@ public sealed record LaunchPlan(List<string> Arguments, Dictionary<string, strin
             "-display", "none", "-monitor", "none", "-serial", $"file:{Q(Path.Combine(run, "serial.log"))}", "-msg", "timestamp=on",
             "-qmp", $"tcp:127.0.0.1:{c.QmpPort},server=on,wait=off", "-no-shutdown"
         };
-        if (c.RecoveryAttached) a.AddRange(new[] { "-drive", $"id=recovery,if=none,format=raw,readonly=on,file={Q(c.Recovery)}", "-device", "ide-hd,bus=sata.4,drive=recovery" });
+        if (c.RecoveryAttached) a.AddRange(new[] { "-drive", $"id=recovery,if=none,format=raw,snapshot=on,file={Q(c.Recovery)}", "-device", "ide-hd,bus=sata.4,drive=recovery" });
         var env = new Dictionary<string, string> {
             ["PATH"] = Path.GetDirectoryName(engine.Qemu) + ";" + engine.RuntimeBin + ";" + System.Environment.GetEnvironmentVariable("PATH"),
             ["VK_LOADER_LAYERS_DISABLE"] = "~implicit~", ["REIMS_VGPU_LOG"] = "info", ["REIMS_VGPU_WINDOW_BORDERLESS"] = c.Borderless ? "1" : "0",
-            ["REIMS_VGPU_WINDOW_FREE_POINTER"] = c.FreePointer ? "1" : "0"
+            ["REIMS_VGPU_WINDOW_FREE_POINTER"] = c.FreePointer ? "1" : "0",
+            ["WEIMS_DISPLAY_MODE"] = c.DisplayMode
         };
         foreach (var layer in new[] { "DISABLE_RTSS_LAYER", "DISABLE_VULKAN_OW_OVERLAY_LAYER", "DISABLE_VULKAN_OW_OBS_CAPTURE", "DISABLE_VK_LAYER_VALVE_steam_overlay_1", "DISABLE_VK_LAYER_VALVE_steam_fossilize_1", "DISABLE_VULKAN_OBS_CAPTURE" }) env[layer] = "1";
         return new(a, env, name);

@@ -47,10 +47,10 @@
 <sys:String x:Key="S45">保存配置</sys:String>
 <sys:String x:Key="S46">为独立的 Reims 显示窗口设置画面与操作方式。</sys:String>
 <sys:String x:Key="S47">显示器</sys:String>
-<sys:String x:Key="S48">客户机分辨率</sys:String>
-<sys:String x:Key="S49">推荐 1920 × 1080。当前 Tahoe 通道限制宽度不超过 2048，避免已知 WindowServer 问题。</sys:String>
+<sys:String x:Key="S48">启动分辨率</sys:String>
+<sys:String x:Key="S49">参考机器已验证 2560 × 1440。自定义范围：800–4096 × 600–2160；更高分辨率需在你的设备上测试。</sys:String>
 <sys:String x:Key="S50">以无边框全屏启动</sys:String>
-<sys:String x:Key="S51">关闭后使用普通可调整大小的窗口；拖动窗口边缘时按比例缩放，客户机分辨率不随窗口变化。</sys:String>
+<sys:String x:Key="S51">关闭后可拖动窗口边缘。自动模式在首次拖动后跟随窗口像素尺寸；固定模式保持启动分辨率并缩放画面。</sys:String>
 <sys:String x:Key="S52">鼠标与键盘</sys:String>
 <sys:String x:Key="S53">允许鼠标自由移出虚拟机窗口</sys:String>
 <sys:String x:Key="S54">需要带输入扩展的显示后端；运行环境检查会验证支持情况。</sys:String>
@@ -97,10 +97,10 @@
 <sys:String x:Key="S93">刷新</sys:String>
 <sys:String x:Key="S94">Weims · 恢复安装向导</sys:String>
 <sys:String x:Key="S95">创建你的 Mac 工作空间</sys:String>
-<sys:String x:Key="S96">恢复镜像 → 存储 → 启动文件 → 准备完成</sys:String>
+<sys:String x:Key="S96">选择存储位置，其余下载与引导文件由软件准备</sys:String>
 <sys:String x:Key="S97">01  恢复镜像与存储</sys:String>
 <sys:String x:Key="S98">名称（英文字母、数字、下划线、短横线）</sys:String>
-<sys:String x:Key="S99">恢复镜像 · BaseSystem.dmg / .img</sys:String>
+<sys:String x:Key="S99">或选择本地 BaseSystem.dmg / .img（关闭自动下载）</sys:String>
 <sys:String x:Key="S100">存放位置（在选定父目录下创建同名新文件夹）</sys:String>
 <sys:String x:Key="S101">系统盘容量（GiB，稀疏磁盘按实际使用增长）</sys:String>
 <sys:String x:Key="S102">02  新通道启动文件</sys:String>
@@ -110,8 +110,8 @@
 <sys:String x:Key="S106">03  本地端口</sys:String>
 <sys:String x:Key="S107">QMP 管理端口</sys:String>
 <sys:String x:Key="S108">SSH 转发端口</sys:String>
-<sys:String x:Key="S109">准备完成不会自动启动或格式化系统盘。恢复镜像只读挂载，安装在独立窗口内进行；需要网络。</sys:String>
-<sys:String x:Key="S110">请准备恢复镜像与启动文件。完整 ISO 不在本版支持范围内。</sys:String>
+<sys:String x:Key="S109">准备完成不会自动启动或格式化系统盘。恢复镜像使用临时写入层，源文件保持不变，安装在独立窗口内进行；需要网络。</sys:String>
+<sys:String x:Key="S110">准备就绪。下载可能需要数分钟，不支持完整 ISO。</sys:String>
 <sys:String x:Key="S111">Weims · 操作未完成</sys:String>
 <sys:String x:Key="S112">请选择虚拟机</sys:String>
 <sys:String x:Key="S113">欢迎使用 Weims。导入已有虚拟机，或通过恢复镜像开始。</sys:String>
@@ -156,7 +156,7 @@
 <sys:String x:Key="S152">端口输入无效，请返回硬件与网络页面修正。</sys:String>
 <sys:String x:Key="S153">CPU 核心数应在 2–64 之间。</sys:String>
 <sys:String x:Key="S154">内存应为 4096–262144 MiB，且为 1024 的整数倍。</sys:String>
-<sys:String x:Key="S155">分辨率格式为 1920x1080；当前版本支持宽 800–2048、高 600–1536。</sys:String>
+<sys:String x:Key="S155">分辨率格式为 2560x1440；支持宽 800–4096、高 600–2160。</sys:String>
 <sys:String x:Key="S156">QMP 与 SSH 端口应为 1024–65535，且不能相同。</sys:String>
 <sys:String x:Key="S157">MAC 地址格式错误。</sys:String>
 <sys:String x:Key="S158">文件路径必须是完整的本地路径。</sys:String>
@@ -195,4 +195,14 @@
 <sys:String x:Key="S191">本机端口 {port} 已被占用，请修改网络设置。</sys:String>
 <sys:String x:Key="S192">无法运行：</sys:String>
 <sys:String x:Key="S193">{Path.GetFileName(exe)} 退出码 {process.ExitCode}\n</sys:String>
+<sys:String x:Key="S194">窗口调整方式</sys:String>
+<sys:String x:Key="S195">兼容模式（保留原有行为）</sys:String>
+<sys:String x:Key="S196">自动适应窗口分辨率</sys:String>
+<sys:String x:Key="S197">固定客户机分辨率</sys:String>
+<sys:String x:Key="S198">从 Apple 自动下载 macOS Tahoe 恢复镜像</sys:String>
+<sys:String x:Key="S199">自动准备运行环境、OpenCore、固件与图形驱动，无需安装 Python、MSYS2 或 WSL。此过程需要联网。</sys:String>
+<sys:String x:Key="S200">高级选项 · 自备引导文件</sys:String>
+<sys:String x:Key="S201">使用自备引导文件与端口，替代自动准备</sys:String>
+<sys:String x:Key="S202">预发布版 · 虚拟机可能卡死，包括切换分辨率时。此问题已知，后续将修复。请备份重要数据。准备完成后，在独立恢复窗口中安装 macOS。</sys:String>
+<sys:String x:Key="S203">1.1.0-pre.1 · 虚拟机可能卡死，包括切换分辨率时。后续将修复，请保留备份并使用测试虚拟机。</sys:String>
 </ResourceDictionary>

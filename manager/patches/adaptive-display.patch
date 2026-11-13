@@ -1,0 +1,594 @@
+diff --git a/crates/reims-vgpu/src/graphics.rs b/crates/reims-vgpu/src/graphics.rs
+--- a/crates/reims-vgpu/src/graphics.rs
++++ b/crates/reims-vgpu/src/graphics.rs
+@@ -116,6 +116,7 @@
+ mod completion;
+ mod decode;
+ mod device_info;
++mod display_mode;
+ #[cfg(target_os = "linux")]
+ mod nvidia;
+ mod present;
+@@ -2375,6 +2376,8 @@
+     pub(crate) scanout: Mutex<Option<Scanout>>,
+     /// The window's size in pixels, once drawn into.
+     pub(crate) drawable: Mutex<Option<(u64, u64)>>,
++    /// The optional downstream policies scale during mode transitions and in fixed mode.
++    pub(crate) scale_to_window: bool,
+ }
+ 
+ /// The display's window as the device's [`Screen`] (the module doc).
+@@ -2389,6 +2392,8 @@
+     refresh_mhz: u32,
+     /// The guest's cursor, as last told.
+     cursor: Mutex<CursorState>,
++    /// Optional downstream policy; absent keeps the upstream window behavior.
++    display_policy: Mutex<Option<display_mode::Policy>>,
+ }
+ 
+ /// The guest's cursor, as the window shows it: over the image while the guest has an image and
+@@ -2599,18 +2604,39 @@
+             reims_vgpu_window::screens::screen_for_port(0)
+                 .map_or(FALLBACK_MODE.refresh_mhz, |s| hz_to_mhz(s.refresh_hz))
+         };
+-        let shown = Arc::new(Shown::default());
++        let shown = Arc::new(Shown {
++            scale_to_window: matches!(
++                std::env::var("WEIMS_DISPLAY_MODE").as_deref(),
++                Ok("auto" | "fixed")
++            ),
++            ..Shown::default()
++        });
+         if let Some(sink) = scanout_sink(platform, region, &shown, presented) {
+             window.attach(sink);
+             // Presents wait for the window's draw only where it has a sink to draw them.
+             let _ = presented.window.set(Arc::clone(&window));
+         }
+         let presented = Arc::clone(presented);
++        let display_policy = match std::env::var("WEIMS_DISPLAY_MODE").as_deref() {
++            Ok("auto") => Some(display_mode::Policy::new(
++                (first.0.into(), first.1.into()),
++                true,
++            )),
++            Ok("fixed") => Some(display_mode::Policy::new(
++                (first.0.into(), first.1.into()),
++                false,
++            )),
++            _ => None,
++        };
++        if display_policy.is_some() {
++            log::info!(target: "reims_vgpu::display_mode", "display policy initialized: {} (startup {}x{})", std::env::var("WEIMS_DISPLAY_MODE").unwrap_or_default(), first.0, first.1);
++        }
+         let screen = WindowScreen {
+             window: Arc::clone(&window),
+             shown,
+             shows_surface: Box::new(move || presented.shows_surface()),
+             refresh_mhz,
++            display_policy: Mutex::new(display_policy),
+             cursor: Mutex::new(CursorState {
+                 image: false,
+                 visible: true,
+@@ -2692,11 +2718,26 @@
+ }
+ 
+ impl Screen for WindowScreen {
+-    /// The window's size in pixels as last drawn into, else the mode it opened for, its width
+-    /// rounded down to a multiple of 16 and its height to even ([`geometry::offered_mode`]), at
+-    /// its host screen's rate.
++    /// The configured policy's approved mode, or the legacy drawable/offered mode. Both
++    /// display queries and change notifications read this at the host screen's rate.
+     fn mode(&self) -> Mode {
+         let drawn = *self.shown.drawable.lock();
++        if let Some(policy) = self.display_policy.lock().as_mut() {
++            let ((width, height), change) = policy.poll(
++                drawn.filter(|_| self.window.display_visible()),
++                std::time::Instant::now(),
++            );
++            match change {
++                Some(display_mode::Change::Offered((w, h))) => log::info!(target: "reims_vgpu::display_mode", "resize offered: {w}x{h}"),
++                Some(display_mode::Change::TimedOut { requested, restored }) => log::warn!(target: "reims_vgpu::display_mode", "resize timed out: {}x{}; restoring {}x{} and disabling adaptation for this run", requested.0, requested.1, restored.0, restored.1),
++                None => {}
++            }
++            return Mode {
++                width: width as u32,
++                height: height as u32,
++                refresh_mhz: self.refresh_mhz,
++            };
++        }
+         let (width, height) = geometry::offered_mode(drawn.unwrap_or_else(|| {
+             let (w, h) = self.window.offered().unwrap_or((1920, 1080));
+             (u64::from(w), u64::from(h))
+@@ -2713,6 +2754,11 @@
+     fn scanout(&self, scanout: Option<Scanout>) {
+         *self.shown.scanout.lock() = scanout;
+         if let Some(s) = scanout {
++            if let Some(policy) = self.display_policy.lock().as_mut()
++                && policy.scanout((s.width.into(), s.height.into()))
++            {
++                log::info!(target: "reims_vgpu::display_mode", "resize acknowledged by guest scanout: {}x{}", s.width, s.height);
++            }
+             let mode = |v: u32| u16::try_from(v).unwrap_or(u16::MAX);
+             self.window.guest_mode(mode(s.width), mode(s.height));
+         }
+diff --git a/crates/reims-vgpu/src/graphics/display_mode.rs b/crates/reims-vgpu/src/graphics/display_mode.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/reims-vgpu/src/graphics/display_mode.rs
+@@ -0,0 +1,256 @@
++//! Window mode policy. One approved mode feeds both queries and change notifications.
++//! No GPU calls or timers live here: the device's refresh thread polls with a monotonic clock.
++
++use std::time::{Duration, Instant};
++
++pub(super) type Size = (u64, u64);
++const SETTLE: Duration = Duration::from_millis(200);
++const ACK_TIMEOUT: Duration = Duration::from_secs(10);
++
++#[derive(Debug, PartialEq, Eq)]
++pub(super) enum Change {
++    Offered(Size),
++    TimedOut { requested: Size, restored: Size },
++}
++
++#[derive(Debug)]
++pub(super) struct Policy {
++    automatic: bool,
++    offered: Size,
++    confirmed: Size,
++    ready: bool,
++    seen: Option<Size>,
++    candidate: Option<(Size, Instant)>,
++    waiting: Option<Instant>,
++}
++
++/// Ignore zero/minimized drawables; bound allocations and keep the driver's row alignment.
++fn bounded((w, h): Size) -> Option<Size> {
++    if w < 800 || h < 600 {
++        return None;
++    }
++    Some((w.min(4096) / 16 * 16, h.min(2160) / 2 * 2))
++}
++
++impl Policy {
++    pub(super) fn new(first: Size, automatic: bool) -> Self {
++        Self {
++            automatic,
++            offered: first,
++            confirmed: first,
++            ready: false,
++            seen: None,
++            candidate: None,
++            waiting: None,
++        }
++    }
++
++    /// A scanout is the guest's acknowledgment, not merely a notification sent by the host.
++    pub(super) fn scanout(&mut self, size: Size) -> bool {
++        self.ready = true;
++        if self.waiting.is_none() && bounded(size).is_some() {
++            self.confirmed = size;
++        }
++        if size == self.offered {
++            self.confirmed = size;
++            return self.waiting.take().is_some();
++        }
++        false
++    }
++
++    pub(super) fn poll(&mut self, drawable: Option<Size>, now: Instant) -> (Size, Option<Change>) {
++        if !self.automatic {
++            return (self.offered, None);
++        }
++        let Some(size) = drawable.and_then(bounded) else {
++            self.candidate = None;
++            if self.seen.is_some() {
++                self.seen = Some(self.offered);
++            }
++            // A hidden surface cannot establish that the guest failed to redraw. Give it
++            // a fresh acknowledgment interval when rendering resumes.
++            if self.waiting.is_some() {
++                self.waiting = Some(now);
++            }
++            return (self.offered, None);
++        };
++        if self
++            .waiting
++            .is_some_and(|at| now.saturating_duration_since(at) >= ACK_TIMEOUT)
++        {
++            let requested = self.offered;
++            self.offered = self.confirmed;
++            self.automatic = false;
++            self.waiting = None;
++            self.candidate = None;
++            return (
++                self.offered,
++                Some(Change::TimedOut {
++                    requested,
++                    restored: self.offered,
++                }),
++            );
++        }
++        // The first drawable establishes the window's initial fit. Do not initiate a mode
++        // switch during firmware/OpenCore boot just because the host fit it to its desktop.
++        if self.seen.is_none() || !self.ready {
++            self.seen = Some(size);
++            self.candidate = None;
++            return (self.offered, None);
++        }
++        if self.seen != Some(size) {
++            self.seen = Some(size);
++            self.candidate = Some((size, now));
++        }
++        if size == self.offered {
++            self.candidate = None;
++        }
++        if self.waiting.is_none()
++            && let Some((target, since)) = self.candidate
++            && now.saturating_duration_since(since) >= SETTLE
++        {
++            self.offered = target;
++            self.waiting = Some(now);
++            self.candidate = None;
++            return (target, Some(Change::Offered(target)));
++        }
++        (self.offered, None)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn running() -> (Policy, Instant) {
++        let now = Instant::now();
++        let mut p = Policy::new((1920, 1080), true);
++        p.poll(Some((1920, 1080)), now);
++        p.scanout((1920, 1080));
++        (p, now)
++    }
++    fn ms(n: u64) -> Duration {
++        Duration::from_millis(n)
++    }
++
++    #[test]
++    fn drag_coalesces_and_queries_keep_the_previous_mode_until_settled() {
++        let (mut p, t) = running();
++        assert_eq!(p.poll(Some((2200, 1200)), t).0, (1920, 1080));
++        assert_eq!(p.poll(Some((2567, 1441)), t + ms(100)).0, (1920, 1080));
++        assert_eq!(p.poll(Some((2567, 1441)), t + ms(299)).1, None);
++        assert_eq!(
++            p.poll(Some((2567, 1441)), t + ms(300)),
++            ((2560, 1440), Some(Change::Offered((2560, 1440))))
++        );
++        assert_eq!(p.poll(Some((2567, 1441)), t + ms(301)).1, None);
++    }
++
++    #[test]
++    fn fixed_mode_does_not_follow_the_drawable_or_scanout() {
++        let mut p = Policy::new((2560, 1440), false);
++        p.scanout((1024, 768));
++        assert_eq!(p.poll(Some((3840, 2160)), Instant::now()).0, (2560, 1440));
++    }
++
++    #[test]
++    fn first_drawable_and_firmware_frames_do_not_trigger_adaptation() {
++        let mut p = Policy::new((2560, 1440), true);
++        let t = Instant::now();
++        p.poll(Some((2384, 1344)), t);
++        p.scanout((2560, 1440));
++        assert_eq!(
++            p.poll(Some((2384, 1344)), t + ms(60000)),
++            ((2560, 1440), None)
++        );
++    }
++
++    #[test]
++    fn a_second_resize_waits_for_guest_acknowledgment() {
++        let (mut p, t) = running();
++        p.poll(Some((2560, 1440)), t);
++        p.poll(Some((2560, 1440)), t + ms(200));
++        p.poll(Some((1600, 900)), t + ms(300));
++        assert_eq!(p.poll(Some((1600, 900)), t + ms(600)).0, (2560, 1440));
++        assert!(!p.scanout((1920, 1080)));
++        assert!(p.scanout((2560, 1440)));
++        assert_eq!(
++            p.poll(Some((1600, 900)), t + ms(601)).1,
++            Some(Change::Offered((1600, 900)))
++        );
++    }
++
++    #[test]
++    fn timeout_rolls_back_once_and_stops_retrying_even_after_late_ack() {
++        let (mut p, t) = running();
++        p.poll(Some((2560, 1440)), t);
++        p.poll(Some((2560, 1440)), t + ms(200));
++        assert_eq!(
++            p.poll(Some((2560, 1440)), t + ms(10200)).1,
++            Some(Change::TimedOut {
++                requested: (2560, 1440),
++                restored: (1920, 1080)
++            })
++        );
++        p.scanout((2560, 1440));
++        assert_eq!(
++            p.poll(Some((1600, 900)), t + ms(20000)),
++            ((1920, 1080), None)
++        );
++    }
++
++    #[test]
++    fn minimizes_and_oversized_windows_never_offer_invalid_allocations() {
++        let (mut p, t) = running();
++        p.poll(Some((2560, 1440)), t);
++        assert_eq!(p.poll(Some((0, 0)), t + ms(200)), ((1920, 1080), None));
++        p.poll(Some((u64::MAX, u64::MAX)), t + ms(300));
++        assert_eq!(
++            p.poll(Some((u64::MAX, u64::MAX)), t + ms(500)).0,
++            (4096, 2160)
++        );
++        assert_eq!(bounded((799, 600)), None);
++        assert_eq!(bounded((800, 600)), Some((800, 600)));
++    }
++
++    #[test]
++    fn restoring_after_minimize_restarts_the_settle_interval() {
++        let (mut p, t) = running();
++        p.poll(Some((2560, 1440)), t);
++        p.poll(Some((0, 0)), t + ms(100));
++        assert_eq!(p.poll(Some((2560, 1440)), t + ms(500)).0, (1920, 1080));
++        assert_eq!(
++            p.poll(Some((2560, 1440)), t + ms(700)).1,
++            Some(Change::Offered((2560, 1440)))
++        );
++    }
++
++    #[test]
++    fn hidden_window_does_not_timeout_an_unacknowledged_resize() {
++        let (mut p, t) = running();
++        p.poll(Some((2560, 1440)), t);
++        p.poll(Some((2560, 1440)), t + ms(200));
++        assert_eq!(p.poll(None, t + ms(30000)).1, None);
++        assert_eq!(p.poll(Some((2560, 1440)), t + ms(30100)).1, None);
++        assert!(p.scanout((2560, 1440)));
++        p.poll(Some((1600, 900)), t + ms(30200));
++        assert_eq!(
++            p.poll(Some((1600, 900)), t + ms(30400)).1,
++            Some(Change::Offered((1600, 900)))
++        );
++    }
++
++    #[test]
++    fn rollback_uses_last_acknowledged_mode_and_returning_to_it_cancels_drag() {
++        let (mut p, t) = running();
++        p.poll(Some((2560, 1440)), t);
++        p.poll(Some((2560, 1440)), t + ms(200));
++        p.scanout((2560, 1440));
++        p.poll(Some((1600, 900)), t + ms(300));
++        assert_eq!(p.poll(Some((2560, 1440)), t + ms(400)).1, None);
++        assert_eq!(p.poll(Some((2560, 1440)), t + ms(600)).1, None);
++        p.poll(Some((1600, 900)), t + ms(700));
++        p.poll(Some((1600, 900)), t + ms(900));
++        assert_eq!(p.poll(Some((1600, 900)), t + ms(10900)).0, (2560, 1440));
++    }
++}
+diff --git a/crates/reims-vgpu/src/graphics/sink.rs b/crates/reims-vgpu/src/graphics/sink.rs
+--- a/crates/reims-vgpu/src/graphics/sink.rs
++++ b/crates/reims-vgpu/src/graphics/sink.rs
+@@ -174,6 +174,8 @@
+     ramps: Mutex<Vec<(u64, P::Texture)>>,
+     /// The scanout's ramp, made at its first use; `None` inside where the platform refused it.
+     scanout_ramp: std::sync::OnceLock<Option<ScanoutRead<P>>>,
++    /// Intermediate for a scaled scanout, reused until its dimensions change.
++    scaled_scanout: Mutex<Option<P::Texture>>,
+     /// For the tests: every colour takes the pass, with no table.
+     #[cfg(test)]
+     tables_off: AtomicBool,
+@@ -466,6 +468,7 @@
+             color_table: Mutex::new(None),
+             ramps: Mutex::default(),
+             scanout_ramp: std::sync::OnceLock::new(),
++            scaled_scanout: Mutex::new(None),
+             #[cfg(test)]
+             tables_off: AtomicBool::new(false),
+         })
+@@ -612,7 +615,11 @@
+             self.presented.seen_format(from, to);
+             let drawn = if let Some((changes, color)) = &color {
+                 self.encode_colored(*changes, color, &surface, texture, region)
+-            } else if BGRA8_FORMATS.contains(&from) && BGRA8_FORMATS.contains(&to) {
++            } else if BGRA8_FORMATS.contains(&from)
++                && BGRA8_FORMATS.contains(&to)
++                && !(self.shown.scale_to_window
++                    && (surface.width(), surface.height()) != (region.width, region.height))
++            {
+                 self.encode_surface(&surface, texture, region)
+             } else {
+                 self.encode_converted(&surface, texture, region)
+@@ -622,11 +629,81 @@
+             }
+             self.presented.refuse_format(from, to);
+         }
+-        let command_buffer = match &color {
+-            Some((changes, color)) => self.encode_scanout_colored(*changes, color, texture, region),
+-            None => self.encode_scanout(texture, region),
++        let scaled = self.shown.scale_to_window
++            && self.shown.scanout.lock().is_some_and(|s| {
++                (u64::from(s.width), u64::from(s.height)) != (region.width, region.height)
++            });
++        let command_buffer = if scaled {
++            self.encode_scaled_scanout(color.as_ref().map(|(n, c)| (*n, c.as_ref())), texture, region)
++        } else {
++            match &color {
++                Some((changes, color)) => self.encode_scanout_colored(*changes, color, texture, region),
++                None => self.encode_scanout(texture, region),
++            }
+         }?;
+         Some((command_buffer, None))
++    }
++
++    /// Copy the complete scanout to a reusable GPU texture, then sample it over the image
++    /// rectangle. The existing imported buffer and existing present shaders are used; a
++    /// matching-size frame continues through the original blit path.
++    fn encode_scaled_scanout(
++        &self,
++        color: Option<(u64, &DisplayColor)>,
++        texture: &P::Texture,
++        region: PixelRect,
++    ) -> Option<P::CommandBuffer> {
++        let scanout = (*self.shown.scanout.lock())?;
++        let (buffer, source_offset) = self.scanout_buffer(&scanout)?;
++        let width = u64::from(scanout.width);
++        let height = u64::from(scanout.height);
++        let surface = {
++            let mut cached = self.scaled_scanout.lock();
++            if cached
++                .as_ref()
++                .is_none_or(|t| (t.width(), t.height()) != (width, height))
++            {
++                let desc = self.platform.texture_descriptor(&TextureDesc {
++                    pixel_format: 80,
++                    width,
++                    height,
++                    usage: RAMP_USAGE,
++                    resource_options: Some(PRIVATE),
++                    ..TextureDesc::default()
++                });
++                *cached = Some(no_catch(self.device.new_texture(OnFault::Die, &desc))?);
++            }
++            cached.as_ref()?.clone_ref()
++        };
++        let command_buffer = no_catch(self.queue.command_buffer(OnFault::Die))?;
++        let blit = Open::new(
++            no_catch(command_buffer.blit_encoder(OnFault::Die))?,
++            end_blit::<P>,
++        );
++        let stride = u64::from(scanout.stride);
++        no_catch(blit.get().encode(
++            OnFault::Die,
++            BlitCmd::CopyBufferToTexture {
++                source_buffer: &buffer,
++                source_offset,
++                source_bytes_per_row: stride,
++                source_bytes_per_image: stride * height,
++                source_size: MtlSize::new(width, height, 1),
++                destination_texture: &surface,
++                destination_slice: 0,
++                destination_level: 0,
++                destination_origin: MtlOrigin::new(0, 0, 0),
++            },
++        ));
++        blit.end();
++        if let Some((changes, color)) = color {
++            self.encode_color_pass(
++                &command_buffer, changes, color, Read::Surface(&surface), texture, region,
++            )?;
++        } else {
++            self.encode_converted_pass(&command_buffer, &surface, texture, region)?;
++        }
++        Some(command_buffer)
+     }
+ 
+     /// A command buffer of the sink's queue with the scanout drawn into `texture` at `region`
+@@ -1267,12 +1344,23 @@
+         texture: &P::Texture,
+         region: PixelRect,
+     ) -> Option<P::CommandBuffer> {
++        let command_buffer = no_catch(self.queue.command_buffer(OnFault::Die))?;
++        self.encode_converted_pass(&command_buffer, surface, texture, region)?;
++        Some(command_buffer)
++    }
++
++    fn encode_converted_pass(
++        &self,
++        command_buffer: &P::CommandBuffer,
++        surface: &P::Texture,
++        texture: &P::Texture,
++        region: PixelRect,
++    ) -> Option<()> {
+         let converter = self.converter()?;
+         let pipeline = converter.pipelines.pipeline_for(PipelineKey {
+             format: texture.pixel_format(),
+             gamma: false,
+         })?;
+-        let command_buffer = no_catch(self.queue.command_buffer(OnFault::Die))?;
+         let (texture_width, texture_height) = (texture.width(), texture.height());
+         let x = region.x.min(texture_width);
+         let y = region.y.min(texture_height);
+@@ -1344,7 +1432,7 @@
+             }
+         }
+         encoder.end();
+-        Some(command_buffer)
++        Some(())
+     }
+ 
+     /// Clears all of `texture` to opaque black, in a render pass of `command_buffer` with no
+diff --git a/crates/reims-vgpu-window/src/handle.rs b/crates/reims-vgpu-window/src/handle.rs
+--- a/crates/reims-vgpu-window/src/handle.rs
++++ b/crates/reims-vgpu-window/src/handle.rs
+@@ -539,6 +539,18 @@
+     /// What the render thread draws with.
+     pub(crate) fn surface(&self) -> &Surface {
+         &self.surface
++    }
++
++    /// Whether the Windows/Linux SDL surface currently accepts draws.
++    pub fn display_visible(&self) -> bool {
++        #[cfg(any(target_os = "windows", target_os = "linux"))]
++        {
++            self.surface.visible()
++        }
++        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
++        {
++            true
++        }
+     }
+ 
+     /// A posted cursor refresh runs: a later change posts another.
+diff --git a/crates/reims-vgpu-window/src/native/linux/render.rs b/crates/reims-vgpu-window/src/native/linux/render.rs
+--- a/crates/reims-vgpu-window/src/native/linux/render.rs
++++ b/crates/reims-vgpu-window/src/native/linux/render.rs
+@@ -127,6 +127,11 @@
+ }
+ 
+ impl Surface {
++    /// Current visibility, including a minimized window that no longer produces drawables.
++    pub(crate) fn visible(&self) -> bool {
++        self.state.lock().visible
++    }
++
+     /// An empty surface: no window, no layout, not shown.
+     pub(crate) fn new() -> Surface {
+         Surface::default()
+@@ -248,6 +253,19 @@
+ mod tests {
+     use super::*;
+     use crate::geometry::{self, Insets};
++
++    #[test]
++    fn display_policy_visibility_tracks_minimize_without_a_new_draw() {
++        let surface = Surface::new();
++        surface.set_layout(a_layout());
++        surface.set_visible(true);
++        assert!(surface.visible());
++        surface.set_visible(false);
++        assert!(!surface.visible());
++        assert_eq!(surface.state.lock().layout, Some(a_layout()));
++        surface.set_visible(true);
++        assert!(surface.visible());
++    }
+ 
+     /// A layout for a 100×50 point window at scale 2.
+     fn a_layout() -> Layout {
+diff --git a/crates/reims-vgpu-window/features.md b/crates/reims-vgpu-window/features.md
+--- a/crates/reims-vgpu-window/features.md
++++ b/crates/reims-vgpu-window/features.md
+@@ -19,6 +19,8 @@
+ | variable | effect |
+ |---|---|
+ | `REIMS_VGPU_WINDOW=0` | QEMU stays headless under `-display none` (QEMU reads it) |
++| `WEIMS_DISPLAY_MODE=auto` | downstream graphics policy: after the first window resize, offer aligned drawable pixels after 200 ms; wait for scanout acknowledgment, roll back once and stop adapting on a 10 s timeout; bounded to 800–4096 × 600–2160. `manual` |
++| `WEIMS_DISPLAY_MODE=fixed` | downstream graphics policy: retain the configured startup resolution while the window scales its image. Unset/`legacy` preserves existing behavior. `manual` |
+ | `REIMS_VGPU_WINDOW_BORDERLESS=1` | borderless windows that fill their screens |
+ | `REIMS_VGPU_WINDOW_SCREENS=1,0` | display i opens on the host screen the list's i-th entry names |
+ | `resolution=2560x1600` | the mode the window opens for, and the guest is offered until the window's pixels are known (QEMU's reims-graphics-pci property; 1920x1080 by default) |

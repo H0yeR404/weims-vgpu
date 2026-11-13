@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+ <ItemGroup><ProjectReference Include="../Weims.Core/Weims.Core.csproj"/><None Include="../launch-vm.ps1" Link="launch-vm.ps1" CopyToOutputDirectory="PreserveNewest"/><None Include="../runtime-catalog.json" Link="runtime-catalog.json" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
+</Project>

@@ -32,6 +32,7 @@ public sealed class VmConfig : Observable, IDataErrorInfo
     public int Cpus { get => Number("cpus", 8); set => Write("cpus", value); }
     public int MemoryMiB { get => Number("memory_mib", 8192); set => Write("memory_mib", value); }
     public string Resolution { get => ReadText("resolution", "1920x1080"); set => Write("resolution", value); }
+    public string DisplayMode { get => ReadText("display_mode", "legacy"); set => Write("display_mode", value); }
     public string Disk { get => ReadText("active_disk"); set => Write("active_disk", value); }
     public string OpenCore { get => ReadText("opencore"); set => Write("opencore", value); }
     public string FirmwareCode { get => ReadText("firmware_code"); set => Write("firmware_code", value); }
@@ -57,8 +58,10 @@ public sealed class VmConfig : Observable, IDataErrorInfo
         if (Cpus < 2 || Cpus > 64) throw new InvalidDataException(Text.Get("CPU 核心数应在 2–64 之间。", "CPU cores must be between 2 and 64."));
         if (MemoryMiB < 4096 || MemoryMiB > 262144 || MemoryMiB % 1024 != 0) throw new InvalidDataException(Text.Get("内存应为 4096–262144 MiB，且为 1024 的整数倍。", "Memory must be 4096–262144 MiB in multiples of 1024."));
         var m = Regex.Match(Resolution, @"^(\d{3,4})x(\d{3,4})$");
-        if (!m.Success || !int.TryParse(m.Groups[1].Value, out int w) || !int.TryParse(m.Groups[2].Value, out int h) || w < 800 || w > 2048 || h < 600 || h > 1536)
-            throw new InvalidDataException(Text.Get("分辨率格式为 1920x1080；当前版本支持宽 800–2048、高 600–1536。", "Use a resolution such as 1920x1080. Supported width: 800–2048; height: 600–1536."));
+        if (!m.Success || !int.TryParse(m.Groups[1].Value, out int w) || !int.TryParse(m.Groups[2].Value, out int h) || w < 800 || w > 4096 || h < 600 || h > 2160)
+            throw new InvalidDataException(Text.Get("分辨率格式为 2560x1440；支持宽 800–4096、高 600–2160。", "Use a resolution such as 2560x1440. Supported width: 800–4096; height: 600–2160."));
+        if (DisplayMode is not ("legacy" or "auto" or "fixed"))
+            throw new InvalidDataException(Text.Get("显示模式应为 legacy、auto 或 fixed。", "Display mode must be legacy, auto or fixed."));
         if (QmpPort < 1024 || QmpPort > 65535 || SshPort < 1024 || SshPort > 65535 || QmpPort == SshPort)
             throw new InvalidDataException(Text.Get("QMP 与 SSH 端口应为 1024–65535，且不能相同。", "QMP and SSH ports must be distinct integers between 1024 and 65535."));
         if (!Regex.IsMatch(Mac, @"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")) throw new InvalidDataException(Text.Get("MAC 地址格式错误。", "Invalid MAC address format."));
@@ -82,6 +85,23 @@ public sealed class EngineSettings : Observable
     public string ImageTool => Path.Combine(Path.GetDirectoryName(Qemu) ?? "", "qemu-img.exe");
     public bool SupportsFreePointer => File.Exists(Path.Combine(Path.GetDirectoryName(Qemu) ?? "", "weims-input-v1.json")) &&
         InputMarkerValid();
+    public bool SupportsDisplayPolicy => MarkerValid("weims-display-v1.json", "adaptive-display-v1");
+    public void ValidateDisplay(VmConfig c)
+    {
+        if (c.DisplayMode != "legacy" && !SupportsDisplayPolicy)
+            throw new InvalidOperationException(Text.Get("自动适应与固定分辨率需要显示扩展运行包。请选用该运行包，或切回兼容模式。", "Auto fit and fixed resolution require the display extension runtime. Select that runtime or use Compatibility mode."));
+    }
+    bool MarkerValid(string file, string capability)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(Qemu)!;
+            var marker = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, file)))!;
+            using var dll = File.OpenRead(Path.Combine(directory, "reims_vgpu_c.dll"));
+            return marker["capability"]?.GetValue<string>() == capability &&
+                Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(dll)).Equals(marker["dll_sha256"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+        } catch { return false; }
+    }
     bool InputMarkerValid()
     {
         try

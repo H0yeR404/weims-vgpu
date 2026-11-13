@@ -1,23 +1,23 @@
 ; SPDX-License-Identifier: GPL-2.0-or-later
 #ifndef PublishDir
-  #define PublishDir "artifacts\Weims-Manager-1.0.1"
+  #define PublishDir "artifacts\Weims-Manager-1.1.0-pre.1"
 #endif
 [Setup]
-AppId={{BB2BC22A-61BD-4C46-9013-0492F18F722D}
-AppName=Weims Manager
-AppVersion=1.0.1
-AppVerName=Weims Manager 1.0.1
+AppId={{E8E74513-80F4-453E-8183-5CD70BC29070}
+AppName=Weims Manager Preview
+AppVersion=1.1.0-pre.1
+AppVerName=Weims Manager 1.1.0-pre.1
 AppPublisher=Weims contributors
 AppPublisherURL=https://github.com/H0yeR404/weims-vgpu
 AppSupportURL=https://github.com/H0yeR404/weims-vgpu/issues
-DefaultDirName={localappdata}\Programs\Weims Manager
-DefaultGroupName=Weims Manager
+DefaultDirName={localappdata}\Programs\Weims Manager Preview
+DefaultGroupName=Weims Manager Preview
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 MinVersion=10.0.19041
 OutputDir=artifacts\release
-OutputBaseFilename=Weims-Manager-1.0.1-Setup-x64
+OutputBaseFilename=Weims-Manager-1.1.0-pre.1-Setup-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -40,8 +40,8 @@ Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Icons]
-Name: "{group}\Weims Manager"; Filename: "{app}\Weims.Manager.exe"; IconFilename: "{app}\Weims.Manager.exe"
-Name: "{autodesktop}\Weims Manager"; Filename: "{app}\Weims.Manager.exe"; IconFilename: "{app}\Weims.Manager.exe"; Tasks: desktopicon
+Name: "{group}\Weims Manager Preview"; Filename: "{app}\Weims.Manager.exe"; IconFilename: "{app}\Weims.Manager.exe"
+Name: "{autodesktop}\Weims Manager Preview"; Filename: "{app}\Weims.Manager.exe"; IconFilename: "{app}\Weims.Manager.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\Weims.Manager.exe"; Description: "{cm:LaunchProgram,Weims Manager}"; Flags: nowait postinstall skipifsilent

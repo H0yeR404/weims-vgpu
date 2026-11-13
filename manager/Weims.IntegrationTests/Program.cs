@@ -22,6 +22,7 @@ var c=await RecoveryService.Create(request,engine,new Progress<string>(Console.W
 var info=JsonNode.Parse(await ProcessRunner.Run(engine.ImageTool,new[]{"info","--output=json",c.Disk},env,timeout.Token))!;
 Check(info["virtual-size"]!.GetValue<long>()==64L*1024*1024*1024,"recovery preparation creates requested qcow2 virtual capacity");
 Check(c.RecoveryAttached&&File.Exists(c.Recovery)&&c.DirectoryPath==request.Destination,"staged recovery published with final paths");
+Check(c.Rom == Path.Combine(c.DirectoryPath,"firmware","ReimsGraphics.rom") && File.ReadAllBytes(c.Rom).SequenceEqual(File.ReadAllBytes(request.Rom)), "ROM copied into independent VM directory");
 Check(new FileInfo(image).Length==128L*1024*1024&&File.Exists(request.Vars),"source image and firmware retained");
 Check(engine.SupportsFreePointer,"input capability marker matches built DLL");
 var launcher=Path.Combine(repo,"manager","launch-vm.ps1");
@@ -39,6 +40,8 @@ try
 {
     await ProcessRunner.Run("pwsh.exe",new[]{"-NoProfile","-File",launcher,"-Plan",plan},env,timeout.Token,captureOutput:false);
     var state=await VmService.State(c); Check(!state.CanEdit&&state.Running,"real QMP identifies paused test process");
+    bool stopRejected=false; try { await VmService.StopAfterShutdown(c); } catch(IOException) { stopRejected=true; }
+    Check(stopRejected,"safe CLI stop refuses paused guest");
     await VmService.Power(c,"quit");
     for(int i=0;i<20;i++){if((await VmService.State(c)).CanEdit)break;await Task.Delay(100);}
     Check((await VmService.State(c)).CanEdit,"real QMP quit releases process");

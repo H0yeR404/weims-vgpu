@@ -26,7 +26,7 @@ public partial class App : Application
         string? Arg(string name) { int i = Array.IndexOf(e.Args, name); return i >= 0 && i + 1 < e.Args.Length ? e.Args[i + 1] : null; }
         var repo = Arg("--repo");
         if (repo == null) for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir != null; dir = dir.Parent) if (File.Exists(Path.Combine(dir.FullName, "sources.json"))) { repo = dir.FullName; break; }
-        var data = Arg("--data-dir") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Weims", "Manager");
+        var data = Arg("--data-dir") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Weims", "Manager-Preview");
         var languageFile = Path.Combine(data, "language.txt");
         string language = File.Exists(languageFile) ? File.ReadAllText(languageFile).Trim() : "en";
         Text.Chinese = language == "zh-CN";

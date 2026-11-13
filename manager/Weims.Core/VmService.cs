@@ -50,6 +50,17 @@ public static class VmService
         await qmp.VerifyName(RuntimeName(c, rt), timeout.Token);
         await qmp.Execute(command, timeout.Token);
     }
+    public static async Task StopAfterShutdown(VmConfig c)
+    {
+        var rt = Runtime(c);
+        if (rt == null || !ProcessMatches(rt)) return;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var qmp = await QmpClient.Connect(RuntimePort(c, rt), timeout.Token);
+        await qmp.VerifyName(RuntimeName(c, rt), timeout.Token);
+        var status = (await qmp.Execute("query-status", timeout.Token))?["status"]?.GetValue<string>();
+        if (status != "shutdown") throw new IOException(Text.Get("请先在 macOS 中正常关机，确认关机后再停止进程。", "Shut down macOS first. Stop only releases a guest confirmed shut down."));
+        await qmp.Execute("quit", timeout.Token);
+    }
     public static void CheckPorts(VmConfig c)
     {
         foreach (var port in new[] { c.QmpPort, c.SshPort })
@@ -75,7 +86,8 @@ public static class VmService
         JsonFiles.Write(file, new { executable = engine.Qemu, arguments = args, runtime = c.RuntimePath, run_directory = run, qmp_port = c.QmpPort, qmp_name = name });
         var env = new Dictionary<string,string>(plan.Environment) { ["WEIMS_OSK"] = osk };
         using var startupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        await ProcessRunner.Run(engine.PowerShell, new[] { "-NoProfile", "-NonInteractive", "-File", launcher, "-Plan", file }, env, startupTimeout.Token, captureOutput: false);
+        try { await ProcessRunner.Run(engine.PowerShell, new[] { "-NoProfile", "-NonInteractive", "-File", launcher, "-Plan", file }, env, startupTimeout.Token, captureOutput: false); }
+        catch (IOException e) { throw new IOException(Text.Get("虚拟机启动失败，请查看：", "VM startup failed. See: ") + Path.Combine(run, "stderr.log"), e); }
         return run;
     }
 }

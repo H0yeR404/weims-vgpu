@@ -1,40 +1,41 @@
 # weims-vgpu
 
-> **開発状況：** Weims Manager は開発中で、まだ完全なインストール・管理ツールではありません。一部の準備は手動で行う必要があり、Manager による復元イメージからデスクトップまでのインストール全体は未検証です。主な準備・インストール手順はこのページに記載しています。
-
-[Weims Manager 1.0.1 をダウンロード](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0.1)：Windows インストーラー、英語（既定）・中国語 UI、実行環境の自動セットアップ。
-
-Windows 向け [Weims Manager 1.0.1](manager/README.md) を追加しました。復元イメージの準備と仮想マシン設定を GUI で行い、VM の表示ウィンドウは独立して動作します。UI は英語（既定）と中国語に対応しています。
-
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
-Windows 上で WHPX と Vulkan を使い、Reims の新しいグラフィックス経路を動かすための統合プロジェクトです。新しいゲストドライバーとプロトコルを維持しながら、Windows の section によってゲスト RAM を共有し、従来の Windows 移植で発生していた深刻な書き戻し遅延に対処します。
+![macOS Tahoe on Windows](docs/images/macos-tahoe.png)
 
-![Windows 上で動作する macOS Tahoe](docs/images/macos-tahoe.png)
+## クイックスタート — Windows · 1.1.0-pre.1
 
-所有者提供のスクリーンショットには、macOS Tahoe、8 vCPU、32 GiB のメモリ、約 200 GiB の APFS ボリュームが表示されています。180 Hz という表示モードは、180 FPS の実測結果を意味しません。
+> **プレリリース：解像度変更時などに VM がフリーズする可能性があります。既知の問題として今後の更新で修正予定です。重要なデータをバックアップしてください。** 管理アプリは開発中です。自動準備から Tahoe 復旧画面までを本機で確認しましたが、新規インストールからデスクトップまでの全工程は未検証です。
 
-## クイックスタート — Windows
+必要環境：Windows 10 2004+/11 x64、BIOS/UEFI の仮想化、**Windows ハイパーバイザー プラットフォーム（WHPX）**、`VK_EXT_external_memory_host` 対応の Vulkan GPU とドライバー。「Windows の機能の有効化または無効化」で WHPX を有効にして再起動してください。アプリは BIOS や Windows 機能を自動変更しません。配布版には **WSL2、MSYS2、Rust、.NET SDK は不要**です。GitHub、Apple、上流のダウンロードサーバーへの接続が必要です。
 
-Weims vGPU は WHPX と Vulkan を使い、Windows 上でネイティブに動作します。VM の実行に **WSL2 は不要**です。
+### インストールと VM 作成
 
-### 方法 A：Weims Manager をインストール（推奨）
+1. [プレリリース](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.1.0-pre.1)から `Weims-Manager-1.1.0-pre.1-Setup-x64.exe` またはポータブル ZIP を取得します。インストーラーとアプリには Weims アイコンが含まれます。Preview は安定版とは別にインストールされます。UI は英語が既定で、中国語にも切り替えられます。
+2. **Weims Manager Preview → Create VM** で新しい保存先、名前、容量（既定 **200 GiB**）を選びます。Apple からの Tahoe 復旧イメージ自動取得を有効のままにするか、互換性のある `BaseSystem.dmg` / `.img` を選択します。完全な ISO と ARM macOS には対応しません。
+3. **Create** を押すと PowerShell、QEMU/Reims、検証付き Apple 復旧イメージの取得、固有のマシン識別情報を持つ OpenCore、OVMF、対応グラフィックスドライバーと ROM の準備、イメージ変換、空ディスク作成を行います。WSL 操作、EFI 編集、ファームウェアのコピー、SMC キー入力は不要です。既存の保存先は上書きしません。スパースディスクの容量は実空き容量の予約ではありません。
+4. 起動し、OpenCore で復旧項目を選びます（非表示の場合は **Space**）。**ディスクユーティリティ → すべてのデバイスを表示**で容量を確認し、**新規の空システムディスクだけ**を **GUID パーティションマップ / APFS** で消去します。復旧ディスクや OpenCore ディスクを消去しないでください。
+5. ディスクユーティリティを閉じ、**macOS Tahoe を再インストール**で新しいボリュームを選びます。ダウンロードと再起動を待ち、進行に応じてインストーラー／システムを選択します。デスクトップに到達したら正常終了し、残った QEMU を停止して復旧イメージの接続を解除し、保存後に再起動します。
 
-通常はビルド済みアプリを利用する方法が簡単です。
+新規 VM は**ウィンドウサイズに合わせたゲスト解像度変更**と自由なポインター移動が既定です。ログイン後に独立した Reims ウィンドウをドラッグします。既存 VM は停止後、**Display & Input → Auto fit guest resolution** を選択し、枠なし表示を無効にして保存します。起動解像度は **800–4096 × 600–2160**、**2560×1440 は本機のみで検証済み**です。Fixed は全画面を拡縮し、Compatibility は従来の動作を維持します。応答しなくなった場合はログを保存し、可能なら正常終了してください。クリップボードとファイル共有は含まれません。
 
-1. [リリースページ](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0.1)から **Weims Manager 1.0.1** をダウンロードします。
-2. `Weims-Manager-1.0.1-Setup-x64.exe` を実行します。
-3. **Runtime → Check environment** を開きます。
-4. **Prepare / Retry** をクリックし、Windows QEMU/Reims 実行環境を自動取得・設定します。
+### コマンドライン（インストーラー・ポータブル版に同梱）
 
-**必要条件：**
+アプリのディレクトリで Windows PowerShell を開きます。`create` は同じ構成を自動準備します。`--recovery` を省略すると Apple から取得します。
 
-- Windows 10 バージョン 2004 以降 / Windows 11、x64
-- BIOS/UEFI で CPU 仮想化が有効
-- Windows Hypervisor Platform（WHPX）が有効
-- `VK_EXT_external_memory_host` に対応する Vulkan GPU とドライバー
+```powershell
+.\Weims.Cli.exe create --destination D:\VMs\macOS-Tahoe --disk-gib 200
+.\Weims.Cli.exe start --config D:\VMs\macOS-Tahoe\state\config.json --display-mode auto
+.\Weims.Cli.exe status --config D:\VMs\macOS-Tahoe\state\config.json
+.\Weims.Cli.exe shutdown --config D:\VMs\macOS-Tahoe\state\config.json
+# macOS の終了後に QEMU を終了：
+.\Weims.Cli.exe stop --config D:\VMs\macOS-Tahoe\state\config.json
+```
 
-Manager が自動準備するのは Windows 実行環境です。macOS 復元イメージ、互換性のある OpenCore、OVMF ファームウェア、Reims グラフィックス ROM は別途用意します。UI は英語が既定で、中国語にも対応します。以下の「起動ファイルの準備と macOS のインストール」に進んでください。
+既存 200 GiB VM は実際の `state/config.json` を `start` に渡します。ディスクを作り直さないでください。Preview に実行環境がない場合は先に `setup` を実行します。GUI と CLI は `%LOCALAPPDATA%\Weims\Manager-Preview` を共有します。同じディスクを二重起動しないでください。`stop` は QMP がシャットダウン済みと確認した場合のみ終了します。終了要求に応答しない場合は macOS の Apple メニューを使用します。
+
+[プレリリースの説明](docs/prerelease-1.1.0-pre.1.ja.md) · [安定版 1.0.1](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0.1)。安定版には自動ブート準備と可変解像度は含まれません。
 
 ### 方法 B：ソースからビルド（上級者向け）
 
@@ -103,130 +104,14 @@ build/port-dist/
 sources/reims/firmware/prebuilt/ReimsGraphics.rom
 ```
 
-**手順 4 — VM を準備して起動**
 
-実行環境をビルドしても macOS VM は自動作成されません。互換性のある OpenCore、OVMF、macOS 復元イメージまたは既存の起動可能なシステムディスクが必要です。Manager は完全な ISO の取り込みに対応しません。以下で起動ファイルを準備し、Manager で新規 VM を作成するか、コマンドラインで既存ディスクを起動します。
-
-### 起動ファイルの準備と macOS のインストール
-
-準備順序は **BaseSystem.dmg → OpenCore.img → OVMF → ReimsGraphics.rom → Weims Manager → macOS のインストール**です。それぞれ別の入力であり、同じイメージを順番に変換するものではありません。互換性のある Intel/x86-64 版 macOS を使用します。Apple Silicon/ARM 版 macOS の変換実行には対応しません。
-
-**手順 1 — BaseSystem.dmg を取得**
-
-目的の macOS バージョンに対応する Apple 提供の復元イメージを取得します。[OpenCorePkg の macrecovery ツール](https://github.com/acidanthera/OpenCorePkg/tree/master/Utilities/macrecovery)で Apple から取得できます。選択した OpenCore リリース付属の説明に従ってください。このツールには Python が必要で、要求する機種・ボード識別子によって返される復元バージョンが変わります。
-
-`BaseSystem.dmg` と付属の検証ファイルを保存します。Manager は DMG を raw `BaseSystem.img` に変換します。変換済みの raw `.img` も使用できますが、DMG や ISO の拡張子変更だけでは変換できません。復元環境は Apple からインストールファイルをダウンロードするため、ゲストのネット接続が必要です。Manager は基本構造を確認しますが、Apple の付属 chunklist や全バージョンの互換性までは検証しません。
-
-**手順 2 — OpenCore とゲストドライバーを準備**
-
-x86-64 QEMU に対応する OpenCore 起動イメージを用意します。検証基準は **OpenCore 1.0.8** です。[OpenCorePkg リリース](https://github.com/acidanthera/OpenCorePkg/releases)からプログラムと設定資料を取得してください。配布 ZIP はそのまま起動できる Weims ディスクではありません。VM 用の基本設定とマシン識別情報は手動で準備する必要があり、Manager は生成しません。
-
-以下は `EFI/BOOT`、`EFI/OC` と動作する `EFI/OC/config.plist` を含む **raw FAT ファイルシステムイメージ**を前提とします。停止済み VM のコピーを使用してください。新しい経路には対応する **Graft、ReimsGraphics、RgfxGate** ゲストドライバーが必要です。
-
-方法 B では既にこれらを取得しています。Manager 利用者も上記の Git、PowerShell 7、MSYS2 を導入すれば、ホスト実行環境をビルドせずに **PowerShell 7** で取得できます。
+Manager/CLI のビルドには .NET 8 SDK をインストールし、次を実行します：
 
 ```powershell
-git clone https://github.com/H0yeR404/weims-vgpu.git
-cd weims-vgpu
-$env:WEIMS_MSYS2 = 'C:\msys64'
-pwsh -File scripts/fetch.ps1
+pwsh -File manager/build-display.ps1
+pwsh -File manager/build-setup.ps1
+pwsh -File manager/build.ps1 -SelfContained
 ```
-
-方法 B で `sources/` を作成済みなら再取得は不要です。スクリプトは既存ソースディレクトリを拒否します。ゲストファイルは選択したホスト実行環境のリリースに合わせ、無関係な上流のビルド済みファイルを混在させないでください。
-
-**MSYS2 UCRT64** で前述の更新を行い、準備ツールをインストールします。
-
-```sh
-pacman -S --needed git diffutils mtools mingw-w64-ucrt-x86_64-python
-```
-
-同じ端末でリポジトリのルートに移動し、入力パスを自分のファイルに置き換えてコピーを準備します。
-
-```sh
-mkdir -p vm/boot-work
-cp /c/VM-inputs/OpenCore.img vm/boot-work/OpenCore.img
-mcopy -s -i vm/boot-work/OpenCore.img ::/EFI vm/boot-work/
-/ucrt64/bin/python.exe scripts/prepare-opencore.py vm/boot-work/EFI
-```
-
-OpenCore 1.0.8 の `ocvalidate` で `vm/boot-work/EFI/OC/config.plist` を検証します。例として、リポジトリのルートで **PowerShell 7** を使い、実行ファイルのパスを展開先に合わせます。
-
-```powershell
-& 'C:\Tools\OpenCore-1.0.8-RELEASE\Utilities\ocvalidate\ocvalidate.exe' `
-  'vm/boot-work/EFI/OC/config.plist'
-```
-
-検証成功後、**MSYS2 UCRT64** に戻り EFI ツリーを書き戻します。
-
-```sh
-mcopy -o -s -i vm/boot-work/OpenCore.img vm/boot-work/EFI ::/
-```
-
-補助スクリプトは検証構成に合わせて Apple Secure Boot を無効化し、想定外の有効な kext がある場合は処理を拒否します。その場合は依存関係を確認し、チェック回避のために無関係な項目を削除しないでください。上記 mtools コマンドはパーティション付き EFI ディスクには使えません。EFI パーティションを抽出またはマウントしてください。QCOW2 起動ディスクはまずコピーを `qemu-img convert -f qcow2 -O raw source.qcow2 OpenCore.img` で変換します。変換してもパーティションテーブルは除去されません。
-
-**手順 3 — OVMF と ReimsGraphics.rom を用意**
-
-同じファームウェアビルドの x86-64 QEMU 用 `OVMF_CODE.fd` と `OVMF_VARS.fd` を用意するか、停止済みの互換 VM からコピーします。[TianoCore EDK II / OvmfPkg](https://github.com/tianocore/edk2/tree/master/OvmfPkg)に上流ソースとビルド手順があります。CODE はファームウェア本体、VARS は書き込み可能な UEFI 設定です。異なるレイアウトを混在させたり、動作中の VM 間で書き込み可能な VARS を共有したりしないでください。
-
-ゲストドライバーとホスト実行環境に対応する ROM を使用します。
-
-```text
-sources/reims/firmware/prebuilt/ReimsGraphics.rom
-```
-
-ROM は OpenCore のゲストドライバーの代わりにはなりません。固定した場所に保存してください。Manager は OpenCore と OVMF をコピーしますが、**ROM は元のパスを参照**します。
-
-**手順 4 — Manager で新規 VM を作成**
-
-方法 A の環境チェック完了後、復元イメージからの作成ウィザードに入力します。
-
-| 項目 | 指定内容 |
-| --- | --- |
-| VM 名 | 例：`macOS-Tahoe`。ASCII 英数字・アンダースコア・ハイフンの 1–48 文字で、先頭は英数字 |
-| 復元イメージ | `BaseSystem.dmg` または raw `BaseSystem.img` |
-| 保存先の親フォルダー | 既存のローカルフォルダー。その中に VM 名の新しいサブフォルダーを作成 |
-| システムディスク容量 | 例：`200` GiB。対応範囲は 64–2048 GiB |
-| OpenCore | 準備した `vm/boot-work/OpenCore.img` |
-| ファームウェア CODE / VARS | 対応する `OVMF_CODE.fd` と `OVMF_VARS.fd` |
-| グラフィックス ROM | 対応する `ReimsGraphics.rom` の固定パス |
-| QMP / SSH ポート | 未使用で互いに異なる localhost ポート。ウィザードの既定値は `4455` / `2233` |
-
-最終的な VM ディレクトリは未作成である必要があります。**Create** を選び、イメージ変換とディスク作成を待ちます。スパースディスクは macOS の書き込みに応じて増大するため、ホストに十分な実空き容量を確保してください。失敗・キャンセル時は調査用の作業ディレクトリが残ります。
-
-準備後は VM を登録するだけで、自動起動しません。復元 VM の既定値は 8 vCPU、8 GiB RAM、`1920x1080` です。ホストに合わせてリソースを調整し、初回は `1920x1080` と復元イメージの接続を維持してください。Manager では SMC キーの入力は不要です。
-
-**手順 5 — VM 内で macOS をインストール**
-
-1. VM を起動します。QEMU/Reims の独立した表示ウィンドウが開きます。
-2. OpenCore で復元環境を選択します。補助項目が非表示の場合は **Space** キーを押します。
-3. **ディスクユーティリティ → 表示 → すべてのデバイスを表示**を開きます。容量から新しい空のシステムディスクを特定し、**そのディスクだけ**を **GUID パーティションマップ**と **APFS** で消去します。名前は例として `Macintosh HD` を指定します。OpenCore や復元メディアは消去しないでください。
-4. ディスクユーティリティを終了し、macOS のインストールと新しいシステムボリュームを選択します。ダウンロードと再起動を待ち、インストーラー項目、続いてインストール済みシステム項目から処理を継続します。再起動のたびに復元インストールを最初から始めないでください。
-5. デスクトップに到達して設定アシスタントが完了したら、Apple メニューから終了します。QEMU 停止後に Manager で復元イメージの接続を解除し、保存して再起動し、システム単独で起動できることを確認します。OpenCore、OVMF、ROM は保持します。
-
-起動に失敗したら、入力を変更する前に VM の `logs` ディレクトリを保存し、エラーを記録してください。まず形式とドライバー・実行環境の組み合わせを確認します。[初回インストールガイド（英語）](docs/first-install.md)には補足とトラブルシューティング表があります。主な手順はこのページに記載しています。
-
-### コマンドラインで既存 VM を起動
-
-方法 B と上記の起動ファイル準備後、元の VM を停止して独立したシステムディスクのコピーを作ります。**リポジトリのルートで PowerShell 7** を開き、入力パスを自分のファイルに置き換えます。
-
-```powershell
-$env:WEIMS_MSYS2 = 'C:\msys64'
-$env:PATH = "$env:WEIMS_MSYS2\ucrt64\bin;$env:PATH"
-New-Item -ItemType Directory -Force vm/disks
-./build/port-qemu/qemu-img.exe convert -p -f qcow2 -O qcow2 `
-  C:/VMs/original/current.qcow2 vm/disks/current.qcow2
-pwsh -File scripts/init-vm.ps1 -Disk ./vm/disks/current.qcow2 `
-  -OpenCore ./vm/boot-work/OpenCore.img `
-  -FirmwareCode C:/VMs/original/OVMF_CODE.fd `
-  -FirmwareVars C:/VMs/original/OVMF_VARS.fd
-$env:WEIMS_OSK = Read-Host 'SMC key from your own authorized installation' -MaskInput
-pwsh -File scripts/start.ps1 -DryRun
-pwsh -File scripts/start.ps1
-```
-
-出力ディスクには新しいパスを使い、保存したい既存ディスクを上書きしないでください。この例は QCOW2 ソースを前提とし、論理容量を維持して backing chain を統合します。`init-vm.ps1` は指定ディスクを直接書き込みに使用し、既存の `vm/default` ディレクトリを拒否します。起動前に `vm/default/state/config.json` を確認してください。CLI の既定値は 8 vCPU、32 GiB RAM、`1920x1080`、QMP `4444`、SSH `2222` です。リソースとポート競合を確認します。Manager と異なり CLI は `WEIMS_OSK` を要求します。保存されるコマンドログでは伏せられますが、QEMU のプロセス引数には渡されます。
-
-入力キャプチャは **Ctrl+Alt+Win** または **Ctrl+Alt+Home** で解除できます。まず macOS 内で正常終了してください。その後も QEMU が残る場合は `pwsh -File scripts/start.ps1 -Exit` で終了できますが、通常のゲスト終了の代用にはしないでください。同じ書き込み可能なディスクを 2 つのインスタンスで同時に開かないでください。
 
 ### 任意：WSL2 のツールで EFI ファイルを確認・準備
 
@@ -263,14 +148,6 @@ sudo dnf install git python3 mtools
 EFI 補助スクリプトは `tomllib` を使うため **Python 3.11 以降**が必要です。`python3 --version` と `python3 -c 'import tomllib'` で確認してください。利用できない場合は Python 3.11 以降を提供するディストリビューションのバージョンか、前述の MSYS2 手順を使用します。
 
 パスも端末によって異なります。Windows の `C:\VM-inputs\OpenCore.img` は MSYS2 では `/c/VM-inputs/OpenCore.img`、WSL2 では `/mnt/c/VM-inputs/OpenCore.img` です。WSL2 では実際のリポジトリの場所（例：`cd /mnt/d/Coding/weims-vgpu`）に移動し、EFI 補助コマンドを `/ucrt64/bin/python.exe ...` ではなく `python3 scripts/prepare-opencore.py vm/boot-work/EFI` に変更します。これはソース取得済みの状態で、コピーしたイメージの EFI 準備だけを置き換える方法です。同じコピーに両方の準備手順を実行しないでください。Windows の `ocvalidate`、ビルド、VM 起動は Windows PowerShell に戻って実行します。`exit` で WSL2 を終了できます。
-
-### 注意事項
-
-- WSL2 は任意であり、この Windows ネイティブビルドに必要な MSYS2 の代わりにはなりません。
-- Reims のゲストドライバーとホスト実行環境のバージョンを合わせてください。ソースビルドでの自由なポインター移動は[表示とポインターの説明（英語）](manager/README.md#display-and-free-pointer)を参照してください。
-- 他の GPU や Windows 構成での広範な検証は未実施です。
-- 変更前に既存の VM ディスクとファームウェアをバックアップしてください。
-- macOS の使用には Apple のソフトウェアライセンス条項が適用されます。
 
 ## 検証環境
 

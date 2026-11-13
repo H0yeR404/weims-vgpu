@@ -16,11 +16,11 @@ public partial class MainWindow : Window
     bool refreshing;
     public int[] CpuChoices { get; } = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64];
     public int[] MemoryChoices { get; } = [4096, 8192, 12288, 16384, 24576, 32768, 49152, 65536, 98304, 131072, 262144];
-    public string[] ResolutionChoices { get; } = ["1280x800", "1440x900", "1600x900", "1920x1080", "1920x1200", "2048x1152"];
+    public string[] ResolutionChoices { get; } = ["1280x800", "1440x900", "1600x900", "1920x1080", "1920x1200", "2048x1152", "2560x1440", "2560x1600", "3440x1440", "3840x2160"];
     public MainWindow(MainViewModel model, bool detectOnLoad = true)
     {
         vm = model; InitializeComponent(); DataContext = vm; LanguagePicker.SelectedIndex = Text.Chinese ? 0 : 1;
-        Loaded += async (_, _) => { UpdateCapability(); await vm.Refresh(); timer.Start(); if (string.IsNullOrEmpty(vm.Engine.Qemu)) vm.Page = 4; if (detectOnLoad) await Work(DetectEnvironment); };
+        Loaded += async (_, _) => { UpdateCapability(); await vm.Refresh(); timer.Start(); if (detectOnLoad && !string.IsNullOrEmpty(vm.Engine.Qemu)) await Work(DetectEnvironment); };
         timer.Tick += async (_, _) => { if (refreshing || vm.Busy) return; refreshing = true; try { await vm.Refresh(); } finally { refreshing = false; } };
         Closed += (_, _) => { timer.Stop(); setupCancellation?.Cancel(); };
     }
@@ -41,6 +41,9 @@ public partial class MainWindow : Window
     void EnsureValidFields() { if (HasErrors(this)) throw new InvalidDataException(Text.Get("请修正红框中的输入；端口必须是整数。", "Correct the highlighted fields; ports must be integers.")); }
     void UpdateCapability()
     {
+        DisplayHint.Text = vm.Engine.SupportsDisplayPolicy
+            ? Text.Get("显示扩展已验证。自动模式在拖动停稳约 200 ms 后调整 macOS 分辨率；固定模式只缩放画面。保存后下次启动生效。", "Display extension verified. Auto fit adjusts macOS resolution about 200 ms after resizing settles. Fixed mode scales the picture. Saved changes apply at the next start.")
+            : Text.Get("当前运行包不支持新的显示策略，请使用兼容模式。自动适应与固定模式需要显示扩展运行包。", "Use Compatibility with this runtime. Auto fit and fixed resolution require the display extension runtime.");
         FreePointer.IsEnabled = vm.Engine.SupportsFreePointer;
         PointerHint.Text = FreePointer.IsEnabled ? Text.Get("输入扩展已验证。开启后鼠标可直接移出窗口；关闭后点击捕获，使用快捷键释放。", "Input extension verified. Enable to move the pointer freely; otherwise click to capture and use the shortcut to release.") : Text.Get("当前后端没有经校验的输入扩展，暂不可开启。请按 manager 文档构建输入扩展版。", "No verified input extension found. Build the extended backend using the manager guide, or use automatic setup.");
     }
@@ -57,6 +60,7 @@ public partial class MainWindow : Window
     async void SaveVm(object sender, RoutedEventArgs e) => await Work(async () =>
     {
         EnsureValidFields(); var c = Current(); await VmService.RequireStopped(c);
+        vm.Engine.ValidateDisplay(c);
         if (c.FreePointer && !vm.Engine.SupportsFreePointer) throw new InvalidOperationException(Text.Get("自由鼠标需要输入扩展版后端。", "Free pointer requires the extended input backend."));
         c.Save(); vm.Message = Text.Get("配置已保存，下次启动生效。", "Settings saved. Changes apply at the next start.");
     });
@@ -120,7 +124,7 @@ public partial class MainWindow : Window
     void NewVm(object sender, RoutedEventArgs e)
     {
         if (vm.Busy) return;
-        var wizard = new RecoveryWindow(vm.Engine, vm.Repo) { Owner = this };
+        var wizard = new RecoveryWindow(vm.Engine, vm.Repo, vm.DataDirectory) { Owner = this };
         if (wizard.ShowDialog() == true && wizard.Created != null) { vm.Add(wizard.Created.ConfigPath); vm.Page = 0; vm.Message = Text.Get("新虚拟机已准备好。请检查配置后启动恢复安装。", "The new VM is ready. Check its settings, then start recovery installation."); }
     }
 }

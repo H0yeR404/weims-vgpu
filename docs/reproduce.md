@@ -84,3 +84,31 @@ Release captured input with Ctrl+Alt+Win or Ctrl+Alt+Home. Shut down macOS norma
 The source implementation passed 22 C API tests (one manual measurement ignored), built the release DLL and QEMU, and booted macOS. The shared-memory version achieved 54.17 unique FPS in one 10-second, 60 Hz window-drag test at 1920×1080; maximum observed frame gap was 211 ms. This is not a same-scene comparison against the old lane or a long stability result. The screenshot's 180 Hz display mode is not a measured 180 FPS claim. Guest RAM section sharing bypasses the main read-back bottleneck, but device-cache downloads remain: this is not full zero-copy.
 
 This packaging separately checks source reconstruction and script syntax. See `validation.md` for the publication checks and any remaining limits. Full cross-platform `cargo xtask check` has not been run. Video acceleration, audio and broad GPU compatibility are not claimed.
+
+## Preview 1.1.0-pre.1 additions
+
+After the native build, install .NET 8 SDK and run in Windows PowerShell 7:
+
+```powershell
+pwsh -File manager/build-display.ps1
+pwsh -File manager/build-setup.ps1
+pwsh -File manager/build.ps1 -SelfContained
+```
+
+The setup helper is pinned to reims-util commit `84e5c98ae7fa6b0b68e7be690525dda29697ab34`. `build-setup.ps1` expects unchanged sources and fresh boot output; it refuses to overwrite an existing boot kext directory. Stop VMs before rebuilding their runtime. Use the packaged CLI documented in the main README for automatic recovery and boot preparation. This does not require the manual EFI procedure above. The helper generates a GPT-partitioned OpenCore image, so the raw-FAT mtools commands above do not apply to its output.
+
+Release packaging requires Python 3, Inno Setup 6 and the source dependencies. From `sources/reims`, vendor both Rust dependency sets with an absolute helper manifest path:
+
+```powershell
+cargo vendor --locked --sync C:/src/weims-vgpu/sources/reims-util/Cargo.toml ../../build/release-sources/vendor
+```
+
+Then from the repository root:
+
+```powershell
+python manager/package-runtime.py --msys C:/msys64 --version 1.1.0-pre.1
+pwsh -File manager/build.ps1 -SelfContained -OutputDirectory manager/artifacts/Weims-Manager-1.1.0-pre.1
+ISCC.exe manager/installer.iss
+```
+
+Packaging verifies dependency closure without MSYS2 on PATH and writes the pinned runtime catalog before building the GUI/CLI. Sources ZIP includes patched upstream trees, combined Cargo vendor sources, MSYS2 package sources and licenses. Manager/CLI sources are in tag `v1.1.0-pre.1`. Apple recovery and generated machine identities are not distributed. The runtime is uploaded under the exact catalog URL; SHA256SUMS accompanies the installer, portable app and runtime/source archives.

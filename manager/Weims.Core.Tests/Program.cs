@@ -19,6 +19,11 @@ try
     c.Cpus = 8; c.MemoryMiB = 8192; c.Resolution = "1920x1080"; c.Mac = "52:54:00:12:34:56";
     c.QmpPort = 4550; c.SshPort = 2330; c.Disk = FileAt("disk , 测试.qcow2"); c.OpenCore = FileAt("OpenCore.img"); c.FirmwareCode = FileAt("CODE.fd"); c.FirmwareVars = FileAt("VARS.fd"); c.Rom = FileAt("Graphics.rom");
     c.Save(); Check(VmConfig.Load(c.ConfigPath).Data["future_field"]!.GetValue<string>() == "preserve me", "unknown config fields survive save");
+    var freePorts = GuidedSetup.FreePorts();
+    Check(freePorts.Qmp != freePorts.Ssh && freePorts.Qmp >= 1024 && freePorts.Ssh >= 1024, "guided setup selects distinct nonprivileged ports");
+    Reject(() => GuidedSetup.Create("../escape", Path.Combine(temp,"guided"),null,200,engine,temp,new Progress<string>(),default).GetAwaiter().GetResult(), "guided setup rejects path traversal before downloading");
+    Reject(() => GuidedSetup.Create("valid", temp,null,200,engine,temp,new Progress<string>(),default).GetAwaiter().GetResult(), "guided setup refuses existing destination before downloading");
+    Reject(() => GuidedSetup.Create("valid",Path.Combine(temp,"guided"),FileAt("bad.iso"),200,engine,temp,new Progress<string>(),default).GetAwaiter().GetResult(), "guided setup refuses ISO before downloading");
     var plan = LaunchPlan.Build(c, engine, temp, new string('s',64), "test-vm");
     Check(plan.Arguments.Any(a => a.Contains("disk ,, 测试.qcow2")), "QEMU keyval comma escaping");
     Check(plan.Arguments.Any(a => a.Contains("guest-memory=on")), "shared-memory graphics enabled");
@@ -31,12 +36,27 @@ try
     Check(plan.StartInfo(engine.Qemu,temp).ArgumentList.SequenceEqual(plan.Arguments), "arguments preserve boundaries without shell evaluation");
     c.Borderless=true; Check(LaunchPlan.Build(c,engine,temp,new string('s',64),"test").Environment["REIMS_VGPU_WINDOW_BORDERLESS"]=="1", "borderless env mapping");
     c.FreePointer=true; Reject(()=>LaunchPlan.Build(c,engine,temp,new string('s',64),"test"), "free pointer gated by backend capability"); c.FreePointer=false;
-    c.Resolution="3840x2160"; Reject(()=>c.Validate(), "unsafe Tahoe resolution rejected"); c.Resolution="1920x1080";
+    foreach (var size in new[] { "2560x1440", "3440x1440", "3840x2160", "4096x2160" }) { c.Resolution=size; c.Validate(); Check(true, "larger startup mode accepted: " + size); }
+    foreach (var size in new[] { "0x0", "799x600", "800x599", "4097x2160", "3840x2161", "2560x1440,guest-memory=off" }) { c.Resolution=size; Reject(()=>c.Validate(), "invalid mode rejected: " + size); }
+    c.Resolution="1920x1080";
+    Check(c.DisplayMode=="legacy" && plan.Environment["WEIMS_DISPLAY_MODE"]=="legacy", "existing configuration preserves display behavior and overrides inherited policy");
+    c.DisplayMode="auto"; Reject(()=>LaunchPlan.Build(c,engine,temp,"","test"), "auto fit requires verified runtime");
+    c.DisplayMode="fixed"; Reject(()=>LaunchPlan.Build(c,engine,temp,"","test"), "fixed mode cannot silently use old runtime");
+    var displayMarker = Path.Combine(temp,"weims-display-v1.json");
+    string dllHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(temp,"reims_vgpu_c.dll"))));
+    JsonFiles.Write(displayMarker, new { capability="adaptive-display-v1", dll_sha256=dllHash });
+    Check(engine.SupportsDisplayPolicy, "display marker validates DLL hash and capability");
+    Check(LaunchPlan.Build(c,engine,temp,"","test").Environment["WEIMS_DISPLAY_MODE"]=="fixed", "fixed display policy passed to backend");
+    c.DisplayMode="auto"; c.Save(); Check(VmConfig.Load(c.ConfigPath).DisplayMode=="auto", "display policy persists");
+    Check(LaunchPlan.Build(c,engine,temp,"","test").Environment["WEIMS_DISPLAY_MODE"]=="auto", "adaptive display policy passed to backend");
+    File.AppendAllText(Path.Combine(temp,"reims_vgpu_c.dll"),"changed");
+    Check(!engine.SupportsDisplayPolicy, "stale display marker rejected");
+    c.DisplayMode="invalid"; Reject(()=>c.Validate(), "invalid display policy rejected"); c.DisplayMode="legacy";
     c.QmpPort=c.SshPort; Reject(()=>c.Validate(), "duplicate ports rejected"); c.QmpPort=4550;
     c.QmpPortInput="invalid"; Reject(()=>c.Validate(), "invalid port text survives navigation and blocks launch"); c.QmpPortInput="4550";
     Reject(()=>RecoveryService.ValidateBootImage(c.Disk), "non-bootable raw data rejected");
     c.Recovery=FileAt("BaseSystem.img"); c.RecoveryAttached=true;
-    var recovery=LaunchPlan.Build(c,engine,temp,new string('s',64),"test"); Check(recovery.Arguments.Any(a=>a.StartsWith("id=recovery,")&&a.Contains("readonly=on")), "recovery is attached read-only");
+    var recovery=LaunchPlan.Build(c,engine,temp,new string('s',64),"test"); Check(recovery.Arguments.Any(a=>a.StartsWith("id=recovery,")&&a.Contains("snapshot=on")), "recovery source protected by temporary write layer");
     c.RecoveryAttached=false; Check(!LaunchPlan.Build(c,engine,temp,new string('s',64),"test").Arguments.Any(a=>a.StartsWith("id=recovery,")), "recovery detach omits disk");
     var req=new RecoveryRequest("test",Path.Combine(temp,"newvm"),FileAt("installer.iso"),200,c.OpenCore,c.FirmwareCode,c.FirmwareVars,c.Rom,4550,2330);
     Reject(()=>RecoveryService.Validate(req), "ISO rejected");

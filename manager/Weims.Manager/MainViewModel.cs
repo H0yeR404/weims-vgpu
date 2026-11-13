@@ -31,6 +31,8 @@ public sealed class MainViewModel : Observable
         if (repo != null && string.IsNullOrEmpty(Engine.Qemu))
         {
             var inputRuntime = Path.Combine(repo, "build", "manager-runtime", "qemu-system-x86_64.exe");
+            var displayRuntime = Path.Combine(repo, "build", "manager-display-runtime", "qemu-system-x86_64.exe");
+            if (File.Exists(displayRuntime)) inputRuntime = displayRuntime;
             Engine.Qemu = File.Exists(inputRuntime) ? inputRuntime : Path.Combine(repo, "build", "port-qemu", "qemu-system-x86_64.exe");
             Engine.Bios = Path.Combine(repo, "sources", "qemu", "pc-bios");
             var msys = Environment.GetEnvironmentVariable("WEIMS_MSYS2");

@@ -47,10 +47,10 @@
 <sys:String x:Key="S45">Save settings</sys:String>
 <sys:String x:Key="S46">Configure the separate Reims display window and input behavior.</sys:String>
 <sys:String x:Key="S47">DISPLAY</sys:String>
-<sys:String x:Key="S48">Guest resolution</sys:String>
-<sys:String x:Key="S49">Recommended: 1920 × 1080. Tahoe widths above 2048 are blocked due to a known WindowServer issue.</sys:String>
+<sys:String x:Key="S48">Startup resolution</sys:String>
+<sys:String x:Key="S49">2560 × 1440 has been tested on the reference machine. Custom sizes: 800–4096 × 600–2160; higher modes need testing on your device.</sys:String>
 <sys:String x:Key="S50">Start in borderless fullscreen</sys:String>
-<sys:String x:Key="S51">Turn off for a resizable window. Resizing scales the picture while preserving its aspect ratio; guest resolution stays unchanged.</sys:String>
+<sys:String x:Key="S51">Turn off to drag the window edges. Auto fit follows drawable pixels after the first resize; fixed mode keeps the startup resolution and scales the image.</sys:String>
 <sys:String x:Key="S52">MOUSE &amp; KEYBOARD</sys:String>
 <sys:String x:Key="S53">Allow the pointer to leave the VM window freely</sys:String>
 <sys:String x:Key="S54">Requires the input extension. Runtime checks verify support.</sys:String>
@@ -97,10 +97,10 @@
 <sys:String x:Key="S93">Refresh</sys:String>
 <sys:String x:Key="S94">Weims · Recovery Setup</sys:String>
 <sys:String x:Key="S95">Create your Mac workspace</sys:String>
-<sys:String x:Key="S96">Recovery → Storage → Boot files → Ready</sys:String>
+<sys:String x:Key="S96">Choose storage. We prepare the downloads and boot files for you.</sys:String>
 <sys:String x:Key="S97">01  RECOVERY &amp; STORAGE</sys:String>
 <sys:String x:Key="S98">Name (letters, numbers, underscores, hyphens)</sys:String>
-<sys:String x:Key="S99">Recovery image · BaseSystem.dmg / .img</sys:String>
+<sys:String x:Key="S99">Or use a local BaseSystem.dmg / .img (turn off download)</sys:String>
 <sys:String x:Key="S100">Location (creates a new named folder under this directory)</sys:String>
 <sys:String x:Key="S101">System disk size (GiB; sparse storage grows as used)</sys:String>
 <sys:String x:Key="S102">02  BOOT FILES</sys:String>
@@ -110,8 +110,8 @@
 <sys:String x:Key="S106">03  LOCAL PORTS</sys:String>
 <sys:String x:Key="S107">QMP management port</sys:String>
 <sys:String x:Key="S108">SSH forwarding port</sys:String>
-<sys:String x:Key="S109">Preparation does not start the VM or format its disk. Recovery is attached read-only. Installation runs in a separate window and requires internet access.</sys:String>
-<sys:String x:Key="S110">Prepare your recovery image and boot files. Full ISO images are not supported.</sys:String>
+<sys:String x:Key="S109">Preparation does not start the VM or format its disk. Recovery writes use a temporary layer; the source image is preserved. Installation runs in a separate window and requires internet access.</sys:String>
+<sys:String x:Key="S110">Ready to prepare. Downloads can take several minutes. Full ISO images are not supported.</sys:String>
 <sys:String x:Key="S111">Weims · Operation incomplete</sys:String>
 <sys:String x:Key="S112">Select a virtual machine</sys:String>
 <sys:String x:Key="S113">Welcome to Weims. Import a VM or start with a recovery image.</sys:String>
@@ -156,7 +156,7 @@
 <sys:String x:Key="S152">Invalid port input. Correct it on the Hardware &amp; Network page.</sys:String>
 <sys:String x:Key="S153">CPU cores must be between 2 and 64.</sys:String>
 <sys:String x:Key="S154">Memory must be 4096–262144 MiB in multiples of 1024.</sys:String>
-<sys:String x:Key="S155">Use a resolution such as 1920x1080. Supported width: 800–2048; height: 600–1536.</sys:String>
+<sys:String x:Key="S155">Use a resolution such as 2560x1440. Supported width: 800–4096; height: 600–2160.</sys:String>
 <sys:String x:Key="S156">QMP and SSH ports must be distinct integers between 1024 and 65535.</sys:String>
 <sys:String x:Key="S157">Invalid MAC address format.</sys:String>
 <sys:String x:Key="S158">File paths must be absolute local paths.</sys:String>
@@ -195,4 +195,14 @@
 <sys:String x:Key="S191">Local port {port} is in use. Change the network settings.</sys:String>
 <sys:String x:Key="S192">Cannot run: </sys:String>
 <sys:String x:Key="S193">{Path.GetFileName(exe)} exited with code {process.ExitCode}\n</sys:String>
+<sys:String x:Key="S194">Window resizing</sys:String>
+<sys:String x:Key="S195">Compatibility (existing behavior)</sys:String>
+<sys:String x:Key="S196">Auto fit guest resolution</sys:String>
+<sys:String x:Key="S197">Fixed guest resolution</sys:String>
+<sys:String x:Key="S198">Download macOS Tahoe recovery from Apple</sys:String>
+<sys:String x:Key="S199">We will prepare the runtime, OpenCore, firmware and graphics drivers automatically. No Python, MSYS2 or WSL setup is needed. Internet access is required.</sys:String>
+<sys:String x:Key="S200">Advanced · bring your own boot files</sys:String>
+<sys:String x:Key="S201">Use my boot files and ports instead of automatic preparation</sys:String>
+<sys:String x:Key="S202">PRE-RELEASE · The VM may freeze, including during resolution changes. This is a known issue planned for correction. Back up important data. After preparation, start recovery and install macOS in its own window.</sys:String>
+<sys:String x:Key="S203">1.1.0-pre.1 · VM freezes are possible, including during resolution changes. A fix is planned. Keep backups and use a test VM.</sys:String>
 </ResourceDictionary>

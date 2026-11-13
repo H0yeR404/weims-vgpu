@@ -39,14 +39,18 @@ internal static class Program
             model.Page=0; Pump(); bool rejected=false; try { model.Selected!.Validate(); }catch(InvalidDataException){rejected=true;}
             Check(rejected,"invalid field on inactive page blocks model validation");
             model.Page=1; Pump(); qmp.SetCurrentValue(TextBox.TextProperty,"4455"); qmp.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
-            model.Page=2; Pump(); var resolution=(ComboBox)w.FindName("Resolution"); resolution.SetCurrentValue(ComboBox.TextProperty,"1600x900"); resolution.GetBindingExpression(ComboBox.TextProperty)!.UpdateSource();
+            model.Page=2; Pump(); var resolution=(ComboBox)w.FindName("Resolution"); resolution.SetCurrentValue(ComboBox.TextProperty,"2560x1440"); resolution.GetBindingExpression(ComboBox.TextProperty)!.UpdateSource();
+            string displayHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(fixture,"reims_vgpu_c.dll"))));
+            JsonFiles.Write(Path.Combine(fixture,"weims-display-v1.json"),new { capability="adaptive-display-v1", dll_sha256=displayHash });
+            var displayMode=(ComboBox)w.FindName("DisplayMode"); displayMode.SelectedValue="auto"; Pump();
             var save=Descendants(w).OfType<Button>().Single(b=>Equals(b.Content,"保存显示设置")); save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
-            Check(VmConfig.Load(config.ConfigPath).Resolution=="1600x900","display save writes config through actual button handler");
+            Check(VmConfig.Load(config.ConfigPath).Resolution=="2560x1440","display save accepts tested 1440p through actual button handler");
+            Check(VmConfig.Load(config.ConfigPath).DisplayMode=="auto","display policy saved through actual control");
             Check(!((CheckBox)w.FindName("FreePointer")).IsEnabled,"unsupported free pointer disabled");
             model.CanEdit=false; Pump(); Check(!save.IsEnabled,"running-state configuration disabled"); model.CanEdit=true;
             w.Width=960; w.Height=660; Pump(); Shot(w,Path.Combine(output,"display-minimum.png"));
             model.Page=5; Pump(); var preview=Descendants(w).OfType<Button>().Single(b=>Equals(b.Content,"预览启动参数")); preview.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
-            Check(model.Details.Contains("resolution=1600x900")&&model.Details.Contains("<redacted>"),"UI preview uses edited configuration and redacts key");
+            Check(model.Details.Contains("resolution=2560x1440")&&model.Details.Contains("WEIMS_DISPLAY_MODE=auto")&&model.Details.Contains("<redacted>"),"UI preview uses edited display policy and redacts key");
             var wizard = new RecoveryWindow(model.Engine,null) { Owner=w }; wizard.Show(); Pump(); Shot(wizard,Path.Combine(output,"recovery-wizard.png")); wizard.Close();
             w.Close();
             Text.Chinese = false;
@@ -63,6 +67,9 @@ internal static class Program
             var language = (ComboBox)english.FindName("LanguagePicker"); language.SelectedIndex = 0; Pump();
             Check(File.ReadAllText(Path.Combine(enModel.DataDirectory,"language.txt")) == "zh-CN", "language choice persisted");
             var englishWizard = new RecoveryWindow(enModel.Engine, null) { Owner = english }; englishWizard.Show(); Pump();
+            Check(((CheckBox)englishWizard.FindName("DownloadRecovery")).IsChecked == true, "Apple recovery download enabled by default");
+            Check(((CheckBox)englishWizard.FindName("ManualBoot")).IsChecked != true, "manual boot preparation disabled by default");
+            Check(Descendants(englishWizard).OfType<Expander>().All(e => !e.IsExpanded), "advanced boot fields collapsed");
             Check(englishWizard.Title == "Weims · Recovery Setup", "English recovery wizard title");
             Shot(englishWizard, Path.Combine(output,"en-recovery-wizard.png")); englishWizard.Close(); english.Close();
             File.WriteAllText(Path.Combine(output,"result.txt"),$"{checks} WPF UI contract checks passed. Both languages, six pages, minimum window and recovery wizard rendered.");
