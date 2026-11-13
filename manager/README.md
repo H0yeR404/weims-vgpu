@@ -1,4 +1,6 @@
-# Weims Manager 1.0
+# Weims Manager 1.0.1
+
+> **Development status:** The interactive manager is still incomplete and under active development. Some preparation remains manual; a full recovery installation has not yet been validated end to end. See the [First Installation Guide](../docs/first-install.md).
 
 Windows configuration manager for the shared-memory Reims graphics lane. The English/Chinese WPF interface uses a macOS Settings-inspired sidebar, grouped cards and switches. QEMU/Reims keeps its own native display window. The manager does not embed or stream the guest desktop.
 
@@ -6,7 +8,7 @@ Windows configuration manager for the shared-memory Reims graphics lane. The Eng
 
 ## Install and prepare the environment
 
-Download `Weims-Manager-1.0-Setup-x64.exe` from [v1.0](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0). The per-user installer includes .NET and adds a Start menu shortcut. The portable ZIP is also available. Windows 10 2004 or newer on x64 is required; compatible CPU virtualization and GPU support are still necessary.
+Download `Weims-Manager-1.0.1-Setup-x64.exe` from [v1.0.1](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0.1). The per-user installer includes .NET and adds a Start menu shortcut. The portable ZIP is also available. Windows 10 2004 or newer on x64 is required; compatible CPU virtualization and GPU support are still necessary.
 
 **English is the default**, regardless of Windows language. Select 简体中文 or English in the sidebar and reopen the manager to apply the saved choice. Closing the manager does not shut down VMs.
 

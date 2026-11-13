@@ -1,10 +1,12 @@
-# Weims Manager 1.0 使用说明
+# Weims Manager 1.0.1 使用说明
+
+> **开发状态：** 交互软件目前尚不完善，正在持续开发。部分准备仍需手动完成，完整恢复安装流程尚未经过端到端验证。请参阅[首次安装指南（英文）](../docs/first-install.md)。
 
 这是一版 Windows 桌面配置器，采用 macOS“系统设置”风格。软件负责虚拟机配置与恢复安装准备，Reims 显示窗口独立运行。
 
 ## 安装与自动准备环境
 
-从 [v1.0 发布页](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0) 下载 `Weims-Manager-1.0-Setup-x64.exe`。安装包内置 .NET，按当前用户安装；也可使用便携 ZIP。要求 Windows 10 2004 或更新的 x64 系统，以及兼容的 CPU 虚拟化与显卡。
+从 [v1.0.1 发布页](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0.1) 下载 `Weims-Manager-1.0.1-Setup-x64.exe`。安装包内置 .NET，按当前用户安装；也可使用便携 ZIP。要求 Windows 10 2004 或更新的 x64 系统，以及兼容的 CPU 虚拟化与显卡。
 
 **首次启动默认英文，不跟随系统语言。** 在侧栏选择“简体中文”后关闭并重新打开管理器即可应用；之后记住所选语言。关闭管理器不会关闭虚拟机。
 

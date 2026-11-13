@@ -2,6 +2,8 @@
 
 This packages the source configuration of the working Windows/WHPX graphics lane. It is not a macOS installer or a disk image. Start with your own bootable x86-64 macOS VM and licensed materials. Source revisions are fixed in `sources.json`; upstream guest prebuilts and ROM are obtained from that same pinned source. Host binaries are built locally. Dependency versions observed on the tested host are recorded in `config/tested-msys2-packages.txt`; MSYS2 is rolling, so this is not a promise of byte-identical binaries.
 
+For a new empty VM installed from recovery, see the [First Installation Guide](first-install.md). It explains the separately supplied boot files and the current Manager limitations.
+
 ## Host and tools
 
 Use Windows x64 with Windows Hypervisor Platform available, a Vulkan-capable GPU/driver with `VK_EXT_external_memory_host`, PowerShell 7, Git, Rustup, and MSYS2 UCRT64. The tested host used an NVIDIA RTX 4090 Laptop GPU. The default VM uses 8 vCPUs, 32 GiB RAM and 1920×1080. Other hardware is not validated. Do not change VBS/HVCI or BIOS settings as part of these scripts.
