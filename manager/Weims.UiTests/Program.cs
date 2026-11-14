@@ -32,7 +32,7 @@ internal static class Program
             int checks=0;
             void Check(bool ok,string name) { if(!ok)throw new Exception(name); checks++; Console.WriteLine("PASS "+name); }
             Check(w.ActualWidth >= 960, "window loaded at supported size");
-            for(int i=0;i<6;i++) { model.Page=i; Pump(); Shot(w,Path.Combine(output,$"page-{i}.png")); }
+            for(int i=0;i<7;i++) { model.Page=i; Pump(); Shot(w,Path.Combine(output,$"page-{i}.png")); }
             model.Page=1; Pump();
             var qmp=(TextBox)w.FindName("Qmp"); qmp.SetCurrentValue(TextBox.TextProperty,"not-a-port"); qmp.GetBindingExpression(TextBox.TextProperty)!.UpdateSource(); Pump();
             Check(Validation.GetHasError(qmp),"invalid port exposes inline WPF validation");
@@ -60,12 +60,28 @@ internal static class Program
             var english = new MainWindow(enModel, detectOnLoad: false); english.Show(); Pump();
             Check(english.Title == "Weims · Virtual Machine Manager", "English window title");
             Check(((ComboBox)english.FindName("LanguagePicker")).SelectedIndex == 1, "English is selected by default");
-            for (int i = 0; i < 6; i++) { enModel.Page = i; Pump(); Shot(english, Path.Combine(output, $"en-page-{i}.png")); }
+            for (int i = 0; i < 7; i++) { enModel.Page = i; Pump(); Shot(english, Path.Combine(output, $"en-page-{i}.png")); }
             enModel.Page = 4; english.Width = 960; english.Height = 660; Pump(); Shot(english, Path.Combine(output,"en-runtime-minimum.png"));
             Check(Descendants(english).OfType<Button>().Any(b => Equals(b.Content,"Prepare / Retry")), "English automatic setup action is present");
             Check(!((Button)english.FindName("CancelSetup")).IsEnabled, "cancel setup disabled while idle");
+            enModel.Selected!.QmpPortInput = "unsaved-invalid-port";
             var language = (ComboBox)english.FindName("LanguagePicker"); language.SelectedIndex = 0; Pump();
             Check(File.ReadAllText(Path.Combine(enModel.DataDirectory,"language.txt")) == "zh-CN", "language choice persisted");
+            Check(english.Title != "Weims · Virtual Machine Manager", "language switches current window title immediately");
+            Check(enModel.Page == 4 && enModel.Selected!.Resolution == "2560x1440", "language switch preserves current page and VM configuration");
+
+            Check(enModel.Selected!.QmpPortInput == "unsaved-invalid-port", "language change preserves unsaved invalid field text");
+            language.SelectedIndex = 1; Pump();
+            Check(english.Title == "Weims · Virtual Machine Manager", "switch back to English without reopening window");
+            enModel.Page = 6; Pump();
+            Check(Descendants(english).OfType<Button>().Any(b => Equals(b.Content, "Check for updates")), "update page available in English");
+            Check(!((Button)english.FindName("InstallUpdateButton")).IsEnabled, "install is disabled without a newer verified release");
+            language.SelectedIndex = 0; Pump();
+            Check(((TextBlock)english.FindName("UpdateChannel")).Text.Contains("预览"), "dynamic update channel switches language");
+            Shot(english, Path.Combine(output,"zh-updates.png"));
+            language.SelectedIndex = 1; Pump();
+            Check(((TextBox)english.FindName("ReleaseNotes")).Text.Contains("\n"), "bundled update notes preserve readable paragraphs");
+            Shot(english, Path.Combine(output,"en-updates.png"));
             var englishWizard = new RecoveryWindow(enModel.Engine, null) { Owner = english }; englishWizard.Show(); Pump();
             Check(((CheckBox)englishWizard.FindName("DownloadRecovery")).IsChecked == true, "Apple recovery download enabled by default");
             Check(((CheckBox)englishWizard.FindName("ManualBoot")).IsChecked != true, "manual boot preparation disabled by default");

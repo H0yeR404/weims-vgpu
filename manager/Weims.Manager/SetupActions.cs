@@ -37,14 +37,20 @@ public partial class MainWindow
     void CancelPreparation(object sender, RoutedEventArgs e) => setupCancellation?.Cancel();
     void OpenWindowsFeatures(object sender, RoutedEventArgs e) => Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "OptionalFeatures.exe")) { UseShellExecute = true });
     void OpenDriverHelp(object sender, RoutedEventArgs e) => Process.Start(new ProcessStartInfo("https://vulkan.lunarg.com/doc/sdk/latest/windows/getting_started.html") { UseShellExecute = true });
-    void ChangeLanguage(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    async void ChangeLanguage(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (!IsLoaded) return;
         string language = LanguagePicker.SelectedIndex == 0 ? "zh-CN" : "en";
         try
         {
             File.WriteAllText(Path.Combine(vm.DataDirectory, "language.txt"), language);
-            vm.Message = Text.Get("语言已保存。关闭并重新打开管理器后生效；虚拟机继续运行。", "Language saved. Close and reopen the manager to apply; VMs will keep running.");
+            ((App)Application.Current).ApplyLanguage(language);
+            foreach (var machine in vm.Machines) machine.RefreshLanguage();
+            foreach (var item in new[] { (VmNameText, "Name", "S21"), (VmSummaryText, "Summary", "S22"), (VmRecoveryText, "Recovery", "S64") })
+                item.Item1.SetBinding(System.Windows.Controls.TextBlock.TextProperty, new System.Windows.Data.Binding("Selected." + item.Item2) { TargetNullValue = FindResource(item.Item3) });
+            UpdateCapability(); RefreshUpdateText();
+            await vm.Refresh();
+            vm.Message = Text.Get("已切换为简体中文。", "Switched to English.");
         }
         catch (Exception ex) { vm.Message = ex.Message; }
     }

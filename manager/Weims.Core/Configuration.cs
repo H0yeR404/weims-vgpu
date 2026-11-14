@@ -23,6 +23,7 @@ public sealed class VmConfig : Observable, IDataErrorInfo
     public string DirectoryPath => Path.GetDirectoryName(Path.GetDirectoryName(ConfigPath))!;
     public string RuntimePath => Path.Combine(Path.GetDirectoryName(ConfigPath)!, "runtime.json");
     public string Name => Data["display_name"]?.GetValue<string>() ?? Path.GetFileName(DirectoryPath);
+    public void RefreshLanguage() => Changed(nameof(Summary));
     public string Summary => Text.Get($"{Cpus} 核 · {MemoryMiB / 1024} GiB · {Resolution}", $"{Cpus} cores · {MemoryMiB / 1024} GiB · {Resolution}");
     public VmConfig(string path, JsonObject data) { ConfigPath = Path.GetFullPath(path); Data = data; }
     public static VmConfig Load(string path) => new(path, JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? throw new InvalidDataException(Text.Get("配置为空。", "The configuration is empty.")));

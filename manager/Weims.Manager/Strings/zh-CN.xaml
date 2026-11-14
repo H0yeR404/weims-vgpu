@@ -205,4 +205,20 @@
 <sys:String x:Key="S201">使用自备引导文件与端口，替代自动准备</sys:String>
 <sys:String x:Key="S202">预发布版 · 虚拟机可能卡死，包括切换分辨率时。此问题已知，后续将修复。请备份重要数据。准备完成后，在独立恢复窗口中安装 macOS。</sys:String>
 <sys:String x:Key="S203">1.1.0-pre.1 · 虚拟机可能卡死，包括切换分辨率时。后续将修复，请保留备份并使用测试虚拟机。</sys:String>
+ <sys:String x:Key="UpdateTitle">软件更新</sys:String>
+ <sys:String x:Key="UpdateCheck">检查更新</sys:String>
+ <sys:String x:Key="UpdateInstall">一键更新</sys:String>
+ <sys:String x:Key="UpdateNotes">更新说明</sys:String>
+ <sys:String x:Key="UpdateHelp">从官方 GitHub 仓库下载并校验 SHA256 后安装。安装前请关闭所有虚拟机；管理器将重新启动。免安装版会安装到当前用户的 Weims Manager 文件夹；虚拟机磁盘和运行环境路径保留。</sys:String>
+ <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">本地预览版 1.1.0-pre.2（尚未发布）
+
+• 检查 GitHub 上兼容的稳定版或预览版。
+• 下载更新前可查看该版本的更新说明。
+• 安装前校验 SHA256；虚拟机或其他管理器窗口未关闭时暂缓安装。
+• 中英文立即切换，无需重启，保留当前页面和配置。
+• 显示实际软件版本号。
+
+已知问题：虚拟机仍可能发生卡死，包括调整窗口大小时，正在排查。
+
+此本地演示尚未进行真实安装升级验证。</sys:String>
 </ResourceDictionary>

@@ -26,11 +26,19 @@ public partial class App : Application
         string? Arg(string name) { int i = Array.IndexOf(e.Args, name); return i >= 0 && i + 1 < e.Args.Length ? e.Args[i + 1] : null; }
         var repo = Arg("--repo");
         if (repo == null) for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir != null; dir = dir.Parent) if (File.Exists(Path.Combine(dir.FullName, "sources.json"))) { repo = dir.FullName; break; }
-        var data = Arg("--data-dir") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Weims", "Manager-Preview");
+        var defaultData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Weims", "Manager-Preview");
+        var profileFile = Path.Combine(AppContext.BaseDirectory, "profile-directory.txt");
+        var savedProfile = File.Exists(profileFile) ? File.ReadAllText(profileFile).Trim() : null;
+        var data = Arg("--data-dir") ?? (savedProfile != null && Path.IsPathFullyQualified(savedProfile) && Directory.Exists(savedProfile) ? savedProfile : defaultData);
+        data = Path.GetFullPath(data);
         var languageFile = Path.Combine(data, "language.txt");
         string language = File.Exists(languageFile) ? File.ReadAllText(languageFile).Trim() : "en";
+        ApplyLanguage(language);
+        var window = new MainWindow(new MainViewModel(data, repo)); MainWindow = window; window.Show();
+    }
+    public void ApplyLanguage(string language)
+    {
         Text.Chinese = language == "zh-CN";
         Resources.MergedDictionaries[0] = new ResourceDictionary { Source = new Uri("pack://application:,,,/Weims.Manager;component/Strings/" + (Text.Chinese ? "zh-CN" : "en") + ".xaml", UriKind.Absolute) };
-        var window = new MainWindow(new MainViewModel(data, repo)); MainWindow = window; window.Show();
     }
 }

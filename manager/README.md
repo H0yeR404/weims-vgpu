@@ -32,3 +32,11 @@ Run in Windows PowerShell from the application's installation/extraction directo
 For an existing 200 GiB VM, use its actual `state/config.json` with `start`; do not recreate its disk. Run `setup` first if this Preview profile has no runtime. GUI and CLI share `%LOCALAPPDATA%\Weims\Manager-Preview`; do not launch the same disk twice. `stop` refuses a guest that QMP does not report as shut down. If the shutdown request is ignored, use the macOS Apple menu.
 
 [Prerelease details](https://github.com/H0yeR404/weims-vgpu/blob/v1.1.0-pre.1/docs/prerelease-1.1.0-pre.1.md) · [Stable 1.0.1](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0.1). Stable 1.0.1 does not include automatic boot preparation or adaptive resolution.
+
+## Local update preview (1.1.0-pre.2, not published)
+
+Open **Software updates → Check for updates** to read the new version and GitHub release notes. **Update now** downloads the official installer, verifies its SHA256 digest, and installs/restarts Manager after all QEMU VMs and other Manager windows are closed. Stable builds accept stable releases; preview builds also accept newer previews. Older versions are never offered. Downloading can be cancelled. Errors do not change VM disks or runtime paths.
+
+Updating a portable copy installs Manager in the per-user application folder. The selected settings directory is retained for restart and later shortcut launches. The update does not replace the QEMU runtime. Installation failure details are saved under the settings directory's `updates` folder.
+
+English remains the default. The sidebar language picker now changes the current window immediately while preserving the selected page and unsaved configuration. The update page also describes this local build when no newer release is available. VM freezes remain a known issue under investigation.

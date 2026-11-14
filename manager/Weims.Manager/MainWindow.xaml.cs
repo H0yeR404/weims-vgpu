@@ -22,7 +22,8 @@ public partial class MainWindow : Window
         vm = model; InitializeComponent(); DataContext = vm; LanguagePicker.SelectedIndex = Text.Chinese ? 0 : 1;
         Loaded += async (_, _) => { UpdateCapability(); await vm.Refresh(); timer.Start(); if (detectOnLoad && !string.IsNullOrEmpty(vm.Engine.Qemu)) await Work(DetectEnvironment); };
         timer.Tick += async (_, _) => { if (refreshing || vm.Busy) return; refreshing = true; try { await vm.Refresh(); } finally { refreshing = false; } };
-        Closed += (_, _) => { timer.Stop(); setupCancellation?.Cancel(); };
+        Closed += (_, _) => { timer.Stop(); setupCancellation?.Cancel(); updateCancellation?.Cancel(); };
+        RefreshUpdateText();
     }
     async Task Work(Func<Task> work)
     {
