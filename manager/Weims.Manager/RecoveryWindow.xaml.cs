@@ -12,7 +12,8 @@ public partial class RecoveryWindow : Window
     public VmConfig? Created { get; private set; }
     public RecoveryWindow(EngineSettings engine, string? repo, string? dataDirectory = null)
     {
-        this.engine = engine; data = dataDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Weims", "Manager-Preview"); InitializeComponent();
+        this.engine = engine; data = dataDirectory ?? ProfileDirectory.Resolve(null, AppContext.BaseDirectory); InitializeComponent();
+        SourceInitialized += (_, _) => ((App)Application.Current).ApplyTitleBar(this);
         ParentPath.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Weims VMs");
         if (repo != null) RomPath.Text = Path.Combine(repo, "sources", "reims", "firmware", "prebuilt", "ReimsGraphics.rom");
         Closing += (_, e) => { if (cancellation != null) { e.Cancel = true; cancellation.Cancel(); Status.Text = Text.Get("正在取消，等待镜像工具退出…", "Cancelling; waiting for the image tool to exit…"); } };

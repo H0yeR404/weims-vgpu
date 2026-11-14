@@ -6,7 +6,7 @@ try
 {
     if (args.Length == 0 || args[0] is "--help" or "help")
     {
-        Console.WriteLine("Weims 1.1.0-pre.1 — Windows x64\nPRE-RELEASE: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH [--display-mode auto|fixed|legacy]\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only after guest shutdown)\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown requests normal guest shutdown; use the macOS menu if it does not respond.");
+        Console.WriteLine("Weims 1.1.0 — Windows x64\nKnown issue: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH [--display-mode auto|fixed|legacy]\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only after guest shutdown)\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown requests normal guest shutdown; use the macOS menu if it does not respond.");
         return 0;
     }
     string command = args[0];
@@ -18,17 +18,17 @@ try
             throw new ArgumentException("Invalid or duplicate option. Use --help.");
     }
     string Required(string key) => options.TryGetValue(key, out var value) ? value : throw new ArgumentException("Required: " + key);
-    string data = Path.GetFullPath(options.GetValueOrDefault("--data-dir") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Weims", "Manager-Preview"));
+    string data = ProfileDirectory.Resolve(options.GetValueOrDefault("--data-dir"), AppContext.BaseDirectory);
     Directory.CreateDirectory(data);
     string engineFile = Path.Combine(data, "engine.json");
     var engine = File.Exists(engineFile) ? JsonSerializer.Deserialize<EngineSettings>(File.ReadAllText(engineFile))! : new EngineSettings();
     using var cancel = new CancellationTokenSource(); Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
     var progress = new ConsoleProgress();
-    Console.Error.WriteLine("PRE-RELEASE: VM freezes are possible. A fix is planned; back up important data.");
+    Console.Error.WriteLine("Known issue: VM freezes are possible. A fix is planned; back up important data.");
     if (command == "setup")
     {
         var prepared = await EnvironmentSetup.Prepare(data, progress, cancel.Token);
-        if (!GuidedSetup.Available(prepared)) throw new IOException("Incomplete prerelease runtime.");
+        if (!GuidedSetup.Available(prepared)) throw new IOException("Incomplete runtime.");
         JsonFiles.Write(engineFile, prepared); Console.WriteLine("Runtime ready.");
     }
     else if (command == "create")

@@ -15,6 +15,7 @@ internal static class Program
     [STAThread]
     static int Main(string[] args)
     {
+        if (args.Contains("--startup")) return StartupCheck(args);
         Text.Chinese = true;
         var output = Path.GetFullPath(args.FirstOrDefault() ?? "ui-evidence"); Directory.CreateDirectory(output);
         var fixture = Path.Combine(output, "fixture"); Directory.CreateDirectory(fixture);
@@ -79,13 +80,54 @@ internal static class Program
 
             Shot(english, Path.Combine(output,"zh-runtime-simple.png"));
             Check(enModel.Selected!.QmpPortInput == "unsaved-invalid-port", "language change preserves unsaved invalid field text");
+            var theme = (ComboBox)english.FindName("ThemePicker");
+            Check(Equals(theme.SelectedValue, "light"), "light appearance is the default");
+            theme.SelectedValue = "dark"; Pump();
+            Color BrushColor(Brush brush) => ((SolidColorBrush)brush).Color;
+            Check(BrushColor(english.Background) == Color.FromRgb(25,27,32), "dark palette applied to the existing window immediately");
+            Check(File.ReadAllText(Path.Combine(enModel.DataDirectory, "theme.txt")) == "dark", "appearance selection saved");
+            Check(enModel.Page == 4 && enModel.Selected!.QmpPortInput == "unsaved-invalid-port", "theme switch preserves current page and unsaved edits");
+            Check(ReferenceEquals(english.DataContext, enModel), "theme switch keeps existing view model");
+            var themeBottom = theme.TranslatePoint(new Point(0, theme.ActualHeight), english);
+            var navigation = (ListBox)english.FindName("Navigation");
+            var navigationBottom = navigation.TranslatePoint(new Point(0, navigation.ActualHeight), english);
+            var languageTop = language.TranslatePoint(new Point(0, 0), english);
+            Check(themeBottom.Y < english.ActualHeight && navigationBottom.Y < languageTop.Y, "appearance and navigation fit minimum window height");
+            language.SelectedIndex = 1; Pump();
+            Check(app.Theme == "dark" && BrushColor(english.Background) == Color.FromRgb(25,27,32), "language switch does not reset dark appearance");
+            for (int i=0;i<7;i++) { enModel.Page=i; Pump(); Shot(english,Path.Combine(output,$"dark-page-{i}.png")); }
+            enModel.Page=2; Pump();
+            var darkResolution=(ComboBox)english.FindName("Resolution");
+            var editor=(TextBox)darkResolution.Template.FindName("PART_EditableTextBox",darkResolution);
+            editor.SetCurrentValue(TextBox.TextProperty,"2560x1600"); Pump();
+            Check(enModel.Selected!.Resolution=="2560x1600", "themed editable resolution still updates configuration");
+            Check(BrushColor(editor.Foreground)==BrushColor((Brush)app.FindResource("Ink")), "editable combo uses readable dark foreground");
+            darkResolution.IsDropDownOpen=true; Pump();
+            var popup=(System.Windows.Controls.Primitives.Popup)darkResolution.Template.FindName("PART_Popup",darkResolution);
+            Check(BrushColor(((Border)popup.Child).Background)==BrushColor((Brush)app.FindResource("Card")), "dropdown popup uses dark surface");
+            var resolutionItem=(ComboBoxItem)darkResolution.ItemContainerGenerator.ContainerFromIndex(0);
+            resolutionItem.IsSelected=true; darkResolution.IsDropDownOpen=false; Pump();
+            Check(enModel.Selected.Resolution=="1280x800", "themed dropdown selection still updates editable configuration");
+            var darkWizard=new RecoveryWindow(enModel.Engine,null) {Owner=english}; darkWizard.Show(); Pump();
+            Check(BrushColor(darkWizard.Background)==BrushColor(english.Background), "new recovery window uses selected theme");
+            Check(Descendants(darkWizard).OfType<Label>().All(l=>BrushColor(l.Foreground)==BrushColor((Brush)app.FindResource("Ink"))), "wizard labels use dark foreground");
+            Check(Descendants(darkWizard).OfType<CheckBox>().All(c=>BrushColor(c.Foreground)==BrushColor((Brush)app.FindResource("Ink"))), "wizard switches use dark foreground");
+            Shot(darkWizard,Path.Combine(output,"dark-recovery-wizard.png"));
+            theme.SelectedValue="light"; Pump();
+            Check(BrushColor(english.Background)==Color.FromRgb(246,247,250) && BrushColor(darkWizard.Background)==BrushColor(english.Background), "switching back updates all open windows");
+            darkWizard.Close();
+            theme.SelectedValue="dark"; Pump(); app.ApplyTheme("light"); app.LoadTheme(enModel.DataDirectory); Pump();
+            Check(app.Theme=="dark", "persisted dark preference reloads");
+            theme.SelectedValue="light"; Pump();
+            File.WriteAllText(Path.Combine(enModel.DataDirectory,"theme.txt"),"unknown"); app.LoadTheme(enModel.DataDirectory);
+            Check(app.Theme=="light", "unknown saved theme falls back to light");
             language.SelectedIndex = 1; Pump();
             Check(english.Title == "Weims · Virtual Machine Manager", "switch back to English without reopening window");
             enModel.Page = 6; Pump();
             Check(Descendants(english).OfType<Button>().Any(b => Equals(b.Content, "Check for updates")), "update page available in English");
             Check(!((Button)english.FindName("InstallUpdateButton")).IsEnabled, "install is disabled without a newer verified release");
             language.SelectedIndex = 0; Pump();
-            Check(((TextBlock)english.FindName("UpdateChannel")).Text.Contains("预览"), "dynamic update channel switches language");
+            Check(((TextBlock)english.FindName("UpdateChannel")).Text.Contains("稳定"), "stable update channel switches language");
             Shot(english, Path.Combine(output,"zh-updates.png"));
             language.SelectedIndex = 1; Pump();
             Check(((TextBox)english.FindName("ReleaseNotes")).Text.Contains("\n"), "bundled update notes preserve readable paragraphs");
@@ -96,10 +138,29 @@ internal static class Program
             Check(Descendants(englishWizard).OfType<Expander>().All(e => !e.IsExpanded), "advanced boot fields collapsed");
             Check(englishWizard.Title == "Weims · Recovery Setup", "English recovery wizard title");
             Shot(englishWizard, Path.Combine(output,"en-recovery-wizard.png")); englishWizard.Close(); english.Close();
-            File.WriteAllText(Path.Combine(output,"result.txt"),$"{checks} WPF UI contract checks passed. Both languages, six pages, minimum window and recovery wizard rendered.");
+            File.WriteAllText(Path.Combine(output,"result.txt"),$"{checks} WPF UI contract checks passed. Both languages, both themes, seven pages, minimum window and recovery wizard rendered.");
             Console.WriteLine($"{checks} WPF UI checks passed."); app.Shutdown(); return 0;
         }
         catch(Exception e) { File.WriteAllText(Path.Combine(output,"error.txt"),e.ToString()); Console.Error.WriteLine(e); app.Shutdown(); return 1; }
+    }
+    static int StartupCheck(string[] args)
+    {
+        var app = new App(); app.InitializeComponent();
+        int code = 1;
+        app.Dispatcher.BeginInvoke(() =>
+        {
+            try
+            {
+                var window = (MainWindow)app.MainWindow;
+                Console.WriteLine($"Startup: title={window.Title}; language={Text.Chinese}; theme={app.Theme}; resource={app.Resources.MergedDictionaries[0].Source}");
+                if (window.Title != "Weims · Virtual Machine Manager" || Text.Chinese) throw new Exception("Fresh startup must use English.");
+                if (app.Theme != "dark") throw new Exception("Startup must reload saved dark preference.");
+                code=0; Console.WriteLine("PASS actual startup uses English and restores saved dark appearance");
+            }
+            catch (Exception ex) { Console.Error.WriteLine(ex); }
+            finally { app.Shutdown(code); }
+        }, DispatcherPriority.ApplicationIdle);
+        app.Run(); return code;
     }
     static IEnumerable<DependencyObject> Descendants(DependencyObject root) { for(int i=0;i<VisualTreeHelper.GetChildrenCount(root);i++){var child=VisualTreeHelper.GetChild(root,i); yield return child; foreach(var item in Descendants(child))yield return item;} }
     static void Pump() => Dispatcher.CurrentDispatcher.Invoke(()=>{},DispatcherPriority.ApplicationIdle);

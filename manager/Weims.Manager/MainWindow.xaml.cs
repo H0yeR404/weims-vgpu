@@ -19,7 +19,10 @@ public partial class MainWindow : Window
     public string[] ResolutionChoices { get; } = ["1280x800", "1440x900", "1600x900", "1920x1080", "1920x1200", "2048x1152", "2560x1440", "2560x1600", "3440x1440", "3840x2160"];
     public MainWindow(MainViewModel model, bool detectOnLoad = true)
     {
-        vm = model; InitializeComponent(); DataContext = vm; LanguagePicker.SelectedIndex = Text.Chinese ? 0 : 1;
+        vm = model;
+        var app = (App)Application.Current; app.LoadTheme(vm.DataDirectory);
+        InitializeComponent(); DataContext = vm; LanguagePicker.SelectedIndex = Text.Chinese ? 0 : 1;
+        ThemePicker.SelectedValue = app.Theme;
         Loaded += async (_, _) => { UpdateCapability(); await vm.Refresh(); timer.Start(); if (detectOnLoad) await Work(DetectEnvironment); };
         timer.Tick += async (_, _) => { if (refreshing || vm.Busy) return; refreshing = true; try { await vm.Refresh(); } finally { refreshing = false; } };
         Closed += (_, _) => { timer.Stop(); setupCancellation?.Cancel(); updateCancellation?.Cancel(); };

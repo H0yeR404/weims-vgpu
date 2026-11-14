@@ -22,6 +22,7 @@ Check(ManagerUpdates.Select(Json(Release("v1.2.0", false, true)), "1.1.0") == nu
 Check(ManagerUpdates.Select(Json(Release("v1.0.1")), "1.1.0-pre.1") == null, "preview never downgrades to older stable");
 Check(ManagerUpdates.Select(Json(Release("v1.1.0-pre.1", true)), "1.1.0-pre.1") == null, "same version not offered");
 Check(ManagerUpdates.Select(Json(Release("v1.1.0")), "1.1.0-pre.1")?.Tag == "v1.1.0", "preview may advance to stable");
+Check(ManagerUpdates.Select(Json(Release("v1.1.0")), "1.1.0-pre.2")?.Tag == "v1.1.0", "pre.2 discovers promoted stable version");
 Check(ManagerUpdates.Select(Json(Release("v1.1.0-pre.2", true), Release("v1.1.0-pre.10", true)), "1.1.0-pre.1")?.Tag == "v1.1.0-pre.10", "highest compatible release selected");
 await Reject(() => Task.FromResult(ManagerUpdates.Select(Json(Release("v1.2.0", hash:"bad")), "1.1.0")), "missing digest fails closed");
 await Reject(() => Task.FromResult(ManagerUpdates.Select(Json(Release("v1.2.0", url:"https://evil.example/install.exe")), "1.1.0")), "foreign executable URL rejected");
@@ -47,6 +48,10 @@ try {
   var found = await live.Check("1.0.0", CancellationToken.None);
   Check(found != null && found.Version.Preview == null, "real GitHub API stable release discovery");
   Console.WriteLine("Live release: " + found!.Tag);
+  if (args.Contains("--published-stable")) {
+   var promotion = await live.Check("1.1.0-pre.2", CancellationToken.None);
+   Check(promotion?.Tag == "v1.1.0" && promotion.Version.Preview == null, "published 1.1.0 installer offered to pre.2");
+  }
  }
  Console.WriteLine($"{count} update checks passed.");
 } finally { Directory.Delete(folder, true); }

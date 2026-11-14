@@ -12,6 +12,23 @@ void Reject(Action action, string name) { try { action(); } catch (Exception) { 
 var temp = Path.Combine(Path.GetTempPath(), "weims-contract-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(temp);
 try
 {
+    var profiles = Path.Combine(temp, "profiles");
+    var application = Path.Combine(temp, "application"); Directory.CreateDirectory(application);
+    var stable = Path.Combine(profiles, "Weims", "Manager");
+    var preview = Path.Combine(profiles, "Weims", "Manager-Preview");
+    Check(ProfileDirectory.Resolve(null, application, profiles) == stable, "fresh stable install uses stable profile");
+    Directory.CreateDirectory(stable);
+    Check(ProfileDirectory.Resolve(null, application, profiles) == stable, "existing stable profile retained");
+    Directory.CreateDirectory(preview);
+    Check(ProfileDirectory.Resolve(null, application, profiles) == preview, "preview promotion keeps preview library and settings");
+    File.WriteAllText(Path.Combine(application, "profile-directory.txt"), stable);
+    Check(ProfileDirectory.Resolve(null, application, profiles) == stable, "updater profile marker takes precedence for GUI and CLI");
+    Check(ProfileDirectory.Resolve(preview, application, profiles) == preview, "explicit profile overrides update marker");
+    Check(Path.IsPathFullyQualified(ProfileDirectory.Resolve("relative-profile", application, profiles)), "relative explicit profile normalized");
+    File.WriteAllText(Path.Combine(application, "profile-directory.txt"), Path.Combine(temp,"missing"));
+    Check(ProfileDirectory.Resolve(null, application, profiles) == preview, "missing updater profile falls back to existing preview");
+    File.WriteAllText(Path.Combine(application, "profile-directory.txt"), "relative-marker");
+    Check(ProfileDirectory.Resolve(null, application, profiles) == preview, "relative marker is not adopted");
     string FileAt(string name) { var p = Path.Combine(temp, name); File.WriteAllText(p, "test"); return p; }
     var engine = new EngineSettings { Qemu = FileAt("qemu-system-x86_64.exe"), RuntimeBin = temp, Bios = temp };
     FileAt("qemu-img.exe"); FileAt("reims_vgpu_c.dll");

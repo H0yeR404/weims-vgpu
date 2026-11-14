@@ -1,15 +1,15 @@
-# Weims Manager Preview 1.1.0-pre.2
+# Weims Manager 1.1.0
 
-## Quick Start — Windows · 1.1.0-pre.2
+## Quick Start — Windows · 1.1.0
 
-> **PRE-RELEASE: the VM may freeze, including during resolution changes. This is a known issue and will be addressed in a future update. Back up important data.** The manager is still under development. Automatic preparation has reached the Tahoe recovery menu on the test host; a complete fresh installation to the desktop has not been validated.
+> **Known issues: the VM may freeze, including during resolution changes. This is a known issue and will be addressed in a future update. Back up important data.** The manager is still under development. Automatic preparation has reached the Tahoe recovery menu on the test host; a complete fresh installation to the desktop has not been validated.
 
 Requirements: Windows 10 2004+/11 x64, BIOS/UEFI virtualization, **Windows Hypervisor Platform (WHPX)** enabled (restart Windows after enabling it), and a Vulkan GPU/driver supporting `VK_EXT_external_memory_host`. Enable WHPX in **Turn Windows features on or off**. The app does not enable firmware virtualization or Windows features for you. WSL2, MSYS2, Rust and the .NET SDK are **not needed for the packaged app**. Internet access to GitHub, Apple and upstream download servers is required.
 
 ### Install and create a VM
 
-1. Download `Weims-Manager-1.1.0-pre.2-Setup-x64.exe` from the [prerelease](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.1.0-pre.2), or extract the portable ZIP. The installer and app use the Weims icon. Preview installs beside stable 1.0.1; English is the default UI, with Chinese available in Settings.
-2. Open **Weims Manager Preview → Create VM**. Choose a new VM location, name and disk capacity (default **200 GiB**). Keep automatic Apple Tahoe recovery download enabled, or select your own compatible `BaseSystem.dmg` / `.img`. Full ISO and ARM macOS are not supported.
+1. Download `Weims-Manager-1.1.0-Setup-x64.exe` from the [release](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.1.0), or extract the portable ZIP. The installer and app use the Weims icon. The installer uses the stable Weims Manager application folder. English and light appearance are the defaults; language and appearance can be changed immediately in the sidebar.
+2. Open **Weims Manager → Create VM**. Choose a new VM location, name and disk capacity (default **200 GiB**). Keep automatic Apple Tahoe recovery download enabled, or select your own compatible `BaseSystem.dmg` / `.img`. Full ISO and ARM macOS are not supported.
 3. Click **Create**. The app prepares PowerShell and QEMU/Reims, downloads and verifies Apple recovery, generates OpenCore with a new machine identity, prepares OVMF and matching graphics drivers/ROM, converts recovery media, and creates the empty disk. No manual WSL, EFI editing, firmware copying or SMC-key entry is needed. Existing destinations are rejected. Sparse capacity does not reserve physical disk space.
 4. Start the VM. In OpenCore select recovery (press **Space** if hidden). In **Disk Utility → View → Show All Devices**, erase **only the new empty system disk**, identified by its capacity, as **GUID Partition Map / APFS**. Never erase the recovery or OpenCore disks.
 5. Close Disk Utility, choose **Reinstall macOS Tahoe**, and select the new volume. Allow downloads and restarts; choose the installer/system entry as installation progresses. After reaching the desktop, shut down macOS, stop the remaining QEMU process, detach recovery in the Manager, save and boot again.
@@ -29,23 +29,18 @@ Run in Windows PowerShell from the application's installation/extraction directo
 .\Weims.Cli.exe stop --config D:\VMs\macOS-Tahoe\state\config.json
 ```
 
-For an existing 200 GiB VM, use its actual `state/config.json` with `start`; do not recreate its disk. Run `setup` first if this Preview profile has no runtime. GUI and CLI share `%LOCALAPPDATA%\Weims\Manager-Preview`; do not launch the same disk twice. `stop` refuses a guest that QMP does not report as shut down. If the shutdown request is ignored, use the macOS Apple menu.
+For an existing 200 GiB VM, use its actual `state/config.json` with `start`; do not recreate its disk. Run `setup` first if this profile has no runtime. GUI and CLI use the same profile: an updater-retained custom profile takes precedence; otherwise an existing `%LOCALAPPDATA%\Weims\Manager-Preview` is reused, or `%LOCALAPPDATA%\Weims\Manager` is used for fresh stable installs. Use `--data-dir` to choose another profile. Please do not launch the same disk twice. `stop` refuses a guest that QMP does not report as shut down. If the shutdown request is ignored, use the macOS Apple menu.
 
-[Prerelease details](https://github.com/H0yeR404/weims-vgpu/blob/v1.1.0-pre.2/docs/prerelease-1.1.0-pre.2.md) · [Stable 1.0.1](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0.1). Stable 1.0.1 does not include automatic boot preparation or adaptive resolution.
+[1.1.0 release notes](https://github.com/H0yeR404/weims-vgpu/blob/v1.1.0/docs/release-1.1.0.md). The graphics runtime remains pinned to v1.1.0-pre.1; this Manager release does not fix the known VM freezes.
 
-## Software updates (1.1.0-pre.2)
+## Appearance, language and updates
 
-Open **Software updates → Check for updates** to read the new version and GitHub release notes. **Update now** downloads the official installer, verifies its SHA256 digest, and installs/restarts Manager after all QEMU VMs and other Manager windows are closed. Stable builds accept stable releases; preview builds also accept newer previews. Older versions are never offered. Downloading can be cancelled. Errors do not change VM disks or runtime paths.
+Choose **Appearance → Light / Dark** in the sidebar. The current window and open setup windows change immediately; the choice is saved without restarting or discarding unsaved configuration. Windows high contrast takes precedence. English remains the default language, and English/Chinese also switch immediately.
 
-Updating a portable copy installs Manager in the per-user application folder. The selected settings directory is retained for restart and later shortcut launches. The update does not replace the QEMU runtime. Installation failure details are saved under the settings directory's `updates` folder.
+In **Software updates → Check for updates**, read the release notes and select **Update now**. The official installer is downloaded and SHA256-verified. Close all QEMU VMs and other Manager windows before installation; only the software update restarts Manager. Stable 1.1.0 accepts newer stable releases. Pre.2 users can upgrade to 1.1.0 through their existing updater. Users of 1.0.1 and pre.1 need to download the installer manually once.
 
-English remains the default. The sidebar language picker now changes the current window immediately while preserving the selected page and unsaved configuration. The update page also describes this build when no newer release is available. VM freezes remain a known issue under investigation.
+The updater preserves the chosen settings directory for subsequent GUI and CLI launches. Updating a portable copy installs into the per-user application folder. The runtime and VM disks are not replaced. The retained Preview application is not automatically uninstalled; after upgrading, use the stable Weims Manager shortcut.
 
-## Runtime setup refresh — 2026-11-14
+## One-click runtime setup
 
-This release's packages have been refreshed in place, keeping version 1.1.0-pre.2. If you installed the earlier pre.2 package, download and run the installer again; version-based update checks do not offer another build with the same version.
-
-- First-time users land on the runtime setup page automatically.
-- One-click setup downloads, verifies and saves all runtime paths. Valid existing runtimes are reused.
-- Runtime components, virtualization and graphics readiness are shown clearly. Manual paths are hidden under Advanced.
-- Starting an imported VM automatically prepares missing runtime components. BIOS settings, Windows features and GPU drivers may still require manual action.
+First-time users open the runtime page automatically. **One-click setup** downloads, verifies and saves runtime paths; a valid existing runtime is reused. Manual paths remain available under **Advanced**. Starting an imported VM prepares missing components automatically. Firmware virtualization, Windows features and GPU drivers may still require manual action.

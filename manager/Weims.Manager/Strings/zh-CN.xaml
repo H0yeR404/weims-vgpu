@@ -203,25 +203,24 @@
 <sys:String x:Key="S199">自动准备运行环境、OpenCore、固件与图形驱动，无需安装 Python、MSYS2 或 WSL。此过程需要联网。</sys:String>
 <sys:String x:Key="S200">高级选项 · 自备引导文件</sys:String>
 <sys:String x:Key="S201">使用自备引导文件与端口，替代自动准备</sys:String>
-<sys:String x:Key="S202">预发布版 · 虚拟机可能卡死，包括切换分辨率时。此问题已知，后续将修复。请备份重要数据。准备完成后，在独立恢复窗口中安装 macOS。</sys:String>
-<sys:String x:Key="S203">1.1.0-pre.2 · 虚拟机可能卡死，包括切换分辨率时。后续将修复，请保留备份并使用测试虚拟机。</sys:String>
+<sys:String x:Key="S202">已知问题 · 虚拟机可能卡死，包括切换分辨率时。此问题已知，后续将修复。请备份重要数据。准备完成后，在独立恢复窗口中安装 macOS。</sys:String>
+<sys:String x:Key="S203">1.1.0 · 虚拟机可能卡死，包括切换分辨率时。后续将修复，请保留备份并使用测试虚拟机。</sys:String>
  <sys:String x:Key="UpdateTitle">软件更新</sys:String>
  <sys:String x:Key="UpdateCheck">检查更新</sys:String>
  <sys:String x:Key="UpdateInstall">一键更新</sys:String>
  <sys:String x:Key="UpdateNotes">更新说明</sys:String>
  <sys:String x:Key="UpdateHelp">从官方 GitHub 仓库下载并校验 SHA256 后安装。安装前请关闭所有虚拟机；管理器将重新启动。免安装版会安装到当前用户的 Weims Manager 文件夹；虚拟机磁盘和运行环境路径保留。</sys:String>
- <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">预览版 1.1.0-pre.2
+ <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Weims Manager 1.1.0 — 正式版
 
-• 一键准备运行环境并自动保存全部路径，手动配置收进高级设置。
-• 检查 GitHub 上兼容的稳定版或预览版。
-• 下载更新前可查看该版本的更新说明。
-• 安装前校验 SHA256；虚拟机或其他管理器窗口未关闭时暂缓安装。
-• 中英文立即切换，无需重启，保留当前页面和配置。
-• 显示实际软件版本号。
+• 侧栏新增浅色／深色外观，立即生效并记住选择。
+• 主题和语言切换保留当前页面与未保存输入，默认英文和浅色。
+• 包含 pre.2 的一键运行环境准备、校验后软件更新及自适应分辨率。
+• pre.2 可更新到 1.1.0，正式版接收后续正式版更新。
+• GUI 和 CLI 继续使用已有预览版或更新器保留的自定义设置目录。
 
-已知问题：虚拟机仍可能发生卡死，包括调整窗口大小时，正在排查。
+QEMU/Reims 运行库仍固定为 pre.1。虚拟机卡死仍在排查；也已收到 Intel Arc 140T 初始化异常报告。此次发布未修复这些图形问题。
 
-尚未进行真实覆盖安装升级验证。</sys:String>
+尚未验证真实覆盖安装升级。</sys:String>
  <sys:String x:Key="RuntimeWelcome">把环境准备交给 Weims</sys:String>
  <sys:String x:Key="RuntimeAutomatic">自动下载所需组件、校验并保存全部路径，无需查找文件或手动填写。</sys:String>
  <sys:String x:Key="RuntimeComponents">虚拟机运行组件</sys:String>
@@ -231,4 +230,7 @@
  <sys:String x:Key="RuntimeFirstStep">准备一次，即可创建或导入 macOS 虚拟机。</sys:String>
  <sys:String x:Key="RuntimeDetails">查看诊断与下载详情</sys:String>
  <sys:String x:Key="RuntimeAdvanced">高级设置 · 自定义运行环境路径</sys:String>
+ <sys:String x:Key="ThemeLabel">外观</sys:String>
+ <sys:String x:Key="ThemeLight">浅色</sys:String>
+ <sys:String x:Key="ThemeDark">深色</sys:String>
 </ResourceDictionary>
