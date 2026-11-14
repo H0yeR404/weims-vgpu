@@ -1,5 +1,14 @@
 # Weims Manager 1.1.0-pre.2
 
+## Runtime setup refresh — 2026-11-14
+
+This release's packages have been refreshed in place, keeping version 1.1.0-pre.2. If you installed the earlier pre.2 package, download and run the installer again; version-based update checks do not offer another build with the same version.
+
+- First-time users land on the runtime setup page automatically.
+- One-click setup downloads, verifies and saves all runtime paths. Valid existing runtimes are reused.
+- Runtime components, virtualization and graphics readiness are shown clearly. Manual paths are hidden under Advanced.
+- Starting an imported VM automatically prepares missing runtime components. BIOS settings, Windows features and GPU drivers may still require manual action.
+
 - Check for updates from GitHub, read release notes, and download/install with SHA256 verification.
 - Stable builds accept stable releases; previews also accept newer previews. Downgrades are blocked.
 - Installation waits until all QEMU VMs and other Manager windows are closed. Downloads can be cancelled.
@@ -18,4 +27,4 @@ The runtime is unchanged from [v1.1.0-pre.1](https://github.com/H0yeR404/weims-v
 
 ## Validation
 
-63 Core checks, 25 WPF checks, 21 updater checks (including live GitHub discovery), and 6 installer-handoff checks passed. Handoff tests mock installation/process launches; a real in-place installation upgrade has not been performed. SHA256SUMS is attached. Stable 1.0.1 remains Latest.
+63 Core checks, 28 WPF checks, 21 updater checks (including live GitHub discovery), and 6 installer-handoff checks passed. Handoff tests mock installation/process launches; a real in-place installation upgrade has not been performed. SHA256SUMS is attached. Stable 1.0.1 remains Latest.

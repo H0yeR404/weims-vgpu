@@ -43,6 +43,7 @@ public sealed class MainViewModel : Observable
         if (File.Exists(library)) foreach (var path in JsonSerializer.Deserialize<string[]>(File.ReadAllText(library)) ?? [])
         { try { Add(path, false); } catch { Message = Text.Get("部分已登记配置无法读取，请重新导入。", "Some registered configurations could not be read. Please import them again."); } }
         Selected = Machines.FirstOrDefault();
+        if (Machines.Count == 0 && !File.Exists(Engine.Qemu)) Page = 4;
     }
     public void Add(string path, bool save = true)
     {

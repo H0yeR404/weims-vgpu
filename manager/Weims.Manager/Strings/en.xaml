@@ -71,7 +71,7 @@
 <sys:String x:Key="S67">Save media settings</sys:String>
 <sys:String x:Key="S68">INSIDE RECOVERY</sys:String>
 <sys:String x:Key="S69">Select recovery in OpenCore (press Space to reveal auxiliary entries if needed). In Disk Utility, erase only the new empty system disk as GUID/APFS. Close Disk Utility and reinstall macOS. Check the disk capacity carefully. Full installation through this wizard has not yet been validated.</sys:String>
-<sys:String x:Key="S70">Prepare components automatically, or select an existing Windows runtime.</sys:String>
+<sys:String x:Key="S70">Everything your virtual machine needs, prepared in one place.</sys:String>
 <sys:String x:Key="S71">Automatic runtime setup</sys:String>
 <sys:String x:Key="S72">Detect this device, download and verify pinned components. BIOS, drivers and system restarts remain under your control.</sys:String>
 <sys:String x:Key="S73">Check environment</sys:String>
@@ -87,7 +87,7 @@
 <sys:String x:Key="S83">PowerShell 7 executable</sys:String>
 <sys:String x:Key="S84">Keep qemu-img.exe and reims_vgpu_c.dll beside QEMU. The shared-memory graphics path is used by default.</sys:String>
 <sys:String x:Key="S85">Check &amp; save runtime</sys:String>
-<sys:String x:Key="S86">Checks do not change system security settings. Windows Hypervisor Platform, a Vulkan driver and PowerShell 7 are required.</sys:String>
+<sys:String x:Key="S86">Weims prepares the software components. BIOS virtualization, Windows Hypervisor Platform and GPU drivers may still need your attention.</sys:String>
 <sys:String x:Key="S87">Inspect launch arguments and the most recent run.</sys:String>
 <sys:String x:Key="S88">Preview arguments</sys:String>
 <sys:String x:Key="S89">Read logs</sys:String>
@@ -212,6 +212,7 @@
  <sys:String x:Key="UpdateHelp">Downloads from the official GitHub repository and verifies SHA256 before installing. Close all VMs before installation. The manager will restart. Portable copies install into the per-user Weims Manager folder; VM disks and runtime paths are preserved.</sys:String>
  <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Preview 1.1.0-pre.2
 
+• One-click runtime setup saves all paths automatically; custom paths are now under Advanced.
 • Check GitHub for compatible stable or preview releases.
 • Read release notes before downloading and updating.
 • Verify SHA256 before installation; postpone installation while VMs or other Manager windows are open.
@@ -221,4 +222,13 @@
 Known limitation: VM freezes may still occur, including during resizing. This remains under investigation.
 
 A real in-place installation upgrade has not been validated.</sys:String>
+ <sys:String x:Key="RuntimeWelcome">Let Weims handle the setup</sys:String>
+ <sys:String x:Key="RuntimeAutomatic">Weims downloads the required components, verifies them, and saves every path for you. No manual file selection is needed.</sys:String>
+ <sys:String x:Key="RuntimeComponents">Virtual machine components</sys:String>
+ <sys:String x:Key="RuntimeVirtualization">Hardware virtualization</sys:String>
+ <sys:String x:Key="RuntimeGraphics">Graphics support</sys:String>
+ <sys:String x:Key="RuntimePrepare">One-click setup</sys:String>
+ <sys:String x:Key="RuntimeFirstStep">Prepare once, then create or import your macOS virtual machine.</sys:String>
+ <sys:String x:Key="RuntimeDetails">Diagnostics and download details</sys:String>
+ <sys:String x:Key="RuntimeAdvanced">Advanced · custom runtime paths</sys:String>
 </ResourceDictionary>

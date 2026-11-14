@@ -71,7 +71,7 @@
 <sys:String x:Key="S67">保存介质设置</sys:String>
 <sys:String x:Key="S68">恢复环境中的操作</sys:String>
 <sys:String x:Key="S69">在 OpenCore 中选择恢复系统（必要时按空格显示辅助启动项）。使用磁盘工具抹掉新建的空白系统盘：GUID 分区图 + APFS。关闭磁盘工具后选择重新安装 macOS。请核对磁盘容量，勿选择其他磁盘。此流程尚未完成端到端安装验证。</sys:String>
-<sys:String x:Key="S70">自动准备运行组件，或手动选择已有的 Windows 新通道环境。</sys:String>
+<sys:String x:Key="S70">在这里，一次准备好虚拟机需要的运行环境。</sys:String>
 <sys:String x:Key="S71">自动准备运行环境</sys:String>
 <sys:String x:Key="S72">检测当前设备，下载并校验固定版本组件。不会自动更改 BIOS、驱动或重启系统。</sys:String>
 <sys:String x:Key="S73">检测环境</sys:String>
@@ -87,7 +87,7 @@
 <sys:String x:Key="S83">PowerShell 7 可执行文件</sys:String>
 <sys:String x:Key="S84">qemu-img.exe 和 reims_vgpu_c.dll 应与 QEMU 放在同一目录。默认使用共享内存新通道。</sys:String>
 <sys:String x:Key="S85">检查并保存环境</sys:String>
-<sys:String x:Key="S86">环境检查不会修改系统安全设置。需要 Windows Hypervisor Platform、支持 Vulkan 的显卡驱动和 PowerShell 7。</sys:String>
+<sys:String x:Key="S86">Weims 自动准备软件组件；BIOS 虚拟化、Windows 虚拟机监控程序平台和显卡驱动可能仍需你按提示处理。</sys:String>
 <sys:String x:Key="S87">检查启动参数，查看最近一次运行记录。</sys:String>
 <sys:String x:Key="S88">预览启动参数</sys:String>
 <sys:String x:Key="S89">读取运行日志</sys:String>
@@ -212,6 +212,7 @@
  <sys:String x:Key="UpdateHelp">从官方 GitHub 仓库下载并校验 SHA256 后安装。安装前请关闭所有虚拟机；管理器将重新启动。免安装版会安装到当前用户的 Weims Manager 文件夹；虚拟机磁盘和运行环境路径保留。</sys:String>
  <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">预览版 1.1.0-pre.2
 
+• 一键准备运行环境并自动保存全部路径，手动配置收进高级设置。
 • 检查 GitHub 上兼容的稳定版或预览版。
 • 下载更新前可查看该版本的更新说明。
 • 安装前校验 SHA256；虚拟机或其他管理器窗口未关闭时暂缓安装。
@@ -221,4 +222,13 @@
 已知问题：虚拟机仍可能发生卡死，包括调整窗口大小时，正在排查。
 
 尚未进行真实覆盖安装升级验证。</sys:String>
+ <sys:String x:Key="RuntimeWelcome">把环境准备交给 Weims</sys:String>
+ <sys:String x:Key="RuntimeAutomatic">自动下载所需组件、校验并保存全部路径，无需查找文件或手动填写。</sys:String>
+ <sys:String x:Key="RuntimeComponents">虚拟机运行组件</sys:String>
+ <sys:String x:Key="RuntimeVirtualization">硬件虚拟化</sys:String>
+ <sys:String x:Key="RuntimeGraphics">显卡支持</sys:String>
+ <sys:String x:Key="RuntimePrepare">一键准备运行环境</sys:String>
+ <sys:String x:Key="RuntimeFirstStep">准备一次，即可创建或导入 macOS 虚拟机。</sys:String>
+ <sys:String x:Key="RuntimeDetails">查看诊断与下载详情</sys:String>
+ <sys:String x:Key="RuntimeAdvanced">高级设置 · 自定义运行环境路径</sys:String>
 </ResourceDictionary>

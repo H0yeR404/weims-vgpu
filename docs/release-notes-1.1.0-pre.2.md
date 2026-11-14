@@ -1,7 +1,16 @@
-# Weims Manager 1.1.0-pre.2 — updates and live language switching
+# Weims Manager 1.1.0-pre.2 — Updates, Live Language Switching & One-click Setup
 
 ## en
 
+
+## Runtime setup refresh — 2026-11-14
+
+This release's packages have been refreshed in place, keeping version 1.1.0-pre.2. If you installed the earlier pre.2 package, download and run the installer again; version-based update checks do not offer another build with the same version.
+
+- First-time users land on the runtime setup page automatically.
+- One-click setup downloads, verifies and saves all runtime paths. Valid existing runtimes are reused.
+- Runtime components, virtualization and graphics readiness are shown clearly. Manual paths are hidden under Advanced.
+- Starting an imported VM automatically prepares missing runtime components. BIOS settings, Windows features and GPU drivers may still require manual action.
 
 - Check for updates from GitHub, read release notes, and download/install with SHA256 verification.
 - Stable builds accept stable releases; previews also accept newer previews. Downgrades are blocked.
@@ -21,11 +30,20 @@ The runtime is unchanged from [v1.1.0-pre.1](https://github.com/H0yeR404/weims-v
 
 ## Validation
 
-63 Core checks, 25 WPF checks, 21 updater checks (including live GitHub discovery), and 6 installer-handoff checks passed. Handoff tests mock installation/process launches; a real in-place installation upgrade has not been performed. SHA256SUMS is attached. Stable 1.0.1 remains Latest.
+63 Core checks, 28 WPF checks, 21 updater checks (including live GitHub discovery), and 6 installer-handoff checks passed. Handoff tests mock installation/process launches; a real in-place installation upgrade has not been performed. SHA256SUMS is attached. Stable 1.0.1 remains Latest.
 
 
 ## zh-CN
 
+
+## 运行环境准备优化 — 2026-11-14
+
+此次原位更新安装包，版本号仍为 1.1.0-pre.2。已经安装较早 pre.2 包的用户，请重新下载安装包并运行；基于版本号的更新检查不会提示同版本的新构建。
+
+- 首次使用直接进入运行环境准备页面。
+- 一键下载、校验并自动保存全部路径，已有有效环境直接复用。
+- 清晰显示运行组件、虚拟化和显卡的就绪状态，手动路径收进高级设置。
+- 启动导入的虚拟机时会自动准备缺失组件。BIOS 设置、Windows 功能和显卡驱动仍可能需要手动处理。
 
 - 从 GitHub 检查更新，显示更新说明，支持 SHA256 校验后下载并安装。
 - 稳定版接收稳定版更新，预览版也接收更高版本的预览版，禁止降级。
@@ -45,11 +63,20 @@ The runtime is unchanged from [v1.1.0-pre.1](https://github.com/H0yeR404/weims-v
 
 ## 验证
 
-通过 63 项核心检查、25 项 WPF 检查、21 项更新检查（含真实 GitHub 查询）和 6 项安装交接检查。交接测试模拟安装及进程启动，尚未执行真实覆盖安装。附 SHA256SUMS 校验文件。稳定版 1.0.1 仍保留 Latest 标记。
+通过 63 项核心检查、28 项 WPF 检查、21 项更新检查（含真实 GitHub 查询）和 6 项安装交接检查。交接测试模拟安装及进程启动，尚未执行真实覆盖安装。附 SHA256SUMS 校验文件。稳定版 1.0.1 仍保留 Latest 标记。
 
 
 ## ja
 
+
+## 実行環境セットアップの改善 — 2026-11-14
+
+バージョン番号 1.1.0-pre.2 のまま配布パッケージを差し替えました。旧 pre.2 をインストール済みの場合は、インストーラーを再ダウンロードして実行してください。バージョン番号による更新確認では同じバージョンの新ビルドは通知されません。
+
+- 初回起動時は実行環境の準備画面を表示します。
+- ワンクリックでダウンロード、検証、パスの保存を行い、有効な既存環境は再利用します。
+- 実行コンポーネント、仮想化、GPU の状態を表示し、手動パス設定は Advanced にまとめました。
+- インポートした VM の起動時も不足コンポーネントを自動準備します。BIOS、Windows の機能、GPU ドライバーは手動対応が必要な場合があります。
 
 - GitHub の更新を確認し、リリースノートを表示。SHA256 検証後にダウンロード・インストールできます。
 - 安定版は安定版のみ、プレビュー版は新しいプレビュー版も対象です。ダウングレードしません。
@@ -69,4 +96,4 @@ VM と Manager を閉じ、`Weims-Manager-1.1.0-pre.2-Setup-x64.exe` を実行�
 
 ## 検証
 
-Core 63 件、WPF 25 件、更新 21 件（実際の GitHub 確認を含む）、インストール引き継ぎ 6 件の検証に合格しました。引き継ぎテストはインストールとプロセス起動を模擬し、実際の上書き更新は未検証です。SHA256SUMS を添付します。安定版 1.0.1 の Latest 表示を維持します。
+Core 63 件、WPF 28 件、更新 21 件（実際の GitHub 確認を含む）、インストール引き継ぎ 6 件の検証に合格しました。引き継ぎテストはインストールとプロセス起動を模擬し、実際の上書き更新は未検証です。SHA256SUMS を添付します。安定版 1.0.1 の Latest 表示を維持します。

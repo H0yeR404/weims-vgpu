@@ -56,20 +56,28 @@ internal static class Program
             Text.Chinese = false;
             app.Resources.MergedDictionaries[0] = new ResourceDictionary { Source = new Uri("/Weims.Manager;component/Strings/en.xaml", UriKind.Relative) };
             var enModel = new MainViewModel(Path.Combine(fixture,"english-preferences"), null);
+            Check(enModel.Page == 4, "first launch opens one-click runtime setup");
             enModel.Add(config.ConfigPath); enModel.CanEdit = true;
             var english = new MainWindow(enModel, detectOnLoad: false); english.Show(); Pump();
             Check(english.Title == "Weims · Virtual Machine Manager", "English window title");
             Check(((ComboBox)english.FindName("LanguagePicker")).SelectedIndex == 1, "English is selected by default");
             for (int i = 0; i < 7; i++) { enModel.Page = i; Pump(); Shot(english, Path.Combine(output, $"en-page-{i}.png")); }
             enModel.Page = 4; english.Width = 960; english.Height = 660; Pump(); Shot(english, Path.Combine(output,"en-runtime-minimum.png"));
-            Check(Descendants(english).OfType<Button>().Any(b => Equals(b.Content,"Prepare / Retry")), "English automatic setup action is present");
+            Check(Descendants(english).OfType<Button>().Any(b => Equals(b.Content,"One-click setup")), "English automatic setup action is present");
             Check(!((Button)english.FindName("CancelSetup")).IsEnabled, "cancel setup disabled while idle");
+            var advancedRuntime = (Expander)english.FindName("AdvancedRuntime");
+            Check(!advancedRuntime.IsExpanded && !((TextBox)english.FindName("QemuPath")).IsVisible, "manual runtime paths hidden by default");
+            advancedRuntime.IsExpanded = true; Pump();
+            Check(((TextBox)english.FindName("QemuPath")).IsVisible, "custom paths remain available in advanced settings");
+            advancedRuntime.IsExpanded = false; Pump();
+
             enModel.Selected!.QmpPortInput = "unsaved-invalid-port";
             var language = (ComboBox)english.FindName("LanguagePicker"); language.SelectedIndex = 0; Pump();
             Check(File.ReadAllText(Path.Combine(enModel.DataDirectory,"language.txt")) == "zh-CN", "language choice persisted");
             Check(english.Title != "Weims · Virtual Machine Manager", "language switches current window title immediately");
             Check(enModel.Page == 4 && enModel.Selected!.Resolution == "2560x1440", "language switch preserves current page and VM configuration");
 
+            Shot(english, Path.Combine(output,"zh-runtime-simple.png"));
             Check(enModel.Selected!.QmpPortInput == "unsaved-invalid-port", "language change preserves unsaved invalid field text");
             language.SelectedIndex = 1; Pump();
             Check(english.Title == "Weims · Virtual Machine Manager", "switch back to English without reopening window");

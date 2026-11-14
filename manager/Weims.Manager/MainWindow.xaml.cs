@@ -20,10 +20,11 @@ public partial class MainWindow : Window
     public MainWindow(MainViewModel model, bool detectOnLoad = true)
     {
         vm = model; InitializeComponent(); DataContext = vm; LanguagePicker.SelectedIndex = Text.Chinese ? 0 : 1;
-        Loaded += async (_, _) => { UpdateCapability(); await vm.Refresh(); timer.Start(); if (detectOnLoad && !string.IsNullOrEmpty(vm.Engine.Qemu)) await Work(DetectEnvironment); };
+        Loaded += async (_, _) => { UpdateCapability(); await vm.Refresh(); timer.Start(); if (detectOnLoad) await Work(DetectEnvironment); };
         timer.Tick += async (_, _) => { if (refreshing || vm.Busy) return; refreshing = true; try { await vm.Refresh(); } finally { refreshing = false; } };
         Closed += (_, _) => { timer.Stop(); setupCancellation?.Cancel(); updateCancellation?.Cancel(); };
-        RefreshUpdateText();
+        RefreshUpdateText(); RefreshRuntimeSummary();
+        vm.Engine.PropertyChanged += (_, _) => { environmentReport = null; RefreshRuntimeSummary(); };
     }
     async Task Work(Func<Task> work)
     {
@@ -68,6 +69,10 @@ public partial class MainWindow : Window
     async void StartVm(object sender, RoutedEventArgs e) => await Work(async () =>
     {
         EnsureValidFields(); vm.Message = Text.Get("正在检查并启动虚拟机…", "Checking and starting the VM…");
+        await VmService.RequireStopped(Current());
+        Current().Validate();
+        try { await EnsureRuntime(); }
+        catch (OperationCanceledException) { vm.Message = Text.Get("已取消环境准备，虚拟机未启动。", "Setup cancelled. The VM was not started."); return; }
         string key = LaunchPlan.ResolveOsk(Environment.GetEnvironmentVariable("WEIMS_OSK"));
         var run = await VmService.Start(Current(), vm.Engine, key, Path.Combine(AppContext.BaseDirectory, "launch-vm.ps1"));
         vm.Message = Text.Get("已启动独立显示窗口。日志：", "Separate display started. Logs: ") + run;

@@ -55,6 +55,23 @@ public static class EnvironmentSetup
             throw new IOException(Text.Get("运行包缺少共享内存、WHPX 或输入扩展。", "Runtime lacks shared memory, WHPX or the input extension."));
     }
 
+    // Reuse a verified custom or managed runtime; never download again just because the user clicks setup.
+    public static async Task<EngineSettings> Ensure(EngineSettings current, string dataDirectory, IProgress<string> progress, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        try
+        {
+            progress.Report(Text.Get("正在检查现有运行组件…", "Checking existing runtime components…"));
+            await ValidateRuntime(current, token);
+            await CheckPowerShell(current.PowerShell, token);
+            return current;
+        }
+        catch (Exception) when (!token.IsCancellationRequested)
+        {
+            return await Prepare(dataDirectory, progress, token);
+        }
+    }
+
     public static async Task<EngineSettings> Prepare(string dataDirectory, IProgress<string> progress, CancellationToken token)
     {
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) || RuntimeInformation.OSArchitecture != Architecture.X64)

@@ -40,3 +40,12 @@ Open **Software updates → Check for updates** to read the new version and GitH
 Updating a portable copy installs Manager in the per-user application folder. The selected settings directory is retained for restart and later shortcut launches. The update does not replace the QEMU runtime. Installation failure details are saved under the settings directory's `updates` folder.
 
 English remains the default. The sidebar language picker now changes the current window immediately while preserving the selected page and unsaved configuration. The update page also describes this build when no newer release is available. VM freezes remain a known issue under investigation.
+
+## Runtime setup refresh — 2026-11-14
+
+This release's packages have been refreshed in place, keeping version 1.1.0-pre.2. If you installed the earlier pre.2 package, download and run the installer again; version-based update checks do not offer another build with the same version.
+
+- First-time users land on the runtime setup page automatically.
+- One-click setup downloads, verifies and saves all runtime paths. Valid existing runtimes are reused.
+- Runtime components, virtualization and graphics readiness are shown clearly. Manual paths are hidden under Advanced.
+- Starting an imported VM automatically prepares missing runtime components. BIOS settings, Windows features and GPU drivers may still require manual action.
