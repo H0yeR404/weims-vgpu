@@ -1,5 +1,7 @@
 # weims-vgpu
 
+> Latest preview: **1.1.0-pre.2** — software updates, release notes and instant English/Chinese switching. [v1.1.0-pre.2](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.1.0-pre.2)
+
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
 ![macOS Tahoe on Windows](docs/images/macos-tahoe.png)

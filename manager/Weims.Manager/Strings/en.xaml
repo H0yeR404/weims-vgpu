@@ -204,13 +204,13 @@
 <sys:String x:Key="S200">Advanced · bring your own boot files</sys:String>
 <sys:String x:Key="S201">Use my boot files and ports instead of automatic preparation</sys:String>
 <sys:String x:Key="S202">PRE-RELEASE · The VM may freeze, including during resolution changes. This is a known issue planned for correction. Back up important data. After preparation, start recovery and install macOS in its own window.</sys:String>
-<sys:String x:Key="S203">1.1.0-pre.1 · VM freezes are possible, including during resolution changes. A fix is planned. Keep backups and use a test VM.</sys:String>
+<sys:String x:Key="S203">1.1.0-pre.2 · VM freezes are possible, including during resolution changes. A fix is planned. Keep backups and use a test VM.</sys:String>
  <sys:String x:Key="UpdateTitle">Software updates</sys:String>
  <sys:String x:Key="UpdateCheck">Check for updates</sys:String>
  <sys:String x:Key="UpdateInstall">Update now</sys:String>
  <sys:String x:Key="UpdateNotes">Release notes</sys:String>
  <sys:String x:Key="UpdateHelp">Downloads from the official GitHub repository and verifies SHA256 before installing. Close all VMs before installation. The manager will restart. Portable copies install into the per-user Weims Manager folder; VM disks and runtime paths are preserved.</sys:String>
- <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Local preview 1.1.0-pre.2 (not published)
+ <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Preview 1.1.0-pre.2
 
 • Check GitHub for compatible stable or preview releases.
 • Read release notes before downloading and updating.
@@ -220,5 +220,5 @@
 
 Known limitation: VM freezes may still occur, including during resizing. This remains under investigation.
 
-This local demo has not performed a real installation upgrade.</sys:String>
+A real in-place installation upgrade has not been validated.</sys:String>
 </ResourceDictionary>

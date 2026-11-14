@@ -1,6 +1,6 @@
-# Weims Manager Preview 1.1.0-pre.1
+# Weims Manager Preview 1.1.0-pre.2
 
-## Windows 快速开始 · 1.1.0-pre.1
+## Windows 快速开始 · 1.1.0-pre.2
 
 > **预发布版：虚拟机可能卡死，包括调整分辨率时。这是已知问题，将在后续更新中解决。请备份重要数据。** 交互软件仍在开发中。本机已验证自动准备并进入 Tahoe 恢复界面，尚未验证从全新安装到桌面的完整流程。
 
@@ -8,7 +8,7 @@
 
 ### 安装并创建虚拟机
 
-1. 从[预发布页面](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.1.0-pre.1)下载 `Weims-Manager-1.1.0-pre.1-Setup-x64.exe`，或解压便携 ZIP。安装包与应用均带有 Weims 图标。Preview 与稳定版独立安装；默认英文，可在设置中切换中文。
+1. 从[预发布页面](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.1.0-pre.2)下载 `Weims-Manager-1.1.0-pre.2-Setup-x64.exe`，或解压便携 ZIP。安装包与应用均带有 Weims 图标。Preview 与稳定版独立安装；默认英文，可在设置中切换中文。
 2. 打开 **Weims Manager Preview → 创建虚拟机**，选择新目录、名称和容量（默认 **200 GiB**）。保留从 Apple 自动下载 Tahoe 恢复镜像，也可选择已有的兼容 `BaseSystem.dmg` / `.img`。不支持完整 ISO 或 ARM macOS。
 3. 点击**创建**：自动准备 PowerShell、QEMU/Reims，下载并验证 Apple 恢复镜像，生成具有独立机器身份的 OpenCore，准备 OVMF、配套显卡驱动和 ROM，转换恢复镜像并创建空白磁盘。无需手动操作 WSL、编辑 EFI、复制固件或输入 SMC 密钥。已有目标目录会被拒绝；稀疏磁盘容量不代表已预留实际空间。
 4. 启动虚拟机，在 OpenCore 中选择恢复项（隐藏时按**空格**）。进入**磁盘工具 → 显示所有设备**，按容量辨认并仅抹掉**新建的空白系统磁盘**，格式选择 **GUID 分区图 / APFS**。不要抹掉恢复盘或 OpenCore 盘。
@@ -31,12 +31,12 @@
 
 已有 200 GiB 虚拟机直接将其实际 `state/config.json` 传给 `start`，不要重新创建磁盘。Preview 尚无运行环境时先执行 `setup`。GUI 与 CLI 共用 `%LOCALAPPDATA%\Weims\Manager-Preview`，不要重复启动同一磁盘。`stop` 仅允许退出 QMP 确认为已关机的虚拟机；关机请求无响应时请使用 macOS 苹果菜单。
 
-[预发布说明](https://github.com/H0yeR404/weims-vgpu/blob/v1.1.0-pre.1/docs/prerelease-1.1.0-pre.1.zh-CN.md) · [稳定版 1.0.1](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0.1)。稳定版不含自动引导准备或自适应分辨率。
+[预发布说明](https://github.com/H0yeR404/weims-vgpu/blob/v1.1.0-pre.2/docs/prerelease-1.1.0-pre.2.zh-CN.md) · [稳定版 1.0.1](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.0.1)。稳定版不含自动引导准备或自适应分辨率。
 
-## 本地更新预览（1.1.0-pre.2，尚未发布）
+## 软件更新（1.1.0-pre.2）
 
 打开 **软件更新 → 检查更新**，查看新版本号和 GitHub 更新说明。点击 **一键更新** 后，软件下载官方安装包并校验 SHA256；所有 QEMU 虚拟机和其他管理器窗口关闭后才安装并重启。稳定版仅接收稳定版更新，预览版也接收更高版本的预览版，不会降级。下载支持取消；错误不会修改虚拟机磁盘和运行环境路径。
 
 免安装版更新后安装到当前用户的应用目录，设置目录会保留，重启和以后从快捷方式启动都会继续使用。软件更新不会替换 QEMU 运行环境。安装失败日志保存在设置目录下的 `updates` 文件夹。
 
-默认语言仍为英文。侧栏语言选择立即生效，保留当前页面和未保存的配置。没有新版时，更新页面显示此本地版本的功能说明。虚拟机卡死仍为正在排查的已知问题。
+默认语言仍为英文。侧栏语言选择立即生效，保留当前页面和未保存的配置。没有新版时，更新页面显示此版本的功能说明。虚拟机卡死仍为正在排查的已知问题。
