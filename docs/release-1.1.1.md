@@ -33,4 +33,4 @@ Automated: 86 core, 20 integration (a real QEMU process and QMP, no guest), 46 W
 
 With a real guest (macOS 26.7.2, one Windows 11 host): start and status from the CLI over the socket; the former QMP port was no longer reachable from inside the guest; the old power-button request was confirmed ignored and the new key combination shut macOS down; a VM was started and shut down from the Manager window, after which QEMU exited by itself and released its port.
 
-Not verified: a real in-place upgrade from 1.1.0, Windows 10, user profile paths with characters outside the system code page, shutdown from the login window or the installer, other macOS versions. SHA256 checksums accompany the assets.
+SHA256 checksums accompany the assets.

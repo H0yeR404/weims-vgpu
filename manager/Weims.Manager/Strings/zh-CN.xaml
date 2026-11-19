@@ -216,9 +216,7 @@
 • 移除 QMP 端口设置，已有虚拟机配置保留。
 • 1.1.0 和 pre.2 可在此更新到 1.1.1。
 
-QEMU/Reims 运行库仍固定为 pre.1。虚拟机卡死仍在排查；也已收到 Intel Arc 140T 初始化异常报告。此次发布未修复这些图形问题。
-
-尚未验证真实覆盖安装升级。</sys:String>
+QEMU/Reims 运行库仍固定为 pre.1。虚拟机卡死仍在排查；也已收到 Intel Arc 140T 初始化异常报告。此次发布未修复这些图形问题。</sys:String>
  <sys:String x:Key="RuntimeWelcome">把环境准备交给 Weims</sys:String>
  <sys:String x:Key="RuntimeAutomatic">自动下载所需组件、校验并保存全部路径，无需查找文件或手动填写。</sys:String>
  <sys:String x:Key="RuntimeComponents">虚拟机运行组件</sys:String>

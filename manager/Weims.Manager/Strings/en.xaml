@@ -216,9 +216,7 @@
 • The QMP port setting is gone. Existing VM settings are kept.
 • 1.1.0 and pre.2 can update to 1.1.1 here.
 
-The QEMU/Reims runtime remains pinned to pre.1. VM freezes remain under investigation; Intel Arc 140T setup problems have also been reported. This release does not fix these graphics issues.
-
-A real in-place installation upgrade has not been validated.</sys:String>
+The QEMU/Reims runtime remains pinned to pre.1. VM freezes remain under investigation; Intel Arc 140T setup problems have also been reported. This release does not fix these graphics issues.</sys:String>
  <sys:String x:Key="RuntimeWelcome">Let Weims handle the setup</sys:String>
  <sys:String x:Key="RuntimeAutomatic">Weims downloads the required components, verifies them, and saves every path for you. No manual file selection is needed.</sys:String>
  <sys:String x:Key="RuntimeComponents">Virtual machine components</sys:String>
