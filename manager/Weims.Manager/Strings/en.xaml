@@ -40,7 +40,6 @@
 <sys:String x:Key="S38">NETWORK · NAT</sys:String>
 <sys:String x:Key="S39">The VM shares the host network. Recovery installation requires internet access.</sys:String>
 <sys:String x:Key="S40">SSH forwarding → guest port 22</sys:String>
-<sys:String x:Key="S41">Local management port (QMP)</sys:String>
 <sys:String x:Key="S42">Ports bind to 127.0.0.1 only. Use different ports for each VM.</sys:String>
 <sys:String x:Key="S43">SYSTEM DISK</sys:String>
 <sys:String x:Key="S44">Uses the original disk without copying or resizing. Set capacity in the creation wizard.</sys:String>
@@ -108,7 +107,6 @@
 <sys:String x:Key="S104">OpenCore raw FAT image (.img)</sys:String>
 <sys:String x:Key="S105">OVMF_VARS.fd (use a copy not in use by a running VM)</sys:String>
 <sys:String x:Key="S106">03  LOCAL PORTS</sys:String>
-<sys:String x:Key="S107">QMP management port</sys:String>
 <sys:String x:Key="S108">SSH forwarding port</sys:String>
 <sys:String x:Key="S109">Preparation does not start the VM or format its disk. Recovery writes use a temporary layer; the source image is preserved. Installation runs in a separate window and requires internet access.</sys:String>
 <sys:String x:Key="S110">Ready to prepare. Downloads can take several minutes. Full ISO images are not supported.</sys:String>
@@ -130,7 +128,7 @@
 <sys:String x:Key="S126">Settings saved. Changes apply at the next start.</sys:String>
 <sys:String x:Key="S127">Checking and starting the VM…</sys:String>
 <sys:String x:Key="S128">Separate display started. Logs: </sys:String>
-<sys:String x:Key="S129">Shutdown requested. If macOS does not respond, shut down from its Apple menu.</sys:String>
+<sys:String x:Key="S129">Asked macOS to shut down. It asks about unsaved documents first; the VM window closes when it has powered off.</sys:String>
 <sys:String x:Key="S130">Stop this VM&#x27;s QEMU process immediately? Unsaved data may be lost.</sys:String>
 <sys:String x:Key="S131">Confirm force stop</sys:String>
 <sys:String x:Key="S132">QEMU exit requested.</sys:String>
@@ -157,7 +155,7 @@
 <sys:String x:Key="S153">CPU cores must be between 2 and 64.</sys:String>
 <sys:String x:Key="S154">Memory must be 4096–262144 MiB in multiples of 1024.</sys:String>
 <sys:String x:Key="S155">Use a resolution such as 2560x1440. Supported width: 800–4096; height: 600–2160.</sys:String>
-<sys:String x:Key="S156">QMP and SSH ports must be distinct integers between 1024 and 65535.</sys:String>
+<sys:String x:Key="S156">The SSH forwarding port must be an integer between 1024 and 65535.</sys:String>
 <sys:String x:Key="S157">Invalid MAC address format.</sys:String>
 <sys:String x:Key="S158">File paths must be absolute local paths.</sys:String>
 <sys:String x:Key="S159">Missing file: </sys:String>
@@ -170,7 +168,7 @@
 <sys:String x:Key="S166">QMP disconnected.</sys:String>
 <sys:String x:Key="S167">Empty QMP response.</sys:String>
 <sys:String x:Key="S168">Too many QMP responses without a matching request result.</sys:String>
-<sys:String x:Key="S169">The QMP port belongs to another VM. Operation stopped.</sys:String>
+<sys:String x:Key="S169">The QMP channel belongs to another VM. Operation stopped.</sys:String>
 <sys:String x:Key="S170">VM names must use 1–48 letters, numbers, underscores or hyphens.</sys:String>
 <sys:String x:Key="S171">System disk size must be 64–2048 GiB.</sys:String>
 <sys:String x:Key="S172">Only .dmg / .img recovery images are supported, not full ISO images.</sys:String>
@@ -188,7 +186,7 @@
 <sys:String x:Key="S184">Running</sys:String>
 <sys:String x:Key="S185">Guest shut down · Process can be stopped</sys:String>
 <sys:String x:Key="S186">Unknown state · Operations locked to protect the disk</sys:String>
-<sys:String x:Key="S187">Shut down macOS and stop QEMU before editing or starting.</sys:String>
+<sys:String x:Key="S187">Shut down the VM before editing or starting.</sys:String>
 <sys:String x:Key="S188">Unsupported power operation.</sys:String>
 <sys:String x:Key="S189">No runtime record.</sys:String>
 <sys:String x:Key="S190">The VM has stopped.</sys:String>
@@ -204,19 +202,19 @@
 <sys:String x:Key="S200">Advanced · bring your own boot files</sys:String>
 <sys:String x:Key="S201">Use my boot files and ports instead of automatic preparation</sys:String>
 <sys:String x:Key="S202">Known issues · The VM may freeze, including during resolution changes. This is a known issue planned for correction. Back up important data. After preparation, start recovery and install macOS in its own window.</sys:String>
-<sys:String x:Key="S203">1.1.0 · VM freezes are possible, including during resolution changes. A fix is planned. Keep backups and use a test VM.</sys:String>
+<sys:String x:Key="S203">1.1.1 · VM freezes are possible, including during resolution changes. A fix is planned. Keep backups and use a test VM.</sys:String>
  <sys:String x:Key="UpdateTitle">Software updates</sys:String>
  <sys:String x:Key="UpdateCheck">Check for updates</sys:String>
  <sys:String x:Key="UpdateInstall">Update now</sys:String>
  <sys:String x:Key="UpdateNotes">Release notes</sys:String>
  <sys:String x:Key="UpdateHelp">Downloads from the official GitHub repository and verifies SHA256 before installing. Close all VMs before installation. The manager will restart. Portable copies install into the per-user Weims Manager folder; VM disks and runtime paths are preserved.</sys:String>
- <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Weims Manager 1.1.0 — regular release
+ <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Weims Manager 1.1.1 — maintenance release
 
-• New Light / Dark appearance in the sidebar: switches immediately and remembers your choice.
-• Theme and language changes keep the current page and unsaved settings. Default: English and Light.
-• Includes one-click runtime setup, verified software updates and adaptive guest resolution from pre.2.
-• Pre.2 can update to 1.1.0. Stable builds receive newer stable releases.
-• Existing preview/custom profiles are preserved for GUI and CLI.
+• Security: QEMU's control channel (QMP) no longer listens on a local TCP port, which software inside the guest could reach. It is now a Unix domain socket.
+• Shut down in the Manager now works. It sends the key combination macOS uses to quit all apps and shut down; macOS asks about unsaved documents first.
+• QEMU exits when macOS powers off. No black window or leftover process keeps the VM locked and its port in use (issue #3).
+• The QMP port setting is gone. Existing VM settings are kept.
+• 1.1.0 and pre.2 can update to 1.1.1 here.
 
 The QEMU/Reims runtime remains pinned to pre.1. VM freezes remain under investigation; Intel Arc 140T setup problems have also been reported. This release does not fix these graphics issues.
 

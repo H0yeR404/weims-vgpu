@@ -44,6 +44,20 @@ try
     var plan = LaunchPlan.Build(c, engine, temp, new string('s',64), "test-vm");
     Check(plan.Arguments.Any(a => a.Contains("disk ,, 测试.qcow2")), "QEMU keyval comma escaping");
     Check(plan.Arguments.Any(a => a.Contains("guest-memory=on")), "shared-memory graphics enabled");
+    // The guest reaches host loopback TCP through user-mode networking, so QMP must never listen on TCP.
+    Check(!plan.Arguments.Contains("-no-shutdown"), "QEMU exits when the guest powers off instead of staying behind");
+    int qmpAt = plan.Arguments.IndexOf("-qmp");
+    Check(qmpAt >= 0 && plan.Arguments[qmpAt + 1] == "unix:" + LaunchPlan.Q(plan.QmpSocket) + ",server=on,wait=off", "QMP uses a Unix domain socket");
+    Check(!plan.Arguments.Any(a => a.StartsWith("tcp:")) && plan.Arguments.Count(a => a.Contains("tcp:")) == 1 && plan.Arguments.Single(a => a.Contains("tcp:")).Contains("hostfwd=tcp:127.0.0.1:2330-:22"), "SSH forwarding is the only TCP endpoint QEMU opens");
+    Check(Path.IsPathFullyQualified(plan.QmpSocket) && Path.GetDirectoryName(plan.QmpSocket) == QmpEndpoint.Folder() && Encoding.UTF8.GetByteCount(plan.QmpSocket) <= QmpEndpoint.MaxPathBytes, "QMP socket lives in the short per-user folder");
+    Check(LaunchPlan.Build(c,engine,temp,new string('s',64),"test-vm").QmpSocket == plan.QmpSocket && LaunchPlan.Build(c,engine,temp,new string('s',64),"other-vm").QmpSocket != plan.QmpSocket, "QMP socket path follows the per-launch name");
+    Reject(() => QmpEndpoint.PathFor("test-vm", Path.Combine(temp, new string('d', 100))), "over-long QMP socket path rejected before launch");
+    string socketFolder = Path.Combine(temp, "q"), leftover = Path.Combine(socketFolder, "old.sock"), outside = Path.Combine(temp, "outside.sock"), other = Path.Combine(socketFolder, "keep.txt");
+    Directory.CreateDirectory(socketFolder); File.WriteAllText(leftover, ""); File.WriteAllText(outside, ""); File.WriteAllText(other, "");
+    QmpEndpoint.Prepare(Path.Combine(socketFolder, "new.sock"), outside); QmpEndpoint.Prepare(Path.Combine(socketFolder, "new.sock"), other);
+    Check(File.Exists(outside) && File.Exists(other), "socket cleanup never deletes outside its folder or other file types");
+    QmpEndpoint.Prepare(Path.Combine(socketFolder, "new.sock"), leftover);
+    Check(!File.Exists(leftover), "leftover socket of the previous launch removed");
     Check(!plan.Preview.Contains(new string('s',64)) && plan.Preview.Contains("<redacted>"), "preview redacts secret");
     Check(LaunchPlan.Build(c,engine,temp,"","test").Arguments.Contains("isa-applesmc,osk=" + LaunchPlan.DefaultOsk), "empty SMC uses built-in default");
     Check(LaunchPlan.ResolveOsk(null) == LaunchPlan.DefaultOsk, "unset environment uses built-in default");
@@ -69,8 +83,9 @@ try
     File.AppendAllText(Path.Combine(temp,"reims_vgpu_c.dll"),"changed");
     Check(!engine.SupportsDisplayPolicy, "stale display marker rejected");
     c.DisplayMode="invalid"; Reject(()=>c.Validate(), "invalid display policy rejected"); c.DisplayMode="legacy";
-    c.QmpPort=c.SshPort; Reject(()=>c.Validate(), "duplicate ports rejected"); c.QmpPort=4550;
-    c.QmpPortInput="invalid"; Reject(()=>c.Validate(), "invalid port text survives navigation and blocks launch"); c.QmpPortInput="4550";
+    c.QmpPort=c.SshPort; c.Validate(); Check(true, "legacy QMP port value no longer blocks validation"); c.QmpPort=4550;
+    c.SshPort=80; Reject(()=>c.Validate(), "privileged SSH port rejected"); c.SshPort=2330;
+    c.SshPortInput="invalid"; Reject(()=>c.Validate(), "invalid port text survives navigation and blocks launch"); c.SshPortInput="2330";
     Reject(()=>RecoveryService.ValidateBootImage(c.Disk), "non-bootable raw data rejected");
     c.Recovery=FileAt("BaseSystem.img"); c.RecoveryAttached=true;
     var recovery=LaunchPlan.Build(c,engine,temp,new string('s',64),"test"); Check(recovery.Arguments.Any(a=>a.StartsWith("id=recovery,")&&a.Contains("snapshot=on")), "recovery source protected by temporary write layer");
@@ -79,8 +94,10 @@ try
     Reject(()=>RecoveryService.Validate(req), "ISO rejected");
     Reject(()=>RecoveryService.Validate(req with { Image=c.Recovery, Destination=temp }), "existing recovery destination rejected");
     Check((await VmService.State(c)).CanEdit,"no runtime record is stopped");
-    using(var occupied=new TcpListener(IPAddress.Loopback,c.QmpPort)) { occupied.Start(); Reject(()=>VmService.CheckPorts(c), "port collision rejected"); }
+    using(var occupied=new TcpListener(IPAddress.Loopback,c.SshPort)) { occupied.Start(); Reject(()=>VmService.CheckPorts(c), "port collision rejected"); }
+    using(var occupied=new TcpListener(IPAddress.Loopback,c.QmpPort)) { occupied.Start(); VmService.CheckPorts(c); Check(true, "legacy QMP port is not probed"); }
     // Mock QMP interleaves async events before command responses and verifies request IDs.
+    // This TCP variant covers a VM that an older version started; new launches use the socket variant below.
     using var server = new TcpListener(IPAddress.Loopback,0); server.Start();
     int port=((IPEndPoint)server.LocalEndpoint).Port;
     using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -95,6 +112,45 @@ try
     using var deadline=new CancellationTokenSource(TimeSpan.FromMilliseconds(200)); bool timedOut=false;
     try { using var q=await QmpClient.Connect(stalledPort,deadline.Token); } catch(OperationCanceledException) { timedOut=true; }
     Check(timedOut,"QMP greeting timeout bounded");
+    // The same contract over a Unix domain socket. Socket paths are short by necessity, so not under the long test folder.
+    string socketPath = Path.Combine(Path.GetTempPath(), "wq-" + Guid.NewGuid().ToString("N")[..8] + ".sock");
+    string stalledPath = Path.Combine(Path.GetTempPath(), "wq-" + Guid.NewGuid().ToString("N")[..8] + ".sock");
+    try
+    {
+        using var unixTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var unixServer = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        unixServer.Bind(new UnixDomainSocketEndPoint(socketPath)); unixServer.Listen(1);
+        Task ServeUnix(Func<string, JsonObject> reply, int requests) => Task.Run(async () =>
+        {
+            using var peer = await unixServer.AcceptAsync(unixTimeout.Token); using var ns = new NetworkStream(peer); using var r = new StreamReader(ns); using var w = new StreamWriter(ns, new UTF8Encoding(false)) { AutoFlush = true };
+            await w.WriteLineAsync("{\"QMP\":{\"version\":{}}}");
+            for (int i = 0; i < requests; i++) { var request = JsonNode.Parse((await r.ReadLineAsync(unixTimeout.Token))!)!; await w.WriteLineAsync("{\"event\":\"STOP\"}"); await w.WriteLineAsync(new JsonObject { ["return"] = reply(request["execute"]!.GetValue<string>()), ["id"] = request["id"]!.DeepClone() }.ToJsonString()); }
+        });
+        JsonObject Reply(string command) => command == "query-name" ? new JsonObject { ["name"] = "expected" } : command == "query-status" ? new JsonObject { ["status"] = "running" } : new JsonObject();
+        var serveUnix = ServeUnix(Reply, 3);
+        using (var q = await QmpClient.Connect(socketPath, unixTimeout.Token)) { await q.VerifyName("expected", unixTimeout.Token); Check(true, "QMP over a Unix domain socket"); bool rejected = false; try { await q.VerifyName("wrong", unixTimeout.Token); } catch (IOException) { rejected = true; } Check(rejected, "socket QMP rejects wrong VM identity"); }
+        await serveUnix;
+        // A runtime record naming a socket is managed over that socket; this test process stands in for QEMU.
+        using var self = System.Diagnostics.Process.GetCurrentProcess();
+        JsonFiles.Write(c.RuntimePath, new { pid = Environment.ProcessId, executable = Environment.ProcessPath, started_utc = self.StartTime.ToUniversalTime().ToString("o"), qmp_socket = socketPath, qmp_name = "expected" });
+        var serveState = ServeUnix(Reply, 3);
+        var socketState = await VmService.State(c);
+        Check(socketState.Running && !socketState.CanEdit, "runtime record with a socket is managed over that socket");
+        await serveState;
+        File.Delete(c.RuntimePath);
+        using (var stalledUnix = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified))
+        {
+            stalledUnix.Bind(new UnixDomainSocketEndPoint(stalledPath)); stalledUnix.Listen(1);
+            using var unixDeadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(200)); bool unixTimedOut = false;
+            try { using var q = await QmpClient.Connect(stalledPath, unixDeadline.Token); } catch (OperationCanceledException) { unixTimedOut = true; }
+            Check(unixTimedOut, "socket QMP greeting timeout bounded");
+        }
+        // Nobody listens on that path any more. The real leftover-file case after a hard kill is in the integration tests.
+        bool refused = false; var refusedTimer = System.Diagnostics.Stopwatch.StartNew();
+        try { using var q = await QmpClient.Connect(stalledPath, unixTimeout.Token); } catch (SocketException) { refused = true; }
+        Check(refused && refusedTimer.ElapsedMilliseconds < 2000, "socket path with nobody listening fails fast");
+    }
+    finally { File.Delete(socketPath); File.Delete(stalledPath); }
     // Downloaded archives must be verified before creating any extracted files.
     string zip = Path.Combine(temp, "runtime.zip");
     using (var archive = System.IO.Compression.ZipFile.Open(zip, System.IO.Compression.ZipArchiveMode.Create))

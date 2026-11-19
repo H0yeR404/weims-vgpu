@@ -6,7 +6,7 @@ try
 {
     if (args.Length == 0 || args[0] is "--help" or "help")
     {
-        Console.WriteLine("Weims 1.1.0 — Windows x64\nKnown issue: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH [--display-mode auto|fixed|legacy]\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only after guest shutdown)\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown requests normal guest shutdown; use the macOS menu if it does not respond.");
+        Console.WriteLine("Weims 1.1.1 — Windows x64\nKnown issue: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH [--display-mode auto|fixed|legacy]\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only for a VM started by 1.1.0 or older, after guest shutdown)\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown asks macOS to quit all apps and shut down; it asks about unsaved documents first. QEMU exits when the guest has powered off.");
         return 0;
     }
     string command = args[0];
@@ -48,7 +48,7 @@ try
         }
         else if (command == "status") Console.WriteLine((await VmService.State(c)).Label);
         else if (command == "stop") { await VmService.StopAfterShutdown(c); Console.WriteLine("Stopped."); }
-        else { await VmService.Power(c, "system_powerdown"); Console.WriteLine("Shutdown requested. If needed, shut down from the macOS menu."); }
+        else { await VmService.Shutdown(c); Console.WriteLine("Asked macOS to shut down. It asks about unsaved documents first; QEMU exits when the guest has powered off."); }
     }
     return 0;
 }

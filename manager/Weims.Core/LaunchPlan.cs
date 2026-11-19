@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 
 namespace Weims.Core;
 
-public sealed record LaunchPlan(List<string> Arguments, Dictionary<string, string> Environment, string Name)
+public sealed record LaunchPlan(List<string> Arguments, Dictionary<string, string> Environment, string Name, string QmpSocket)
 {
     public string Preview => string.Join(System.Environment.NewLine, Arguments.Select(a => a.StartsWith("isa-applesmc,osk=") ? "isa-applesmc,osk=<redacted>" : a));
     public const string DefaultOsk = "ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc";
@@ -17,6 +17,10 @@ public sealed record LaunchPlan(List<string> Arguments, Dictionary<string, strin
         osk = ResolveOsk(osk);
         if (osk.Length != 64 || osk.Any(ch => ch <= 32 || ch > 126 || ch == ',')) throw new InvalidDataException(Text.Get("WEIMS_OSK 覆盖值应为 64 个 ASCII 字符，不能包含空格或换行。移除该环境变量即可使用内置默认值。", "WEIMS_OSK must contain 64 ASCII characters without spaces or line breaks. Remove the override to use the built-in default."));
         if (c.FreePointer && !engine.SupportsFreePointer) throw new InvalidOperationException(Text.Get("当前显示后端不支持自由鼠标。请安装输入扩展版或关闭此选项。", "This display backend does not support free pointer. Install the input extension or disable this option."));
+        // QMP must not listen on TCP: the guest reaches the host's loopback ports through user-mode networking.
+        // There is no -no-shutdown: QEMU exits when the guest powers off. With it, QEMU stayed behind as a
+        // black window that kept the VM locked and its forwarded port taken until someone closed it.
+        var qmpSocket = QmpEndpoint.PathFor(name);
         var a = new List<string> {
             "-L", engine.Bios, "-name", name, "-machine", "q35,max-ram-below-4g=1G", "-accel", "whpx,hyperv=off",
             "-cpu", c.Cpu, "-smp", $"{c.Cpus},sockets=1,cores={c.Cpus},threads=1", "-m", $"{c.MemoryMiB}M",
@@ -31,7 +35,7 @@ public sealed record LaunchPlan(List<string> Arguments, Dictionary<string, strin
             "-device", "qemu-xhci,id=xhci,addr=0x5,p2=8,p3=6,conditional-intr-mapping=on", "-device", "usb-kbd,id=kbd,bus=xhci.0", "-device", "usb-tablet,id=tablet,bus=xhci.0",
             "-audiodev", "none,id=snd0,in.voices=0", "-device", "usb-audio,id=audio,audiodev=snd0,bus=xhci.0",
             "-display", "none", "-monitor", "none", "-serial", $"file:{Q(Path.Combine(run, "serial.log"))}", "-msg", "timestamp=on",
-            "-qmp", $"tcp:127.0.0.1:{c.QmpPort},server=on,wait=off", "-no-shutdown"
+            "-qmp", $"unix:{Q(qmpSocket)},server=on,wait=off"
         };
         if (c.RecoveryAttached) a.AddRange(new[] { "-drive", $"id=recovery,if=none,format=raw,snapshot=on,file={Q(c.Recovery)}", "-device", "ide-hd,bus=sata.4,drive=recovery" });
         var env = new Dictionary<string, string> {
@@ -41,7 +45,7 @@ public sealed record LaunchPlan(List<string> Arguments, Dictionary<string, strin
             ["WEIMS_DISPLAY_MODE"] = c.DisplayMode
         };
         foreach (var layer in new[] { "DISABLE_RTSS_LAYER", "DISABLE_VULKAN_OW_OVERLAY_LAYER", "DISABLE_VULKAN_OW_OBS_CAPTURE", "DISABLE_VK_LAYER_VALVE_steam_overlay_1", "DISABLE_VK_LAYER_VALVE_steam_fossilize_1", "DISABLE_VULKAN_OBS_CAPTURE" }) env[layer] = "1";
-        return new(a, env, name);
+        return new(a, env, name, qmpSocket);
     }
     public ProcessStartInfo StartInfo(string executable, string workdir)
     {

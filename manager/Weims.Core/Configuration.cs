@@ -17,7 +17,7 @@ public class Observable : INotifyPropertyChanged
 
 public sealed class VmConfig : Observable, IDataErrorInfo
 {
-    string? qmpInput, sshInput;
+    string? sshInput;
     public JsonObject Data { get; }
     public string ConfigPath { get; }
     public string DirectoryPath => Path.GetDirectoryName(Path.GetDirectoryName(ConfigPath))!;
@@ -41,13 +41,14 @@ public sealed class VmConfig : Observable, IDataErrorInfo
     public string Rom { get => ReadText("rom"); set => Write("rom", value); }
     public string Mac { get => ReadText("mac"); set => Write("mac", value); }
     public string Cpu => ReadText("cpu", "Haswell-noTSX,stepping=3,vendor=GenuineIntel,+ssse3,+sse4.2,+popcnt,+avx,+avx2,+aes,+xsave,+xsaveopt,-arat,enforce");
+    // Legacy key. QMP now uses a Unix domain socket (see QmpEndpoint); the value is only written so that
+    // older versions, which validate it, can still open this configuration. It is never listened on.
     public int QmpPort { get => Number("qmp_port", 4444); set => Write("qmp_port", value); }
     public int SshPort { get => Number("ssh_port", 2222); set => Write("ssh_port", value); }
-    public string QmpPortInput { get => qmpInput ?? QmpPort.ToString(); set { qmpInput = value; if (int.TryParse(value, out int n)) QmpPort = n; Changed(); } }
     public string SshPortInput { get => sshInput ?? SshPort.ToString(); set { sshInput = value; if (int.TryParse(value, out int n)) SshPort = n; Changed(); } }
     public string Error => "";
-    public string this[string property] => property is nameof(QmpPortInput) or nameof(SshPortInput)
-        && (!int.TryParse(property == nameof(QmpPortInput) ? QmpPortInput : SshPortInput, out var n) || n < 1024 || n > 65535) ? Text.Get("请输入 1024–65535 的整数端口。", "Enter an integer port between 1024 and 65535.") : "";
+    public string this[string property] => property is nameof(SshPortInput)
+        && (!int.TryParse(SshPortInput, out var n) || n < 1024 || n > 65535) ? Text.Get("请输入 1024–65535 的整数端口。", "Enter an integer port between 1024 and 65535.") : "";
     public bool Borderless { get => Data["borderless"]?.GetValue<bool>() ?? false; set => Write("borderless", value); }
     public bool FreePointer { get => Data["free_pointer"]?.GetValue<bool>() ?? false; set => Write("free_pointer", value); }
     public string Recovery { get => ReadText("recovery_image"); set => Write("recovery_image", value); }
@@ -55,7 +56,7 @@ public sealed class VmConfig : Observable, IDataErrorInfo
 
     public void Validate(bool files = true)
     {
-        if (this[nameof(QmpPortInput)] != "" || this[nameof(SshPortInput)] != "") throw new InvalidDataException(Text.Get("端口输入无效，请返回硬件与网络页面修正。", "Invalid port input. Correct it on the Hardware & Network page."));
+        if (this[nameof(SshPortInput)] != "") throw new InvalidDataException(Text.Get("端口输入无效，请返回硬件与网络页面修正。", "Invalid port input. Correct it on the Hardware & Network page."));
         if (Cpus < 2 || Cpus > 64) throw new InvalidDataException(Text.Get("CPU 核心数应在 2–64 之间。", "CPU cores must be between 2 and 64."));
         if (MemoryMiB < 4096 || MemoryMiB > 262144 || MemoryMiB % 1024 != 0) throw new InvalidDataException(Text.Get("内存应为 4096–262144 MiB，且为 1024 的整数倍。", "Memory must be 4096–262144 MiB in multiples of 1024."));
         var m = Regex.Match(Resolution, @"^(\d{3,4})x(\d{3,4})$");
@@ -63,8 +64,8 @@ public sealed class VmConfig : Observable, IDataErrorInfo
             throw new InvalidDataException(Text.Get("分辨率格式为 2560x1440；支持宽 800–4096、高 600–2160。", "Use a resolution such as 2560x1440. Supported width: 800–4096; height: 600–2160."));
         if (DisplayMode is not ("legacy" or "auto" or "fixed"))
             throw new InvalidDataException(Text.Get("显示模式应为 legacy、auto 或 fixed。", "Display mode must be legacy, auto or fixed."));
-        if (QmpPort < 1024 || QmpPort > 65535 || SshPort < 1024 || SshPort > 65535 || QmpPort == SshPort)
-            throw new InvalidDataException(Text.Get("QMP 与 SSH 端口应为 1024–65535，且不能相同。", "QMP and SSH ports must be distinct integers between 1024 and 65535."));
+        if (SshPort < 1024 || SshPort > 65535)
+            throw new InvalidDataException(Text.Get("SSH 转发端口应为 1024–65535 之间的整数。", "The SSH forwarding port must be an integer between 1024 and 65535."));
         if (!Regex.IsMatch(Mac, @"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")) throw new InvalidDataException(Text.Get("MAC 地址格式错误。", "Invalid MAC address format."));
         foreach (var path in new[] { Disk, OpenCore, FirmwareCode, FirmwareVars, Rom }.Concat(RecoveryAttached ? new[] { Recovery } : Array.Empty<string>()))
         {

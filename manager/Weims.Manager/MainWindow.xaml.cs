@@ -80,7 +80,7 @@ public partial class MainWindow : Window
         var run = await VmService.Start(Current(), vm.Engine, key, Path.Combine(AppContext.BaseDirectory, "launch-vm.ps1"));
         vm.Message = Text.Get("已启动独立显示窗口。日志：", "Separate display started. Logs: ") + run;
     });
-    async void ShutdownVm(object sender, RoutedEventArgs e) => await Work(async () => { await VmService.Power(Current(), "system_powerdown"); vm.Message = Text.Get("已发送正常关机请求。若 macOS 未响应，请从苹果菜单关机。", "Shutdown requested. If macOS does not respond, shut down from its Apple menu."); });
+    async void ShutdownVm(object sender, RoutedEventArgs e) => await Work(async () => { await VmService.Shutdown(Current()); vm.Message = Text.Get("已请求 macOS 关机。有未保存的文档时 macOS 会先询问；关机完成后虚拟机窗口自动关闭。", "Asked macOS to shut down. It asks about unsaved documents first; the VM window closes when it has powered off."); });
     async void ForceStop(object sender, RoutedEventArgs e)
     {
         if (vm.Busy) return;

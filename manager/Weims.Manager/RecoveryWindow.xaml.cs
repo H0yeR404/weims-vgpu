@@ -43,8 +43,10 @@ public partial class RecoveryWindow : Window
             else
             {
                 if (DownloadRecovery.IsChecked == true) throw new InvalidDataException(Text.Get("手动模式请选择本地恢复镜像。", "Select a local recovery image for manual mode."));
-                if (!int.TryParse(QmpPort.Text, out var qmp) || !int.TryParse(SshPort.Text, out var ssh)) throw new InvalidDataException("Invalid ports.");
-                var request = new RecoveryRequest(name, destination, ImagePath.Text, size, OpenCorePath.Text, CodePath.Text, VarsPath.Text, RomPath.Text, qmp, ssh);
+                if (!int.TryParse(SshPort.Text, out var ssh)) throw new InvalidDataException(Text.Get("SSH 转发端口必须是整数。", "The SSH forwarding port must be an integer."));
+                // qmp_port is a legacy key that older versions validate; nothing listens on it. Pick any value that differs from SSH.
+                var spare = GuidedSetup.FreePorts(); int legacyQmp = spare.Qmp != ssh ? spare.Qmp : spare.Ssh;
+                var request = new RecoveryRequest(name, destination, ImagePath.Text, size, OpenCorePath.Text, CodePath.Text, VarsPath.Text, RomPath.Text, legacyQmp, ssh);
                 Created = await RecoveryService.Create(request, engine, progress, cancellation.Token);
             }
             cancellation.Dispose(); cancellation = null; DialogResult = true;

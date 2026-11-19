@@ -40,7 +40,6 @@
 <sys:String x:Key="S38">网络 · NAT</sys:String>
 <sys:String x:Key="S39">虚拟机共享宿主网络，恢复安装需要联网。</sys:String>
 <sys:String x:Key="S40">SSH 转发端口 → 客户机 22</sys:String>
-<sys:String x:Key="S41">本地管理端口（QMP）</sys:String>
 <sys:String x:Key="S42">端口仅绑定 127.0.0.1；不同虚拟机请使用不同端口。</sys:String>
 <sys:String x:Key="S43">系统磁盘</sys:String>
 <sys:String x:Key="S44">使用原磁盘，不自动复制、缩小或扩容。容量在创建向导中设定。</sys:String>
@@ -108,7 +107,6 @@
 <sys:String x:Key="S104">OpenCore 原始 FAT 镜像（.img）</sys:String>
 <sys:String x:Key="S105">OVMF_VARS.fd（请使用未被运行中的 VM 占用的副本）</sys:String>
 <sys:String x:Key="S106">03  本地端口</sys:String>
-<sys:String x:Key="S107">QMP 管理端口</sys:String>
 <sys:String x:Key="S108">SSH 转发端口</sys:String>
 <sys:String x:Key="S109">准备完成不会自动启动或格式化系统盘。恢复镜像使用临时写入层，源文件保持不变，安装在独立窗口内进行；需要网络。</sys:String>
 <sys:String x:Key="S110">准备就绪。下载可能需要数分钟，不支持完整 ISO。</sys:String>
@@ -130,7 +128,7 @@
 <sys:String x:Key="S126">配置已保存，下次启动生效。</sys:String>
 <sys:String x:Key="S127">正在检查并启动虚拟机…</sys:String>
 <sys:String x:Key="S128">已启动独立显示窗口。日志：</sys:String>
-<sys:String x:Key="S129">已发送正常关机请求。若 macOS 未响应，请从苹果菜单关机。</sys:String>
+<sys:String x:Key="S129">已请求 macOS 关机。有未保存的文档时 macOS 会先询问；关机完成后虚拟机窗口自动关闭。</sys:String>
 <sys:String x:Key="S130">立即停止当前虚拟机的 QEMU 进程？尚未保存的数据可能丢失。</sys:String>
 <sys:String x:Key="S131">确认强制停止</sys:String>
 <sys:String x:Key="S132">已请求 QEMU 退出。</sys:String>
@@ -157,7 +155,7 @@
 <sys:String x:Key="S153">CPU 核心数应在 2–64 之间。</sys:String>
 <sys:String x:Key="S154">内存应为 4096–262144 MiB，且为 1024 的整数倍。</sys:String>
 <sys:String x:Key="S155">分辨率格式为 2560x1440；支持宽 800–4096、高 600–2160。</sys:String>
-<sys:String x:Key="S156">QMP 与 SSH 端口应为 1024–65535，且不能相同。</sys:String>
+<sys:String x:Key="S156">SSH 转发端口应为 1024–65535 之间的整数。</sys:String>
 <sys:String x:Key="S157">MAC 地址格式错误。</sys:String>
 <sys:String x:Key="S158">文件路径必须是完整的本地路径。</sys:String>
 <sys:String x:Key="S159">缺少文件：</sys:String>
@@ -170,7 +168,7 @@
 <sys:String x:Key="S166">QMP 已断开。</sys:String>
 <sys:String x:Key="S167">空 QMP 响应。</sys:String>
 <sys:String x:Key="S168">QMP 响应过多，未收到匹配的请求结果。</sys:String>
-<sys:String x:Key="S169">QMP 端口属于另一台虚拟机，操作已停止。</sys:String>
+<sys:String x:Key="S169">QMP 通道属于另一台虚拟机，操作已停止。</sys:String>
 <sys:String x:Key="S170">虚拟机名称使用 1–48 个英文字母、数字、下划线或短横线。</sys:String>
 <sys:String x:Key="S171">系统盘容量应为 64–2048 GiB。</sys:String>
 <sys:String x:Key="S172">只支持恢复镜像 .dmg / .img，不支持完整 ISO。</sys:String>
@@ -188,7 +186,7 @@
 <sys:String x:Key="S184">运行中</sys:String>
 <sys:String x:Key="S185">系统已关机 · 可停止进程</sys:String>
 <sys:String x:Key="S186">状态未知 · 为保护磁盘已锁定操作</sys:String>
-<sys:String x:Key="S187">请先在 macOS 中关机并停止 QEMU，再修改或启动。</sys:String>
+<sys:String x:Key="S187">请先让虚拟机关机，再修改或启动。</sys:String>
 <sys:String x:Key="S188">不支持的电源操作。</sys:String>
 <sys:String x:Key="S189">没有运行记录。</sys:String>
 <sys:String x:Key="S190">虚拟机已停止。</sys:String>
@@ -204,19 +202,19 @@
 <sys:String x:Key="S200">高级选项 · 自备引导文件</sys:String>
 <sys:String x:Key="S201">使用自备引导文件与端口，替代自动准备</sys:String>
 <sys:String x:Key="S202">已知问题 · 虚拟机可能卡死，包括切换分辨率时。此问题已知，后续将修复。请备份重要数据。准备完成后，在独立恢复窗口中安装 macOS。</sys:String>
-<sys:String x:Key="S203">1.1.0 · 虚拟机可能卡死，包括切换分辨率时。后续将修复，请保留备份并使用测试虚拟机。</sys:String>
+<sys:String x:Key="S203">1.1.1 · 虚拟机可能卡死，包括切换分辨率时。后续将修复，请保留备份并使用测试虚拟机。</sys:String>
  <sys:String x:Key="UpdateTitle">软件更新</sys:String>
  <sys:String x:Key="UpdateCheck">检查更新</sys:String>
  <sys:String x:Key="UpdateInstall">一键更新</sys:String>
  <sys:String x:Key="UpdateNotes">更新说明</sys:String>
  <sys:String x:Key="UpdateHelp">从官方 GitHub 仓库下载并校验 SHA256 后安装。安装前请关闭所有虚拟机；管理器将重新启动。免安装版会安装到当前用户的 Weims Manager 文件夹；虚拟机磁盘和运行环境路径保留。</sys:String>
- <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Weims Manager 1.1.0 — 正式版
+ <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Weims Manager 1.1.1 — 维护更新
 
-• 侧栏新增浅色／深色外观，立即生效并记住选择。
-• 主题和语言切换保留当前页面与未保存输入，默认英文和浅色。
-• 包含 pre.2 的一键运行环境准备、校验后软件更新及自适应分辨率。
-• pre.2 可更新到 1.1.0，正式版接收后续正式版更新。
-• GUI 和 CLI 继续使用已有预览版或更新器保留的自定义设置目录。
+• 安全：QEMU 的控制通道（QMP）不再监听本机 TCP 端口（虚拟机里的程序连得到它），改为 Unix 域套接字。
+• 管理器的“正常关机”现在有效：发送 macOS 用于“退出所有应用并关机”的组合键，有未保存的文档时 macOS 会先询问。
+• macOS 关机后 QEMU 自动退出，不再留下黑窗口或残留进程锁住虚拟机、占用端口（Issue #3）。
+• 移除 QMP 端口设置，已有虚拟机配置保留。
+• 1.1.0 和 pre.2 可在此更新到 1.1.1。
 
 QEMU/Reims 运行库仍固定为 pre.1。虚拟机卡死仍在排查；也已收到 Intel Arc 140T 初始化异常报告。此次发布未修复这些图形问题。
 

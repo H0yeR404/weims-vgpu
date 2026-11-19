@@ -1,12 +1,12 @@
 ; SPDX-License-Identifier: GPL-2.0-or-later
 #ifndef PublishDir
-  #define PublishDir "artifacts\Weims-Manager-1.1.0"
+  #define PublishDir "artifacts\Weims-Manager-1.1.1"
 #endif
 [Setup]
 AppId={{BB2BC22A-61BD-4C46-9013-0492F18F722D}
 AppName=Weims Manager
-AppVersion=1.1.0
-AppVerName=Weims Manager 1.1.0
+AppVersion=1.1.1
+AppVerName=Weims Manager 1.1.1
 AppPublisher=Weims contributors
 AppPublisherURL=https://github.com/H0yeR404/weims-vgpu
 AppSupportURL=https://github.com/H0yeR404/weims-vgpu/issues
@@ -17,7 +17,7 @@ ArchitecturesAllowed=x64os
 ArchitecturesInstallIn64BitMode=x64os
 MinVersion=10.0.19041
 OutputDir=artifacts\release
-OutputBaseFilename=Weims-Manager-1.1.0-Setup-x64
+OutputBaseFilename=Weims-Manager-1.1.1-Setup-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

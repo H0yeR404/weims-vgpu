@@ -11,7 +11,10 @@ $quoted = ($arguments | ForEach-Object { '"' + ([regex]::Replace(([regex]::Repla
 $proc = Start-Process -FilePath $p.executable -ArgumentList $quoted -WorkingDirectory (Split-Path $p.executable) -WindowStyle Hidden -RedirectStandardOutput "$($p.run_directory)/stdout.log" -RedirectStandardError "$($p.run_directory)/stderr.log" -PassThru
 try {
     $temp = $p.runtime + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
-    @{ pid=$proc.Id; executable=$p.executable; qmp_port=$p.qmp_port; qmp_name=$p.qmp_name; started_utc=$proc.StartTime.ToUniversalTime().ToString('o'); run_directory=$p.run_directory } | ConvertTo-Json | Set-Content -LiteralPath $temp -Encoding utf8NoBOM
+    $record = [ordered]@{ pid=$proc.Id; executable=$p.executable; qmp_name=$p.qmp_name; started_utc=$proc.StartTime.ToUniversalTime().ToString('o'); run_directory=$p.run_directory }
+    # QMP is a Unix domain socket. A plan that still names a TCP port comes from an older caller.
+    if ($p.qmp_socket) { $record.qmp_socket = $p.qmp_socket } else { $record.qmp_port = $p.qmp_port }
+    $record | ConvertTo-Json | Set-Content -LiteralPath $temp -Encoding utf8NoBOM
     [IO.File]::Move($temp, $p.runtime, $true)
 } catch {
     if (!$proc.HasExited) { $proc.Kill(); $proc.WaitForExit() }

@@ -1,12 +1,12 @@
 # weims-vgpu
 
-> 最新正式版：**1.1.0** — 深浅色即时切换、一键运行环境准备、软件更新和中英文即时切换。[下载](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.1.0)
+> 最新正式版：**1.1.1** — 堵住虚拟机里的程序连到 QEMU 控制通道的途径，并修复关机：管理器的“正常关机”有效，macOS 关机后 QEMU 自动退出。[下载](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.1.1)
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
 ![macOS Tahoe on Windows](docs/images/macos-tahoe.png)
 
-## Windows 快速开始 · 1.1.0
+## Windows 快速开始 · 1.1.1
 
 > **已知问题：虚拟机可能卡死，包括调整分辨率时。这是已知问题，将在后续更新中解决。请备份重要数据。** 交互软件仍在开发中。本机已验证自动准备并进入 Tahoe 恢复界面，尚未验证从全新安装到桌面的完整流程。
 
@@ -14,11 +14,11 @@
 
 ### 安装并创建虚拟机
 
-1. 从[正式发布页面](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.1.0)下载 `Weims-Manager-1.1.0-Setup-x64.exe`，或解压便携 ZIP。安装包与应用均带有 Weims 图标。安装到正式版 Weims Manager 应用目录。默认英文和浅色，侧栏可即时切换语言与外观。
+1. 从[正式发布页面](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.1.1)下载 `Weims-Manager-1.1.1-Setup-x64.exe`，或解压便携 ZIP。安装包与应用均带有 Weims 图标。安装到正式版 Weims Manager 应用目录。默认英文和浅色，侧栏可即时切换语言与外观。
 2. 打开 **Weims Manager → 创建虚拟机**，选择新目录、名称和容量（默认 **200 GiB**）。保留从 Apple 自动下载 Tahoe 恢复镜像，也可选择已有的兼容 `BaseSystem.dmg` / `.img`。不支持完整 ISO 或 ARM macOS。
 3. 点击**创建**：自动准备 PowerShell、QEMU/Reims，下载并验证 Apple 恢复镜像，生成具有独立机器身份的 OpenCore，准备 OVMF、配套显卡驱动和 ROM，转换恢复镜像并创建空白磁盘。无需手动操作 WSL、编辑 EFI、复制固件或输入 SMC 密钥。已有目标目录会被拒绝；稀疏磁盘容量不代表已预留实际空间。
 4. 启动虚拟机，在 OpenCore 中选择恢复项（隐藏时按**空格**）。进入**磁盘工具 → 显示所有设备**，按容量辨认并仅抹掉**新建的空白系统磁盘**，格式选择 **GUID 分区图 / APFS**。不要抹掉恢复盘或 OpenCore 盘。
-5. 退出磁盘工具，选择**重新安装 macOS Tahoe**和新卷，等待下载和多次重启，按安装进度进入安装器或系统。进入桌面后正常关机，停止残留 QEMU 进程，在软件中取消挂载恢复镜像，保存后再次启动。
+5. 退出磁盘工具，选择**重新安装 macOS Tahoe**和新卷，等待下载和多次重启，按安装进度进入安装器或系统。进入桌面后正常关机（虚拟机窗口会自动关闭），在软件中取消挂载恢复镜像，保存后再次启动。
 
 新建虚拟机默认开启**拖拽自适应分辨率**和自由鼠标。登录后拖动独立 Reims 窗口即可。已有虚拟机需先关机，在**显示与输入**选择自动适配客户机分辨率，关闭无边框模式并保存。启动分辨率范围 **800–4096 × 600–2160**；**2560×1440 仅在本机验证通过**。固定模式缩放完整画面，兼容模式保留旧行为。若调整失去响应，请保留日志，并尽可能正常重启。本版不含剪贴板或文件共享。
 
@@ -31,19 +31,17 @@
 .\Weims.Cli.exe start --config D:\VMs\macOS-Tahoe\state\config.json --display-mode auto
 .\Weims.Cli.exe status --config D:\VMs\macOS-Tahoe\state\config.json
 .\Weims.Cli.exe shutdown --config D:\VMs\macOS-Tahoe\state\config.json
-# macOS 已关机后，退出剩余 QEMU 进程：
-.\Weims.Cli.exe stop --config D:\VMs\macOS-Tahoe\state\config.json
 ```
 
-已有 200 GiB 虚拟机直接将其实际 `state/config.json` 传给 `start`，不要重新创建磁盘。当前设置尚无运行环境时先执行 `setup`。GUI 与 CLI 共用设置目录：优先使用更新器保留的自定义目录；否则复用已有的 `%LOCALAPPDATA%\Weims\Manager-Preview`，全新正式版使用 `%LOCALAPPDATA%\Weims\Manager`。可通过 `--data-dir` 指定其他目录。不要重复启动同一磁盘。`stop` 仅允许退出 QMP 确认为已关机的虚拟机；关机请求无响应时请使用 macOS 苹果菜单。
+已有 200 GiB 虚拟机直接将其实际 `state/config.json` 传给 `start`，不要重新创建磁盘。当前设置尚无运行环境时先执行 `setup`。GUI 与 CLI 共用设置目录：优先使用更新器保留的自定义目录；否则复用已有的 `%LOCALAPPDATA%\Weims\Manager-Preview`，全新正式版使用 `%LOCALAPPDATA%\Weims\Manager`。可通过 `--data-dir` 指定其他目录。不要重复启动同一磁盘。`shutdown` 请求 macOS 退出所有应用并关机，有未保存的文档时 macOS 会先询问；客户机关机后 QEMU 自动退出。`stop` 只用于 1.1.0 及更早版本启动、关机后仍残留的 QEMU。
 
-[1.1.0 发布说明](https://github.com/H0yeR404/weims-vgpu/blob/v1.1.0/docs/release-1.1.0.zh-CN.md)。图形运行库仍固定为 v1.1.0-pre.1；此次管理器正式发布不代表已修复虚拟机卡死问题。
+[1.1.1 发布说明](https://github.com/H0yeR404/weims-vgpu/blob/v1.1.1/docs/release-1.1.1.zh-CN.md)。图形运行库仍固定为 v1.1.0-pre.1；此次管理器更新不代表已修复虚拟机卡死问题。
 
 ## 外观、语言与软件更新
 
 在侧栏选择 **外观 → 浅色 / 深色**，当前窗口与已打开的安装向导立即生效，选择会保存，无需重启，也不会丢失未保存的配置。Windows 高对比度设置优先。默认语言仍为英文，中英文也可即时切换。
 
-打开 **软件更新 → 检查更新**，查看更新说明后点击 **一键更新**。软件下载官方安装包并校验 SHA256。安装前需关闭所有 QEMU 虚拟机和其他 Manager 窗口；只有软件升级需要重启管理器。正式版 1.1.0 仅接收更新的正式版，pre.2 可通过现有更新器升级到 1.1.0。1.0.1 和 pre.1 用户需手动下载安装一次。
+打开 **软件更新 → 检查更新**，查看更新说明后点击 **一键更新**。软件下载官方安装包并校验 SHA256。安装前需关闭所有 QEMU 虚拟机和其他 Manager 窗口；只有软件升级需要重启管理器。正式版仅接收更新的正式版：1.1.0 和 pre.2 可通过现有更新器升级到 1.1.1。1.0.1 和 pre.1 用户需手动下载安装一次。
 
 更新器会保留所选设置目录，以后 GUI 和 CLI 均继续使用。便携版更新后安装到当前用户应用目录，不替换图形运行库或虚拟机磁盘。旧 Preview 应用不会自动卸载，升级后请使用正式版 Weims Manager 快捷方式。
 

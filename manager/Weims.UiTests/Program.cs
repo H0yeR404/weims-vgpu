@@ -35,11 +35,12 @@ internal static class Program
             Check(w.ActualWidth >= 960, "window loaded at supported size");
             for(int i=0;i<7;i++) { model.Page=i; Pump(); Shot(w,Path.Combine(output,$"page-{i}.png")); }
             model.Page=1; Pump();
-            var qmp=(TextBox)w.FindName("Qmp"); qmp.SetCurrentValue(TextBox.TextProperty,"not-a-port"); qmp.GetBindingExpression(TextBox.TextProperty)!.UpdateSource(); Pump();
-            Check(Validation.GetHasError(qmp),"invalid port exposes inline WPF validation");
+            Check(w.FindName("Qmp")==null,"QMP port is no longer a user setting");
+            var ssh=(TextBox)w.FindName("Ssh"); ssh.SetCurrentValue(TextBox.TextProperty,"not-a-port"); ssh.GetBindingExpression(TextBox.TextProperty)!.UpdateSource(); Pump();
+            Check(Validation.GetHasError(ssh),"invalid port exposes inline WPF validation");
             model.Page=0; Pump(); bool rejected=false; try { model.Selected!.Validate(); }catch(InvalidDataException){rejected=true;}
             Check(rejected,"invalid field on inactive page blocks model validation");
-            model.Page=1; Pump(); qmp.SetCurrentValue(TextBox.TextProperty,"4455"); qmp.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
+            model.Page=1; Pump(); ssh.SetCurrentValue(TextBox.TextProperty,"2233"); ssh.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
             model.Page=2; Pump(); var resolution=(ComboBox)w.FindName("Resolution"); resolution.SetCurrentValue(ComboBox.TextProperty,"2560x1440"); resolution.GetBindingExpression(ComboBox.TextProperty)!.UpdateSource();
             string displayHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(fixture,"reims_vgpu_c.dll"))));
             JsonFiles.Write(Path.Combine(fixture,"weims-display-v1.json"),new { capability="adaptive-display-v1", dll_sha256=displayHash });
@@ -72,21 +73,21 @@ internal static class Program
             Check(((TextBox)english.FindName("QemuPath")).IsVisible, "custom paths remain available in advanced settings");
             advancedRuntime.IsExpanded = false; Pump();
 
-            enModel.Selected!.QmpPortInput = "unsaved-invalid-port";
+            enModel.Selected!.SshPortInput = "unsaved-invalid-port";
             var language = (ComboBox)english.FindName("LanguagePicker"); language.SelectedIndex = 0; Pump();
             Check(File.ReadAllText(Path.Combine(enModel.DataDirectory,"language.txt")) == "zh-CN", "language choice persisted");
             Check(english.Title != "Weims · Virtual Machine Manager", "language switches current window title immediately");
             Check(enModel.Page == 4 && enModel.Selected!.Resolution == "2560x1440", "language switch preserves current page and VM configuration");
 
             Shot(english, Path.Combine(output,"zh-runtime-simple.png"));
-            Check(enModel.Selected!.QmpPortInput == "unsaved-invalid-port", "language change preserves unsaved invalid field text");
+            Check(enModel.Selected!.SshPortInput == "unsaved-invalid-port", "language change preserves unsaved invalid field text");
             var theme = (ComboBox)english.FindName("ThemePicker");
             Check(Equals(theme.SelectedValue, "light"), "light appearance is the default");
             theme.SelectedValue = "dark"; Pump();
             Color BrushColor(Brush brush) => ((SolidColorBrush)brush).Color;
             Check(BrushColor(english.Background) == Color.FromRgb(25,27,32), "dark palette applied to the existing window immediately");
             Check(File.ReadAllText(Path.Combine(enModel.DataDirectory, "theme.txt")) == "dark", "appearance selection saved");
-            Check(enModel.Page == 4 && enModel.Selected!.QmpPortInput == "unsaved-invalid-port", "theme switch preserves current page and unsaved edits");
+            Check(enModel.Page == 4 && enModel.Selected!.SshPortInput == "unsaved-invalid-port", "theme switch preserves current page and unsaved edits");
             Check(ReferenceEquals(english.DataContext, enModel), "theme switch keeps existing view model");
             var themeBottom = theme.TranslatePoint(new Point(0, theme.ActualHeight), english);
             var navigation = (ListBox)english.FindName("Navigation");

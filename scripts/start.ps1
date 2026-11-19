@@ -27,13 +27,23 @@ $env:REIMS_VGPU_WINDOW_FREE_POINTER = if ($c.free_pointer) { '1' } else { '0' }
 $env:REIMS_VGPU_WINDOW_BORDERLESS = if ($c.borderless) { '1' } else { '0' }
 $runtimePath = "$VmDir\state\runtime.json"
 
-function Send-Qmp([int]$Port, [string]$Command) {
-    $client = [Net.Sockets.TcpClient]::new('127.0.0.1', $Port)
+# QMP has no authentication, and the guest reaches the host's 127.0.0.1 through user-mode networking
+# (10.0.2.2), so QMP must not listen on TCP. It uses a Unix domain socket in a per-user folder instead.
+function Send-Qmp($Endpoint, [string]$Command) {
+    # $Endpoint is a socket path, or the TCP port recorded by an older version of this script.
+    if ("$Endpoint" -match '^\d+$') {
+        $socket = [Net.Sockets.Socket]::new([Net.Sockets.AddressFamily]::InterNetwork, [Net.Sockets.SocketType]::Stream, [Net.Sockets.ProtocolType]::Tcp)
+        $target = [Net.IPEndPoint]::new([Net.IPAddress]::Loopback, [int]"$Endpoint")
+    } else {
+        $socket = [Net.Sockets.Socket]::new([Net.Sockets.AddressFamily]::Unix, [Net.Sockets.SocketType]::Stream, [Net.Sockets.ProtocolType]::Unspecified)
+        $target = [Net.Sockets.UnixDomainSocketEndPoint]::new([string]$Endpoint)
+    }
     try {
-        $s = $client.GetStream(); $r = [IO.StreamReader]::new($s); $w = [IO.StreamWriter]::new($s); $w.AutoFlush = $true; $w.NewLine = "`n"
+        $socket.Connect($target)
+        $s = [Net.Sockets.NetworkStream]::new($socket, $false); $r = [IO.StreamReader]::new($s); $w = [IO.StreamWriter]::new($s); $w.AutoFlush = $true; $w.NewLine = "`n"
         [void]$r.ReadLine(); $w.WriteLine('{"execute":"qmp_capabilities"}'); [void]$r.ReadLine()
         $w.WriteLine("{`"execute`":`"$Command`"}"); return $r.ReadLine()
-    } finally { $client.Dispose() }
+    } finally { $socket.Dispose() }
 }
 
 if ($Exit) {
@@ -41,7 +51,8 @@ if ($Exit) {
     $rt = Get-Content -Raw $runtimePath | ConvertFrom-Json
     $p = Get-Process -Id $rt.pid -ErrorAction SilentlyContinue
     if (!$p -or $p.Path -ne $rt.executable) { 'QEMU is not running'; return }
-    try { [void](Send-Qmp $c.qmp_port 'quit') } catch { }
+    $endpoint = if ($rt.qmp_socket) { $rt.qmp_socket } elseif ($rt.qmp_port) { $rt.qmp_port } else { $c.qmp_port }
+    try { [void](Send-Qmp $endpoint 'quit') } catch { }
     if (!$p.WaitForExit(15000)) { throw "QEMU $($rt.pid) did not quit" }
     "QEMU $($rt.pid) quit"; return
 }
@@ -50,6 +61,11 @@ if (!$env:WEIMS_OSK) { throw 'Set WEIMS_OSK from your own authorized installatio
 if (!$env:WEIMS_MSYS2) { throw 'Set WEIMS_MSYS2' }
 function Q([string]$Path) { $Path.Replace('\', '/').Replace(',', ',,') }
 $run = "$VmDir\logs\" + (Get-Date -Format 'yyyyMMdd-HHmmss-fff')
+# Socket paths are limited to 108 bytes, so the socket lives in a short per-user folder, not the VM folder.
+# Not under AppData: Windows redirects AppData for processes started from packaged apps, and a socket there cannot be connected to.
+$qmpDir = if ($env:WEIMS_QMP_DIR) { $env:WEIMS_QMP_DIR } else { Join-Path $env:USERPROFILE '.weims\q' }
+$qmpSocket = Join-Path $qmpDir ([guid]::NewGuid().ToString('N').Substring(0, 12) + '.sock')
+if ([Text.Encoding]::UTF8.GetByteCount($qmpSocket) -gt 104) { throw "QMP socket path is too long: $qmpSocket. Set WEIMS_QMP_DIR to a short folder that only you can access." }
 $gfx = "reims-graphics-pci,id=gfx,bus=pcie.0,addr=0x4,romfile=$(Q $c.rom),resolution=$($c.resolution)"
 $a = @(
     '-L', (Q "$Root\sources\qemu\pc-bios"),
@@ -79,7 +95,7 @@ $a += @(
     '-device', 'usb-kbd,id=kbd,bus=xhci.0', '-device', 'usb-tablet,id=tablet,bus=xhci.0',
     '-audiodev', 'none,id=snd0,in.voices=0', '-device', 'usb-audio,id=audio,audiodev=snd0,bus=xhci.0',
     '-display', 'none', '-monitor', 'none', '-serial', "file:$(Q "$run\serial.log")", '-msg', 'timestamp=on',
-    '-qmp', "tcp:127.0.0.1:$($c.qmp_port),server=on,wait=off", '-no-shutdown'
+    '-qmp', "unix:$(Q $qmpSocket),server=on,wait=off"
 )
 if ($DryRun) { ($a -join ' ') -replace 'osk=[^ ]+', 'osk=<redacted>'; return }
 
@@ -87,11 +103,13 @@ if (Test-Path $runtimePath) {
     $rt = Get-Content -Raw $runtimePath | ConvertFrom-Json
     $p = Get-Process -Id $rt.pid -ErrorAction SilentlyContinue
     if ($p -and $p.Path -eq $rt.executable) { throw "This VM's QEMU is still running (PID $($rt.pid)); use -Exit first." }
+    # That QEMU is gone; a hard exit leaves its socket file behind.
+    if ($rt.qmp_socket -and (Split-Path $rt.qmp_socket) -eq $qmpDir -and $rt.qmp_socket -like '*.sock') { Remove-Item -LiteralPath $rt.qmp_socket -ErrorAction SilentlyContinue }
 }
 foreach ($f in @($Qemu, $c.firmware_code, $c.firmware_vars, $c.rom) + $(if ($NoDisk) { @() } else { @($c.opencore, $c.active_disk) })) {
     if (!(Test-Path -LiteralPath $f -PathType Leaf)) { throw "Missing VM input: $f" }
 }
-New-Item -ItemType Directory -Force $run | Out-Null
+New-Item -ItemType Directory -Force $run, $qmpDir | Out-Null
 # The library's DLL and MSYS2's runtime DLLs.
 $env:PATH = "$Dist\bin;$env:WEIMS_MSYS2\ucrt64\bin;$env:PATH"
 
@@ -108,7 +126,7 @@ $safeArgs = $a | ForEach-Object { $_ -replace 'osk=.*', 'osk=<redacted>' }
 @{ executable = $Qemu; arguments = $safeArgs; env = @{ REIMS_VGPU_LOG = $LogSpec; PF = $PfIntercept; BQL = $MmioBql } } | ConvertTo-Json -Depth 5 | Set-Content "$run\command.json" -Encoding utf8NoBOM
 $proc = Start-Process -FilePath $Qemu -ArgumentList $quoted -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput "$run\stdout.log" -RedirectStandardError "$run\stderr.log" -PassThru
 if ($Affinity) { $proc.ProcessorAffinity = [IntPtr][Convert]::ToInt64($Affinity, 16) }
-@{ pid = $proc.Id; executable = $Qemu; qmp_port = $c.qmp_port; run_directory = $run } | ConvertTo-Json | Set-Content $runtimePath -Encoding utf8NoBOM
+@{ pid = $proc.Id; executable = $Qemu; qmp_socket = $qmpSocket; run_directory = $run } | ConvertTo-Json | Set-Content $runtimePath -Encoding utf8NoBOM
 Start-Sleep -Seconds 3
 if ($proc.HasExited) { Get-Content "$run\stderr.log" -Tail 20; throw "QEMU exited with code $($proc.ExitCode)" }
-"Started PID $($proc.Id), QMP 127.0.0.1:$($c.qmp_port). Logs: $run"
+"Started PID $($proc.Id), QMP socket $qmpSocket. Logs: $run"
