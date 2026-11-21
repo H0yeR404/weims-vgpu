@@ -61,6 +61,8 @@ public sealed class ControlServer
     readonly PairingSession pairing;
     readonly BrokerStatus status;
     readonly Action<string> log;
+    /// <summary>The one-time code for a helper installed from the install image.</summary>
+    public InstallTicket Ticket { get; }
     X509Certificate2 certificate;
     int unauthenticated;
     HelperSession? current;
@@ -70,9 +72,10 @@ public sealed class ControlServer
     public Action<HelperSession, Frame>? Received { get; set; }
     public int Port => ((IPEndPoint)listener.LocalEndpoint).Port;
 
-    public ControlServer(TcpListener listener, BrokerSecrets secrets, PairingSession pairing, BrokerStatus status, Action<string> log)
+    public ControlServer(TcpListener listener, BrokerSecrets secrets, PairingSession pairing, BrokerStatus status, Action<string> log, InstallTicket? ticket = null)
     {
         this.listener = listener; this.secrets = secrets; this.pairing = pairing; this.status = status; this.log = log;
+        Ticket = ticket ?? new InstallTicket();
         certificate = secrets.ServerCertificate();
         status.Update(s => { s.Port = Port; s.Fingerprint = secrets.Fingerprint; s.PairedUsers = secrets.PairedUsers; });
     }
@@ -143,6 +146,8 @@ public sealed class ControlServer
                 idle.CancelAfter(IdleTimeout);
                 var frame = await Frames.Read(tls, FrameLimit, idle.Token);
                 if (frame.Type == "ping") await session.Send(new JsonObject { ["type"] = "pong" });
+                // The helper has unmounted the install volume; Manager may now unplug it (the broker never talks to QMP).
+                else if (frame.Type == "install_media") { if (frame.Flag("ejected")) { status.Update(s => s.InstallMediaEjected = true); log("the guest ejected the install volume"); } }
                 else Received?.Invoke(session, frame);
             }
         }
@@ -194,6 +199,7 @@ public sealed class ControlServer
         }
         // A pairing connection only pairs: the helper stores what it was given and connects again with its token.
         else if (credentials.Type == "pair_begin") { await Pair(tls, credentials, token, stop); return null; }
+        else if (credentials.Type == "ticket_begin") { await PairByTicket(tls, credentials, token); return null; }
         else return await Refuse(tls, "protocol", token);
         return new HelperSession(tls, user, helperVersion, shared);
     }
@@ -241,11 +247,35 @@ public sealed class ControlServer
         finally { pairing.Abandon(request); PublishPairing(); }
     }
 
+    /// <summary>
+    /// Pairing through the install disk (see <see cref="InstallTicket"/>): both sides prove that they know the
+    /// one-time code from the disk's serial number, the broker first, and nobody has to confirm anything.
+    /// </summary>
+    async Task PairByTicket(SslStream tls, Frame begin, CancellationToken token)
+    {
+        var fingerprint = Convert.FromHexString(secrets.Fingerprint);
+        var mine = RandomNumberGenerator.GetBytes(32);
+        byte[]? theirs = Bytes(begin.Text("nonce"));
+        var proof = theirs == null ? null : Ticket.Proof(fingerprint, theirs, mine);
+        PublishPairing();
+        if (proof == null) { await Refuse(tls, "ticket", token); return; }
+        await Frames.Write(tls, new JsonObject { ["type"] = "ticket_challenge", ["nonce"] = Convert.ToHexString(mine).ToLowerInvariant(), ["proof"] = Convert.ToHexString(proof).ToLowerInvariant() }, default, token);
+        var answer = await Frames.Read(tls, Frames.PreAuthLimit, token);
+        var user = Clean(answer.Text("user"), 64);
+        bool redeemed = answer.Type == "ticket_proof" && Bytes(answer.Text("proof")) is { } theirProof && Ticket.Redeem(theirProof, fingerprint, theirs, mine);
+        PublishPairing();
+        if (!redeemed) { log($"guest user {user} did not prove the install code: it is wrong, used or expired"); await Refuse(tls, "ticket", token); return; }
+        var issued = secrets.AddHelper(user);
+        status.Update(s => s.PairedUsers = secrets.PairedUsers);
+        log($"paired with guest user {user} through the install disk");
+        await Frames.Write(tls, new JsonObject { ["type"] = "paired", ["token"] = issued, ["user"] = user }, default, token);
+    }
+
     /// <summary>Copies the pairing state into what Manager sees.</summary>
     public void PublishPairing()
     {
-        var showing = pairing.Showing; var until = pairing.OpenUntilUtc;
-        status.Update(s => { s.PairingUntilUtc = until; s.PairingDigits = showing?.Digits; s.PairingUser = showing?.User; });
+        var showing = pairing.Showing; var until = pairing.OpenUntilUtc; var ticket = Ticket.ValidUntilUtc;
+        status.Update(s => { s.PairingUntilUtc = until; s.PairingDigits = showing?.Digits; s.PairingUser = showing?.User; s.InstallUntilUtc = ticket; });
     }
 
     static byte[]? Bytes(string? hex)

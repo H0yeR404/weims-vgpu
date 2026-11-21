@@ -117,6 +117,10 @@ public sealed record BrokerState(bool Online, int Port, string? Fingerprint, str
     /// <summary>The four digits a helper is showing in the guest, for the user to compare; null while no helper has asked.</summary>
     public string? PairingDigits { get; init; }
     public string? PairingUser { get; init; }
+    /// <summary>An install code is outstanding: the install image is waiting to be used in the guest.</summary>
+    public bool InstallOpen { get; init; }
+    /// <summary>The helper has unmounted the install volume; the stick can be unplugged.</summary>
+    public bool InstallMediaEjected { get; init; }
     public string Label => !Online ? Text.Get("集成：离线", "Integration: offline") + (Error is null ? "" : " · " + Error)
         : Connected ? Text.Get($"集成：已连接（{HelperUser}）", $"Integration: connected ({HelperUser})")
         : PairedUsers.Count == 0 ? Text.Get("集成：等待配对", "Integration: waiting for pairing")
@@ -134,9 +138,13 @@ public sealed record BrokerState(bool Online, int Port, string? Fingerprint, str
             var heartbeat = DateTime.Parse(Str("heartbeat_utc")!, null, System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime();
             if ((nowUtc ?? DateTime.UtcNow) - heartbeat > Integration.HeartbeatTimeout || Str("status") == "stopped" || !Alive(j["pid"]!.GetValue<int>(), Str("started_utc")!)) return Offline(error);
             var paired = j["paired_users"] is JsonArray a ? a.Select(n => n!.GetValue<string>()).ToArray() : Array.Empty<string>();
-            bool pairingOpen = Str("pairing_until_utc") is { } until && DateTime.Parse(until, null, System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime() > (nowUtc ?? DateTime.UtcNow);
+            bool Future(string key) => Str(key) is { } until && DateTime.Parse(until, null, System.Globalization.DateTimeStyles.RoundtripKind).ToUniversalTime() > (nowUtc ?? DateTime.UtcNow);
+            bool pairingOpen = Future("pairing_until_utc");
             return new(true, j["port"]!.GetValue<int>(), Str("fingerprint"), Str("helper_user"), Str("helper_version"), paired, error)
-            { PairingOpen = pairingOpen || Str("pairing_digits") != null, PairingDigits = Str("pairing_digits"), PairingUser = Str("pairing_user") };
+            {
+                PairingOpen = pairingOpen || Str("pairing_digits") != null, PairingDigits = Str("pairing_digits"), PairingUser = Str("pairing_user"),
+                InstallOpen = Future("install_until_utc"), InstallMediaEjected = j["install_media_ejected"] is JsonValue e && e.TryGetValue<bool>(out var ejected) && ejected
+            };
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException or FormatException or NullReferenceException or ArgumentException) { return Offline(); }
     }

@@ -6,11 +6,11 @@ try
 {
     if (args.Length == 0 || args[0] is "--help" or "help")
     {
-        Console.WriteLine("Weims 1.1.1 — Windows x64\nKnown issue: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH [--display-mode auto|fixed|legacy]\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only for a VM started by 1.1.0 or older, after guest shutdown)\nWeims.Cli tools-enable|tools-disable --config PATH (Guest Tools: clipboard sharing with macOS; off by default)\nWeims.Cli tools-status --config PATH\nWeims.Cli tools-pair --config PATH (pairs with Weims Guest Tools in macOS: both show a four-digit number to compare)\nWeims.Cli tools-reset-pairing --config PATH\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown asks macOS to quit all apps and shut down; it asks about unsaved documents first. QEMU exits when the guest has powered off.");
+        Console.WriteLine("Weims 1.1.1 — Windows x64\nKnown issue: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH [--display-mode auto|fixed|legacy]\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only for a VM started by 1.1.0 or older, after guest shutdown)\nWeims.Cli tools-enable|tools-disable --config PATH (Guest Tools: clipboard sharing with macOS; off by default)\nWeims.Cli tools-status --config PATH\nWeims.Cli tools-install --config PATH (puts the Guest Tools install disk into the running VM; installing from it pairs without input)\nWeims.Cli tools-pair --config PATH (pairs with Weims Guest Tools in macOS: both show a four-digit number to compare)\nWeims.Cli tools-reset-pairing --config PATH\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown asks macOS to quit all apps and shut down; it asks about unsaved documents first. QEMU exits when the guest has powered off.");
         return 0;
     }
     string command = args[0];
-    if (command is not ("setup" or "create" or "start" or "status" or "shutdown" or "stop" or "tools-enable" or "tools-disable" or "tools-status" or "tools-pair" or "tools-reset-pairing")) throw new ArgumentException("Unknown command. Use --help.");
+    if (command is not ("setup" or "create" or "start" or "status" or "shutdown" or "stop" or "tools-enable" or "tools-disable" or "tools-status" or "tools-install" or "tools-pair" or "tools-reset-pairing")) throw new ArgumentException("Unknown command. Use --help.");
     var options = new Dictionary<string,string>();
     for (int i = 1; i < args.Length; i += 2)
     {
@@ -50,7 +50,13 @@ try
         {
             var state = await VmService.State(c); Console.WriteLine(state.Label);
             // Looking at the state is also what brings a missing broker back; there is no resident supervisor.
-            if (c.IntegrationEnabled) Console.WriteLine(Integration.Supervise(c, state.Running).Label);
+            if (c.IntegrationEnabled)
+            {
+                var broker = Integration.Supervise(c, state.Running);
+                Console.WriteLine(broker.Label);
+                // The same goes for an install disk the guest is done with: whoever looks, unplugs it.
+                if (await InstallMedia.Collect(c, broker, cancel.Token)) Console.WriteLine("The Guest Tools install disk was removed from the VM.");
+            }
         }
         else if (command is "tools-enable" or "tools-disable")
         {
@@ -64,6 +70,28 @@ try
             var broker = Integration.Supervise(c, (await VmService.State(c)).Running);
             Console.WriteLine(c.IntegrationEnabled ? broker.Label : "Integration: off");
             if (broker.Online) Console.WriteLine($"Port {broker.Port}; certificate {broker.Fingerprint?[..8]}; paired with: {(broker.PairedUsers.Count == 0 ? "nobody" : string.Join(", ", broker.PairedUsers))}");
+        }
+        else if (command == "tools-install")
+        {
+            await InstallMedia.Insert(c, cancel.Token);
+            Console.WriteLine("The install disk \"Weims Guest Tools\" is now in the VM. In macOS, open it and double-click \"Install Weims Guest Tools\".");
+            Console.WriteLine("Nothing has to be typed; the disk pairs this VM for the next 10 minutes. Waiting for macOS (Ctrl+C stops waiting, the disk stays in).");
+            DateTime? paired = null;
+            while (true)
+            {
+                await Task.Delay(1000, cancel.Token);
+                var broker = BrokerState.Read(c);
+                if (await InstallMedia.Collect(c, broker, cancel.Token)) { Console.WriteLine($"Installed and paired with: {string.Join(", ", broker.PairedUsers)}. The install disk was removed."); break; }
+                if (!broker.Online) throw new IOException("The integration component stopped.");
+                if (broker.InstallOpen || broker.InstallMediaEjected) continue;
+                // The code is used up or has run out. If a helper is connected it was used: the helper ejects the disk
+                // a moment later, and Manager, if it is open, may be the one that unplugs it.
+                if (!broker.Connected) throw new IOException("The 10 minutes passed without the helper pairing. The disk is still in the VM; run tools-install again for a new one.");
+                paired ??= DateTime.UtcNow;
+                if (DateTime.UtcNow - paired < TimeSpan.FromSeconds(20)) continue;
+                Console.WriteLine($"Installed and paired with: {string.Join(", ", broker.PairedUsers)}. If the install disk is still in the VM, it goes when Manager or the status command next looks, or when the VM shuts down.");
+                break;
+            }
         }
         else if (command == "tools-pair")
         {

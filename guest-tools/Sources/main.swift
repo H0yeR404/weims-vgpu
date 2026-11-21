@@ -4,6 +4,8 @@
 // It runs as the logged-in user, needs no root and installs nothing into the system. It connects to
 // the host's broker at 10.0.2.2 (QEMU's user-mode network maps that to the host's loopback), checks
 // the broker's certificate against the fingerprint remembered at pairing, and shows its token.
+import DiskArbitration
+import IOKit
 import AppKit
 import CryptoKit
 import Foundation
@@ -70,14 +72,78 @@ enum Store {
     }
 
     static func save(_ pairing: Pairing) -> Bool {
+        do { return writePrivate(try JSONEncoder().encode(pairing), to: file) } catch { return false }
+    }
+
+    /// Created with its final permissions, then moved into place, so the content is never readable by others.
+    private static func writePrivate(_ data: Data, to destination: URL) -> Bool {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            let temporary = file.path + ".tmp"
-            // Created with its final permissions, then moved into place, so the token is never readable by others.
+            let temporary = destination.path + ".tmp"
             try? FileManager.default.removeItem(atPath: temporary)
-            guard FileManager.default.createFile(atPath: temporary, contents: try JSONEncoder().encode(pairing), attributes: [.posixPermissions: 0o600]) else { return false }
-            return rename(temporary, file.path) == 0
+            guard FileManager.default.createFile(atPath: temporary, contents: data, attributes: [.posixPermissions: 0o600]) else { return false }
+            return rename(temporary, destination.path) == 0
         } catch { return false }
+    }
+
+    // The ticket the installer took from the install disk; see Ticket.
+    static var ticketFile: URL { directory.appendingPathComponent("ticket.json") }
+    static func loadTicket() -> Ticket? {
+        guard let data = try? Data(contentsOf: ticketFile) else { return nil }
+        return try? JSONDecoder().decode(Ticket.self, from: data)
+    }
+    static func saveTicket(_ ticket: Ticket) -> Bool {
+        do { return writePrivate(try JSONEncoder().encode(ticket), to: ticketFile) } catch { return false }
+    }
+    static func removeTicket() { try? FileManager.default.removeItem(at: ticketFile) }
+}
+
+/// What the install disk tells the helper: on which port this VM's broker listens, and a one-time
+/// code. Weims Manager gives the disk both as its USB serial number, and the installer reads that
+/// from the device tree. Reading a file on the disk instead would make macOS ask the user whether
+/// the installer may access removable volumes.
+///
+/// The code is never sent. Helper and broker each prove that they know it, over the certificate the
+/// connection really uses, the broker first; so the helper knows whose certificate it is about to
+/// remember, and nothing has to be typed or confirmed.
+struct Ticket: Codable {
+    var port: UInt16
+    var code: String
+    /// When the installer found it. The host accepts a code for ten minutes.
+    var found: Double
+    /// The mounted install disk, to be ejected once pairing is done.
+    var volume: String?
+
+    var expired: Bool { Date().timeIntervalSince1970 - found > 600 }
+
+    private static let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+
+    /// A serial number that is a ticket: 'W', one character for the port, 18 characters of code.
+    init?(serial: String, volume: String?) {
+        let characters = Array(serial)
+        guard characters.count == 20, characters[0] == "W", let offset = Ticket.alphabet.firstIndex(of: characters[1]),
+              UInt16(offset) < portCount, characters[2...].allSatisfy({ Ticket.alphabet.contains($0) }) else { return nil }
+        port = portBase + UInt16(offset)
+        code = String(characters[2...])
+        found = Date().timeIntervalSince1970
+        self.volume = volume
+    }
+
+    /// The serial number of a plugged-in install disk, if it carries a ticket.
+    static func serialOfInstallDisk() -> String? {
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOUSBHostDevice"), &iterator) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(iterator) }
+        var result: String?
+        while true {
+            let entry = IOIteratorNext(iterator)
+            if entry == 0 { break }
+            defer { IOObjectRelease(entry) }
+            guard let serial = IORegistryEntryCreateCFProperty(entry, "USB Serial Number" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String,
+                  Ticket(serial: serial, volume: nil) != nil else { continue }
+            result = serial
+        }
+        return result
     }
 }
 
@@ -285,6 +351,11 @@ final class Client {
         phase = .hello
         active = false
         cancelProbes()
+        let ticketLink = redeeming
+        redeeming = nil
+        ticketLink?.onClosed = nil
+        ticketLink?.onFrame = nil
+        ticketLink?.close("replaced")
     }
 
     private func cancelProbes() {
@@ -296,7 +367,10 @@ final class Client {
     // MARK: Connecting
 
     private func connect() {
-        guard !suspended, link == nil, probes.isEmpty, pairingDone == nil else { return }
+        guard !suspended, link == nil, probes.isEmpty, pairingDone == nil, redeeming == nil else { return }
+        // A ticket from the install disk comes first: the user has just installed from Weims Manager,
+        // and whatever pairing is stored may be from before a reset on the host.
+        if let ticket = Store.loadTicket() { redeem(ticket); return }
         guard let pairing = pairing else { status = L("Not paired", "未配对"); return }
         status = L("Connecting…", "正在连接…")
         // The broker normally stays on its port, so that is tried first and alone. If nothing with
@@ -382,6 +456,182 @@ final class Client {
         status = L("Disconnected. Reconnecting…", "连接已断开，正在重连…")
         if wasSession { retryDelay = 2 }
         scheduleRetry()
+    }
+
+    // MARK: Pairing from the install disk
+
+    enum InstallEvent { case started, paired, failed(String) }
+    /// Progress of the pairing that follows an install from the install disk, for the welcome window.
+    var onInstall: ((InstallEvent) -> Void)?
+    private var redeeming: Link?
+    private var redeemAttempts = 0
+    private var ejectReport = false
+
+    /// Pairs with the broker on the ticket's port, each side proving that it knows the ticket's code.
+    private func redeem(_ ticket: Ticket) {
+        if ticket.expired || redeemAttempts >= 40 {
+            giveUpTicket(ticket, L("The install disk's pairing has expired. In Weims Manager, click Install Guest Tools again, or pair from this menu.",
+                                   "安装盘里的配对信息已过期。请在 Weims Manager 里重新点“安装 Guest Tools”，或从此菜单配对。"))
+            return
+        }
+        if redeemAttempts == 0 { onInstall?(.started) }
+        redeemAttempts += 1
+        status = L("Pairing with the host…", "正在与宿主配对…")
+        let attempt = Link(port: ticket.port) { _ in true }
+        redeeming = attempt
+        var answered = false
+        var verified = false
+        var random = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, random.count, &random)
+        let mine = Data(random)
+        let key = SymmetricKey(data: Data(ticket.code.utf8))
+        // What one side sends to prove that it knows the code, bound to the certificate in use and both random values.
+        func proof(_ side: String, _ fingerprint: Data, _ theirs: Data) -> Data {
+            var message = Data("weims-ticket-v1-\(side)".utf8)
+            message.append(fingerprint)
+            message.append(mine)
+            message.append(theirs)
+            return Data(HMAC<SHA256>.authenticationCode(for: message, using: key))
+        }
+        func refused() {
+            answered = true
+            redeeming = nil
+            attempt.onClosed = nil
+            attempt.close("ticket refused")
+            giveUpTicket(ticket, L("The host did not accept the install disk's pairing. In Weims Manager, click Install Guest Tools again, or pair from this menu.",
+                                   "宿主没有接受安装盘里的配对信息。请在 Weims Manager 里重新点“安装 Guest Tools”，或从此菜单配对。"))
+        }
+        attempt.onFrame = { [weak self, weak attempt] frame in
+            guard let self = self, let attempt = attempt, self.redeeming === attempt else { return }
+            switch frame.type {
+            case "hello":
+                attempt.send(["type": "ticket_begin", "nonce": hexString(mine)])
+            case "ticket_challenge":
+                // Only this VM's broker can make this proof. Anything else on that port is not trusted with ours.
+                guard let fingerprint = bytes(hex: attempt.fingerprint), let theirs = bytes(hex: frame.header["nonce"] as? String), theirs.count == 32,
+                      let shown = bytes(hex: frame.header["proof"] as? String), shown == proof("broker", fingerprint, theirs) else { refused(); return }
+                verified = true
+                attempt.send(["type": "ticket_proof", "proof": hexString(proof("helper", fingerprint, theirs)), "user": NSUserName()])
+            case "paired":
+                guard verified, let token = frame.header["token"] as? String, let fingerprint = attempt.fingerprint else { refused(); return }
+                answered = true
+                self.redeeming = nil
+                attempt.onClosed = nil
+                attempt.close("paired")
+                let stored = Pairing(port: ticket.port, fingerprint: fingerprint, token: token)
+                guard Store.save(stored) else {
+                    self.giveUpTicket(ticket, L("Paired, but the pairing could not be stored.", "配对成功，但无法保存配对信息。")); return
+                }
+                Store.removeTicket()
+                self.pairing = stored
+                self.redeemAttempts = 0
+                self.retryDelay = 2
+                Log.write("paired with the host on port \(ticket.port) through the install disk")
+                self.onInstall?(.paired)
+                self.eject(ticket.volume, tries: 4)
+                self.connect()
+            default:
+                // The code was used, replaced or has expired.
+                refused()
+            }
+        }
+        attempt.onClosed = { [weak self, weak attempt] reason in
+            guard let self = self, let attempt = attempt, self.redeeming === attempt, !answered else { return }
+            // Not reached yet. On a fresh install macOS first asks the user whether this app may use the
+            // local network, and refuses every connection until the answer is Allow. Keep trying while the code is good.
+            self.redeeming = nil
+            Log.write("the host named by the install disk is not reachable yet: \(reason)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.connect() }
+        }
+        attempt.start { [weak attempt] in
+            attempt?.send(["type": "hello", "version": protocolVersion, "helper": helperVersion, "capabilities": ["clipboard-text"]])
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self, weak attempt] in
+            if let attempt = attempt, self?.redeeming === attempt { attempt.close("no answer") }
+        }
+    }
+
+    private func giveUpTicket(_ ticket: Ticket, _ problem: String) {
+        Store.removeTicket()
+        redeemAttempts = 0
+        Log.write("install disk pairing given up: \(problem)")
+        onInstall?(.failed(problem))
+        eject(ticket.volume, tries: 4)
+        connect()
+        if pairing == nil { status = problem }
+    }
+
+    /// The device behind the place where the install disk is mounted ("disk3s1"), or nil if that
+    /// place is not a read-only volume of the install disk's name. This is answered from the mount
+    /// table. Looking at any file on the disk itself, or letting diskutil do so on this app's behalf,
+    /// makes macOS ask the user whether this app may access removable volumes.
+    private func installDiskDevice(_ volume: String) -> String? {
+        guard volume.hasPrefix("/Volumes/Weims Guest Tools") else { return nil }
+        var list: UnsafeMutablePointer<statfs>?
+        let count = getmntinfo(&list, MNT_NOWAIT)
+        guard count > 0, let mounts = list else { return nil }
+        for index in 0..<Int(count) {
+            var mount = mounts[index]
+            let path = withUnsafePointer(to: &mount.f_mntonname) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
+            }
+            guard path == volume, mount.f_flags & UInt32(MNT_RDONLY) != 0 else { continue }
+            let device = withUnsafePointer(to: &mount.f_mntfromname) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
+            }
+            return device.hasPrefix("/dev/") ? String(device.dropFirst(5)) : nil
+        }
+        return nil
+    }
+
+    private var ejectSession: DASession?
+    private var ejectDisk: DADisk?
+    private var ejectVolume = ""
+    private var ejectTries = 0
+
+    /// Unmounts the install disk so that Weims Manager can unplug it. The request goes to the system's
+    /// disk arbitration service, which does the unmounting; this app never touches the volume. The
+    /// installer that ran from it may still be exiting, hence the retries; the volume is read-only,
+    /// so the forced unmount at the end loses nothing.
+    private func eject(_ volume: String?, tries: Int) {
+        guard let volume = volume, let device = installDiskDevice(volume),
+              let session = DASessionCreate(kCFAllocatorDefault),
+              let partition = DADiskCreateFromBSDName(kCFAllocatorDefault, session, device) else { return }
+        DASessionSetDispatchQueue(session, DispatchQueue.main)
+        let disk = DADiskCopyWholeDisk(partition) ?? partition
+        ejectSession = session
+        ejectDisk = disk
+        ejectVolume = volume
+        ejectTries = tries
+        let options = kDADiskUnmountOptionWhole | (tries > 0 ? kDADiskUnmountOptionDefault : kDADiskUnmountOptionForce)
+        DADiskUnmount(disk, DADiskUnmountOptions(options), { _, dissenter, context in
+            guard let context = context else { return }
+            Unmanaged<Client>.fromOpaque(context).takeUnretainedValue().unmounted(refused: dissenter != nil)
+        }, Unmanaged.passUnretained(self).toOpaque())
+    }
+
+    private func unmounted(refused: Bool) {
+        let volume = ejectVolume
+        let tries = ejectTries
+        if !refused, let disk = ejectDisk { DADiskEject(disk, DADiskEjectOptions(kDADiskEjectOptionDefault), nil, nil) }
+        ejectDisk = nil
+        ejectSession = nil
+        if !refused {
+            Log.write("install disk ejected")
+            ejectReport = true
+            reportEject()
+        } else if tries > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.eject(volume, tries: tries - 1) }
+        } else {
+            Log.write("the install disk could not be ejected; it stays in until the VM is shut down")
+        }
+    }
+
+    /// Tells the broker that the install disk is free, once there is a session to tell it on.
+    private func reportEject() {
+        guard ejectReport, phase == .session, let link = link else { return }
+        ejectReport = false
+        link.send(["type": "install_media", "ejected": true])
     }
 
     // MARK: Pairing
@@ -540,6 +790,7 @@ final class Client {
             _ = Store.save(pairing)
         }
         status = L("Connected", "已连接")
+        reportEject()
     }
 
     private func session(_ frame: Frame, on link: Link) {
@@ -627,6 +878,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: L("Quit Weims Guest Tools", "退出 Weims Guest Tools"), action: #selector(quit), keyEquivalent: "q").target = self
         item.menu = menu
         client.onStatus = { [weak self] text in self?.statusLine.title = text }
+        // After an install from the install disk the helper pairs by itself; say so, because the first
+        // thing macOS shows is its own question about the local network.
+        client.onInstall = { [weak self] event in
+            guard let self = self else { return }
+            let close = L("Close", "关闭")
+            self.panel.onClose = nil
+            switch event {
+            case .started:
+                self.panel.show(title: L("Weims Guest Tools is installed", "Weims Guest Tools 已安装"), digits: "",
+                                detail: L("Pairing with Weims Manager on Windows… If macOS asks whether Weims Guest Tools may find devices on your local network, click Allow: that is how it reaches Windows.",
+                                          "正在与 Windows 的 Weims Manager 配对…如果 macOS 询问是否允许 Weims Guest Tools 查找本地网络上的设备，请点“允许”：它要靠这个连接 Windows。"), button: close)
+            case .paired:
+                self.panel.show(title: L("Paired", "配对成功"), digits: "",
+                                detail: L("The clipboard is now shared with Windows while this VM's window is in front. Weims Guest Tools lives in the menu bar.",
+                                          "现在当此虚拟机的窗口在前台时，剪贴板会与 Windows 共享。Weims Guest Tools 在菜单栏里。"), button: close)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in if self?.client.isPairing == false { self?.panel.hide() } }
+            case .failed(let problem):
+                self.panel.show(title: L("Installed, but not paired", "已安装，但未配对"), digits: "", detail: problem, button: close)
+            }
+        }
         client.start()
         statusLine.title = client.status
     }
@@ -705,10 +976,62 @@ final class PairingPanel: NSObject {
     }
 }
 
+// MARK: - Installer
+
+/// The same program is the installer: on the install disk and in the DMG the app is named
+/// "Install Weims Guest Tools". Started under that name it copies itself to ~/Applications as
+/// "Weims Guest Tools", registers the LaunchAgent, hands over the pairing ticket if the disk carries
+/// one as its serial number, and exits at once so that the disk can be ejected. The installed helper then says hello.
+enum Installer {
+    static let installerName = "Install Weims Guest Tools.app"
+    static var isInstaller: Bool { URL(fileURLWithPath: Bundle.main.bundlePath).lastPathComponent == installerName }
+
+    static func run() -> Never {
+        let source = Bundle.main.bundlePath
+        let volume = URL(fileURLWithPath: source).deletingLastPathComponent().path
+        // On the install disk from Weims Manager the pairing ticket is the disk's serial number. No file
+        // on the disk is read: that would make macOS ask for access to removable volumes.
+        if let serial = Ticket.serialOfInstallDisk(), let ticket = Ticket(serial: serial, volume: volume) {
+            if !Store.saveTicket(ticket) { Log.write("installer: the pairing ticket could not be stored") }
+        } else {
+            Store.removeTicket()
+        }
+        guard let script = Bundle.main.path(forResource: "install", ofType: "sh") else { fail("install.sh is missing from the app.") }
+        let shell = Process()
+        shell.executableURL = URL(fileURLWithPath: "/bin/sh")
+        shell.arguments = [script, source]
+        let output = Pipe()
+        shell.standardOutput = output
+        shell.standardError = output
+        do { try shell.run() } catch { fail("\(error)") }
+        let text = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        shell.waitUntilExit()
+        if shell.terminationStatus != 0 { fail(text) }
+        Log.write("installer: installed from \(source)")
+        exit(0)
+    }
+
+    private static func fail(_ detail: String) -> Never {
+        Store.removeTicket()
+        Log.write("installer failed: \(detail)")
+        let application = NSApplication.shared
+        application.setActivationPolicy(.accessory)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = L("Weims Guest Tools could not be installed", "Weims Guest Tools 安装失败")
+        alert.informativeText = detail
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+        exit(1)
+    }
+}
+
 // MARK: - Entry
 
 let arguments = CommandLine.arguments
-if arguments.count == 2, arguments[1] == "--pair" {
+if Installer.isInstaller {
+    Installer.run()
+} else if arguments.count == 2, arguments[1] == "--pair" {
     // Pairing without the menu: for the one-line installer and for scripted setups.
     let client = Client()
     client.pair(onDigits: { digits in

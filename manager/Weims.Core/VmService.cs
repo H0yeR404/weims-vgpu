@@ -25,8 +25,30 @@ public static class VmService
     static string? RuntimeSocket(JsonObject? rt) => rt?["qmp_socket"] is JsonValue v && v.TryGetValue<string>(out var path) && path.Length > 0 ? path : null;
     // A VM started by this version records its Unix socket. A record without one comes from an older
     // version whose QEMU listens on loopback TCP; keep managing that VM until it is restarted.
-    static Task<QmpClient> ConnectQmp(VmConfig c, JsonObject rt, CancellationToken token)
-        => RuntimeSocket(rt) is { } socket ? QmpClient.Connect(socket, token) : QmpClient.Connect(rt["qmp_port"]?.GetValue<int>() ?? c.QmpPort, token);
+    // QEMU serves one QMP client at a time. Inside this process the users of one VM (the status poll,
+    // shutdown, the install image) therefore take turns instead of one timing out behind another.
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> qmpTurns = new(StringComparer.OrdinalIgnoreCase);
+    static async Task<QmpClient> ConnectQmp(VmConfig c, JsonObject rt, CancellationToken token)
+    {
+        var turn = qmpTurns.GetOrAdd(c.ConfigPath, _ => new SemaphoreSlim(1, 1));
+        await turn.WaitAsync(token);
+        try
+        {
+            var qmp = await (RuntimeSocket(rt) is { } socket ? QmpClient.Connect(socket, token) : QmpClient.Connect(rt["qmp_port"]?.GetValue<int>() ?? c.QmpPort, token));
+            qmp.Released = () => turn.Release();
+            return qmp;
+        }
+        catch { turn.Release(); throw; }
+    }
+    /// <summary>A QMP connection to this VM's running QEMU, checked to be the one this VM started.</summary>
+    internal static async Task<QmpClient> OpenQmp(VmConfig c, CancellationToken token)
+    {
+        var rt = Runtime(c) ?? throw new IOException(Text.Get("没有运行记录。", "No runtime record."));
+        if (!ProcessMatches(rt)) throw new IOException(Text.Get("虚拟机已停止。", "The VM has stopped."));
+        var qmp = await ConnectQmp(c, rt, token);
+        try { await qmp.VerifyName(RuntimeName(c, rt), token); return qmp; }
+        catch { qmp.Dispose(); throw; }
+    }
     public static async Task<VmState> State(VmConfig c)
     {
         try

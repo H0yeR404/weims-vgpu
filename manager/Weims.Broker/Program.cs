@@ -92,8 +92,24 @@ public static class Program
                 case "pair-cancel":
                     pairing.Close(); server.PublishPairing();
                     break;
+                case "install-ticket":
+                    // For Manager to give the install disk as its serial number. The answer travels over the pipe only this user can open.
+                    var (code, until) = server.Ticket.Issue();
+                    status.Update(s => s.InstallMediaEjected = false); server.PublishPairing();
+                    log.Write("install code issued");
+                    return new JsonObject
+                    {
+                        ["ok"] = true, ["state"] = status.Snapshot(),
+                        ["ticket"] = new JsonObject { ["serial"] = InstallTicket.Serial(server.Port, code), ["expires_utc"] = until.ToString("o") }
+                    };
+                case "install-cancel":
+                    server.Ticket.Cancel(); server.PublishPairing();
+                    break;
+                case "install-media-removed":
+                    status.Update(s => s.InstallMediaEjected = false);
+                    break;
                 case "pair-reset":
-                    pairing.Close(); secrets.Reset(); server.ReloadIdentity(); server.PublishPairing();
+                    server.Ticket.Cancel(); pairing.Close(); secrets.Reset(); server.ReloadIdentity(); server.PublishPairing();
                     log.Write("pairing reset: all tokens revoked, new certificate");
                     break;
                 case "reload":

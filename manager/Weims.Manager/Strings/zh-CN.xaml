@@ -240,4 +240,5 @@ QEMU/Reims 运行库仍固定为 pre.1。虚拟机卡死仍在排查；也已收
 <sys:String x:Key="G9">不需要输入任何东西。macOS 里的 Weims Guest Tools 会显示一个四位数字，只有和上面的数字相同时才在这里确认。如果两个数字不一样，请点“不一致”：那说明是别的程序在请求配对。</sys:String>
 <sys:String x:Key="G10">数字一致，完成配对</sys:String>
 <sys:String x:Key="G11">不一致</sys:String>
+<sys:String x:Key="G12">安装 Guest Tools…</sys:String>
 </ResourceDictionary>

@@ -65,9 +65,13 @@
        <TextBlock x:Name="IntegrationStatus" Text="{Binding IntegrationStatus}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
        <TextBlock x:Name="IntegrationDetail" Text="{Binding IntegrationDetail}" Style="{StaticResource Hint}"/>
        <WrapPanel Margin="0,12,0,0">
+        <Button x:Name="InstallToolsButton" Content="{DynamicResource G12}" Click="InstallGuestTools" IsEnabled="{Binding CanInstallTools}" Margin="0,0,8,0"/>
         <Button x:Name="PairButton" Content="{DynamicResource G6}" Click="PairGuestTools" IsEnabled="{Binding CanStartPairing}"/>
         <Button x:Name="ResetPairingButton" Content="{DynamicResource G7}" Click="ResetPairing" IsEnabled="{Binding CanPair}" Margin="8,0,0,0"/>
        </WrapPanel>
+       <TextBlock x:Name="InstallPrompt" Text="{Binding InstallPrompt}" TextWrapping="Wrap" Margin="0,14,0,0" AutomationProperties.LiveSetting="Polite">
+        <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><DataTrigger Binding="{Binding InstallPrompt}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+       </TextBlock>
        <StackPanel x:Name="PairingPanel" Margin="0,14,0,0">
         <StackPanel.Style><Style TargetType="StackPanel"><Style.Triggers><DataTrigger Binding="{Binding PairingOpen}" Value="False"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
         <TextBlock x:Name="PairingPrompt" Text="{Binding PairingPrompt}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"/>

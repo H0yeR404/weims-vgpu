@@ -37,7 +37,7 @@ public partial class MainWindow : Window
         finally { vm.Busy = false; await vm.Refresh(); Pace(); }
     }
     // While a pairing is under way the number should appear promptly, so the state is looked at every second instead of every five.
-    void Pace() => timer.Interval = TimeSpan.FromSeconds(vm.PairingOpen ? 1 : 5);
+    void Pace() => timer.Interval = TimeSpan.FromSeconds(vm.PairingOpen || vm.InstallOpen ? 1 : 5);
     VmConfig Current() => vm.Selected ?? throw new InvalidOperationException(Text.Get("请先导入或创建虚拟机。", "Import or create a virtual machine first."));
     bool HasErrors(DependencyObject obj)
     {
@@ -150,6 +150,12 @@ public partial class MainWindow : Window
         // A running broker reads the new mode at once; without one there is nothing to tell.
         try { await Integration.Command(c, "reload"); } catch (IOException) { }
         vm.Message = c.ClipboardMode == "text" ? Text.Get("剪贴板文本共享已开启。", "Clipboard text sharing is on.") : Text.Get("剪贴板共享已关闭。", "Clipboard sharing is off.");
+    });
+    // Plugs the install disk, carrying this VM's pairing ticket, into the running VM. See InstallMedia.
+    async void InstallGuestTools(object sender, RoutedEventArgs e) => await Work(async () =>
+    {
+        await InstallMedia.Insert(Current());
+        vm.Message = Text.Get("安装盘已插入虚拟机。请在 macOS 里打开“Weims Guest Tools”并双击安装器。", "The install disk is in the VM. In macOS, open \"Weims Guest Tools\" and double-click the installer.");
     });
     // Pairing compares a number shown on both sides; nothing is typed. See PairingSession in the broker.
     async void PairGuestTools(object sender, RoutedEventArgs e) => await Work(async () =>

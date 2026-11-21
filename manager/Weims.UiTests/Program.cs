@@ -77,6 +77,13 @@ internal static class Program
             ((FrameworkElement)pairingPanel.Children[3]).BringIntoView(); Pump(); Shot(w,Path.Combine(output,"guest-tools-zh.png"));
             Broker(null, open:false); _ = model.Refresh();
             Check(Until(()=>pairingPanel.Visibility==Visibility.Collapsed && digitsText.Text=="" && pair.IsEnabled), "when pairing is over the number leaves the screen and pairing can be started again");
+            var installButton=(Button)w.FindName("InstallToolsButton"); var installPrompt=(TextBlock)w.FindName("InstallPrompt");
+            Check(!installButton.IsEnabled && installPrompt.Visibility==Visibility.Collapsed, "without the install image next to Manager, installing Guest Tools is not offered");
+            var withTicket=JsonNode.Parse(File.ReadAllText(Integration.StatePath(config)))!.AsObject(); withTicket["heartbeat_utc"]=DateTime.UtcNow.ToString("o"); withTicket["install_until_utc"]=DateTime.UtcNow.AddMinutes(10).ToString("o");
+            JsonFiles.Write(Integration.StatePath(config), withTicket); _ = model.Refresh();
+            Check(Until(()=>installPrompt.Visibility==Visibility.Visible && installPrompt.Text.Contains("Install Weims Guest Tools")), "while the install disk is in the VM, Manager says what to do in macOS");
+            Broker(null, open:false); _ = model.Refresh();
+            Check(Until(()=>installPrompt.Visibility==Visibility.Collapsed), "the hint goes away once the install code is used or has expired");
             File.Delete(Integration.StatePath(config)); _ = model.Refresh();
             Check(Until(()=>!pair.IsEnabled && !reset.IsEnabled), "without a broker there is nothing to pair with");
             integration.SetCurrentValue(CheckBox.IsCheckedProperty,false); integration.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

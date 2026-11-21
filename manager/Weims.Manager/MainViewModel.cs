@@ -28,6 +28,13 @@ public sealed class MainViewModel : Observable
     public bool CanIntegrate => HasVm && !Busy;
     public bool CanPair => HasVm && brokerOnline && !Busy;
     public bool CanStartPairing => CanPair && !PairingOpen;
+    // The install image ships next to Manager; a build without it simply does not offer the button.
+    static readonly bool installImage = InstallMedia.Available;
+    public bool CanInstallTools => CanPair && installImage;
+    /// <summary>What to do in macOS while the install disk is in the VM; empty otherwise.</summary>
+    public string InstallPrompt { get => installPrompt; private set => Set(ref installPrompt, value); }
+    string installPrompt = "";
+    public bool InstallOpen => InstallPrompt != "";
     public bool ClipboardShared => Selected?.ClipboardMode == "text";
     public bool BrokerConnected { get; private set; }
     public string IntegrationStatus { get => integrationStatus; set => Set(ref integrationStatus, value); }
@@ -76,7 +83,7 @@ public sealed class MainViewModel : Observable
     public void SaveEngine() { Engine.Validate(); JsonFiles.Write(Path.Combine(DataDirectory, "engine.json"), Engine); }
     public async Task Refresh()
     {
-        if (Selected == null) { Status = Text.Get("未选择虚拟机", "No VM selected"); CanEdit = false; isRunning = false; Changed(nameof(CanPower)); brokerOnline = false; BrokerConnected = false; Changed(nameof(CanPair)); Changed(nameof(CanStartPairing)); IntegrationStatus = ""; IntegrationDetail = ""; PairingOpen = false; PairingDigits = ""; PairingPrompt = ""; return; }
+        if (Selected == null) { Status = Text.Get("未选择虚拟机", "No VM selected"); CanEdit = false; isRunning = false; Changed(nameof(CanPower)); brokerOnline = false; BrokerConnected = false; Changed(nameof(CanPair)); Changed(nameof(CanStartPairing)); Changed(nameof(CanInstallTools)); IntegrationStatus = ""; IntegrationDetail = ""; InstallPrompt = ""; PairingOpen = false; PairingDigits = ""; PairingPrompt = ""; return; }
         var current = Selected;
         var state = await VmService.State(current);
         if (Selected != current) return;
@@ -85,7 +92,15 @@ public sealed class MainViewModel : Observable
         // Off the UI thread, because it may have to start a process.
         var broker = await Task.Run(() => Integration.Supervise(current, state.Running));
         if (Selected != current) return;
-        brokerOnline = broker.Online; BrokerConnected = broker.Connected; Changed(nameof(CanPair)); Changed(nameof(CanStartPairing));
+        brokerOnline = broker.Online; BrokerConnected = broker.Connected; Changed(nameof(CanPair)); Changed(nameof(CanStartPairing)); Changed(nameof(CanInstallTools));
+        // The helper has paired and unmounted the install volume: unplug the disk. The broker never talks to QMP.
+        if (await InstallMedia.Collect(current, broker))
+            Message = Text.Get("Guest Tools 已安装并配对，安装盘已从虚拟机移除。", "Guest Tools are installed and paired. The install disk was removed from the VM.");
+        if (Selected != current) return;
+        InstallPrompt = broker.Online && broker.InstallOpen && !broker.InstallMediaEjected
+            ? Text.Get("安装盘“Weims Guest Tools”已插入虚拟机。请在 macOS 里打开它，双击“Install Weims Guest Tools”。不需要输入任何东西，10 分钟内有效。",
+                "The install disk \"Weims Guest Tools\" is in the VM. In macOS, open it and double-click \"Install Weims Guest Tools\". Nothing has to be typed. It is good for 10 minutes.")
+            : "";
         IntegrationStatus = !current.IntegrationEnabled ? Text.Get("集成：关闭", "Integration: off")
             : !state.Running ? Text.Get("集成：已开启，随虚拟机启动", "Integration: on, starts with the VM") : broker.Label;
         IntegrationDetail = !current.IntegrationEnabled || !broker.Online ? ""

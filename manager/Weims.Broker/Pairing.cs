@@ -2,6 +2,7 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
+using Weims.Core;
 
 namespace Weims.Broker;
 
@@ -95,5 +96,80 @@ public sealed class PairingSession(Func<DateTime>? clock = null)
         hash.AppendData(helperNonce);
         hash.AppendData(brokerNonce);
         return (BinaryPrimitives.ReadUInt32BigEndian(hash.GetHashAndReset()) % 10000).ToString("D4");
+    }
+}
+
+/// <summary>
+/// Pairing without any input, for a helper installed from the install disk that Manager hot-plugs
+/// into the VM. The disk's USB serial number carries a ticket: which port the broker listens on and
+/// a one-time code. The installer in the guest reads the serial number from the device tree, which
+/// needs no permission; reading a file on the disk would make macOS ask the user for access to
+/// removable volumes. The serial number of this kind of disk is limited to 20 characters, hence
+/// the format: 'W', one character for the port, 18 characters (108 bits) of code.
+///
+/// The code is never sent. Helper and broker each prove that they know it, with an HMAC over the
+/// certificate the connection actually uses and a random value from each side. A program in
+/// between, which has another certificate, gets proofs it cannot use, and the helper learns that
+/// the certificate it sees is the broker's own before it remembers it.
+///
+/// Every user logged in to the guest can read the serial number. Whoever uses the code first
+/// pairs; that is the documented limit of this route, and the code is therefore short-lived, good
+/// for one use, and void after a few wrong proofs.
+/// </summary>
+public sealed class InstallTicket(Func<DateTime>? clock = null)
+{
+    public const int MaxWrongGuesses = 5, CodeLength = 18;
+    public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(10);
+    const string Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    readonly Func<DateTime> now = clock ?? (() => DateTime.UtcNow);
+    readonly object gate = new();
+    byte[]? key; DateTime until; int wrong;
+
+    /// <summary>Makes a new code and voids any earlier one. It is kept in memory only.</summary>
+    public (string Code, DateTime UntilUtc) Issue()
+    {
+        var code = string.Create(CodeLength, 0, (span, _) => { foreach (ref var c in span) c = Alphabet[RandomNumberGenerator.GetInt32(Alphabet.Length)]; });
+        lock (gate)
+        {
+            key = Encoding.ASCII.GetBytes(code); wrong = 0; until = now() + Lifetime;
+            return (code, until);
+        }
+    }
+    public DateTime? ValidUntilUtc { get { lock (gate) return key != null && now() < until ? until : null; } }
+    public void Cancel() { lock (gate) key = null; }
+
+    /// <summary>The USB serial number that carries the ticket: 20 characters, the most this kind of disk may have.</summary>
+    public static string Serial(int port, string code)
+        => Integration.InRange(port) && code.Length == CodeLength ? "W" + Alphabet[port - Integration.PortBase] + code : throw new ArgumentException("Not a ticket.");
+
+    /// <summary>What one side sends to prove it knows the code, bound to the certificate in use and to both random values.</summary>
+    public static byte[] Mac(ReadOnlySpan<byte> key, string side, ReadOnlySpan<byte> fingerprint, ReadOnlySpan<byte> helperNonce, ReadOnlySpan<byte> brokerNonce)
+    {
+        using var mac = IncrementalHash.CreateHMAC(HashAlgorithmName.SHA256, key);
+        mac.AppendData(Encoding.ASCII.GetBytes("weims-ticket-v1-" + side));
+        mac.AppendData(fingerprint); mac.AppendData(helperNonce); mac.AppendData(brokerNonce);
+        return mac.GetHashAndReset();
+    }
+
+    /// <summary>The broker's proof for a helper that asks; null when no code is good.</summary>
+    public byte[]? Proof(ReadOnlySpan<byte> fingerprint, ReadOnlySpan<byte> helperNonce, ReadOnlySpan<byte> brokerNonce)
+    {
+        lock (gate)
+        {
+            if (key == null || now() >= until) { key = null; return null; }
+            return Mac(key, "broker", fingerprint, helperNonce, brokerNonce);
+        }
+    }
+
+    /// <summary>True exactly once, for a helper's right proof inside the code's lifetime.</summary>
+    public bool Redeem(ReadOnlySpan<byte> proof, ReadOnlySpan<byte> fingerprint, ReadOnlySpan<byte> helperNonce, ReadOnlySpan<byte> brokerNonce)
+    {
+        lock (gate)
+        {
+            if (key == null || now() >= until) { key = null; return false; }
+            bool right = CryptographicOperations.FixedTimeEquals(proof, Mac(key, "helper", fingerprint, helperNonce, brokerNonce));
+            if (right || ++wrong >= MaxWrongGuesses) key = null;
+            return right;
+        }
     }
 }

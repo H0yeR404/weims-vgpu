@@ -44,7 +44,7 @@ var plan=Path.Combine(run,"command.json");
 // QMP is a Unix domain socket, exactly as LaunchPlan passes it for a real VM.
 string socket=QmpEndpoint.PathFor(name); QmpEndpoint.Prepare(socket,null);
 // q35 rather than "none": it has a keyboard, which the shutdown key check below needs. It starts paused and has no disk.
-string[] command={"-machine","q35,accel=tcg","-L",engine.Bios,"-nodefaults","-display","none","-S","-name",name,"-qmp",$"unix:{LaunchPlan.Q(socket)},server=on,wait=off"};
+string[] command={"-machine","q35,accel=tcg","-L",engine.Bios,"-nodefaults","-device","qemu-xhci,id=xhci","-display","none","-S","-name",name,"-qmp",$"unix:{LaunchPlan.Q(socket)},server=on,wait=off"};
 JsonFiles.Write(plan,new{executable=engine.Qemu,arguments=command,runtime=c.RuntimePath,run_directory=run,qmp_socket=socket,qmp_name=name});
 try
 {
@@ -55,6 +55,29 @@ try
     string listeners=(await ProcessRunner.Run("pwsh.exe",new[]{"-NoProfile","-Command",$"@(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object OwningProcess -eq {qemuPid}).Count"},env,timeout.Token)).Trim();
     Check(listeners=="0","QEMU with socket QMP opens no TCP listener");
     var state=await VmService.State(c); Check(!state.CanEdit&&state.Running,"real QMP identifies paused test process");
+    {
+        // The Guest Tools install disk: a raw image plugged in as a read-only USB stick, exactly as a real VM gets it.
+        string stick=Path.Combine(root,"gt-stick.img"); File.WriteAllBytes(stick,new byte[1<<20]);
+        await InstallMedia.Unplug(c); Check(true,"unplugging the install disk when none is plugged in is not an error");
+        await InstallMedia.Plug(c,stick,"WRabcdefghijklmnopqr");
+        using(var look=await QmpClient.Connect(socket,timeout.Token))
+        {
+            var blocks=(await look.Execute("query-block",timeout.Token))!.AsArray();
+            var ours=blocks.FirstOrDefault(b=>b!["inserted"]?["node-name"]?.GetValue<string>()==InstallMedia.Node);
+            Check(ours!=null&&ours["inserted"]!["ro"]!.GetValue<bool>()&&ours["removable"]!.GetValue<bool>(),"QEMU accepts the install disk as a read-only, removable USB stick");
+        }
+        bool locked=false; try { using var held=new FileStream(stick,FileMode.Open,FileAccess.ReadWrite,FileShare.None); } catch(IOException) { locked=true; }
+        bool twice=false; try { await InstallMedia.Plug(c,stick,"WRabcdefghijklmnopqr"); } catch(IOException) { twice=true; }
+        bool longSerial=false; try { await InstallMedia.Plug(c,stick,new string('a',21)); } catch(ArgumentException) { longSerial=true; }
+        Check(longSerial,"a serial number longer than QEMU allows is refused before anything is plugged in");
+        Check(twice,"plugging a second install disk is refused while one is in");
+        await InstallMedia.Unplug(c);
+        using(var look=await QmpClient.Connect(socket,timeout.Token))
+            Check(!(await look.Execute("query-block",timeout.Token))!.AsArray().Any(b=>b!["inserted"]?["node-name"]?.GetValue<string>()==InstallMedia.Node),"unplugging removes the stick");
+        File.Delete(stick); Check(!File.Exists(stick),$"after unplugging QEMU has let go of the image file (it held it while plugged: {locked})");
+        File.WriteAllBytes(stick,new byte[1<<20]); await InstallMedia.Plug(c,stick,"WS0123456789-_ABCDEF"); await InstallMedia.Unplug(c);
+        Check(true,"the install disk can be plugged in again after it was removed");
+    }
     bool stopRejected=false; try { await VmService.StopAfterShutdown(c); } catch(IOException) { stopRejected=true; }
     Check(stopRejected,"safe CLI stop refuses paused guest");
     // QEMU takes key events only while the VM runs. A request to a guest that cannot act on it must be reported.

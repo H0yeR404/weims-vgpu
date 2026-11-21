@@ -16,10 +16,10 @@ public sealed class BrokerStatus(int qemuPid)
     public sealed class Fields
     {
         public int Port; public string? Fingerprint, HelperUser, HelperVersion, LastError, Note, PairingDigits, PairingUser;
-        public DateTime? HelperSinceUtc, PairingUntilUtc;
+        public DateTime? HelperSinceUtc, PairingUntilUtc, InstallUntilUtc;
         public IReadOnlyList<string> PairedUsers = [];
         public string ClipboardMode = "text";
-        public bool Stopped;
+        public bool Stopped, InstallMediaEjected;
     }
     readonly object gate = new();
     readonly Fields fields = new();
@@ -47,6 +47,8 @@ public sealed class BrokerStatus(int qemuPid)
                 ["pairing_until_utc"] = fields.PairingUntilUtc?.ToString("o"),
                 // The number is shown on both screens for the user to compare; it is not a secret.
                 ["pairing_digits"] = fields.PairingDigits, ["pairing_user"] = fields.PairingUser,
+                // While an install code is good, and whether the guest has let go of the install volume. Never the code itself.
+                ["install_until_utc"] = fields.InstallUntilUtc?.ToString("o"), ["install_media_ejected"] = fields.InstallMediaEjected,
                 ["clipboard_mode"] = fields.ClipboardMode, ["last_error"] = fields.LastError, ["note"] = fields.Note
             };
     }

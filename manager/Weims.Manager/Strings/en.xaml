@@ -240,4 +240,5 @@ The QEMU/Reims runtime remains pinned to pre.1. VM freezes remain under investig
 <sys:String x:Key="G9">Nothing is typed. Weims Guest Tools in macOS shows a four-digit number; confirm here only if it is the same as the one above. If the numbers differ, decline: something else asked to pair.</sys:String>
 <sys:String x:Key="G10">They match — pair</sys:String>
 <sys:String x:Key="G11">They differ</sys:String>
+<sys:String x:Key="G12">Install Guest Tools…</sys:String>
 </ResourceDictionary>

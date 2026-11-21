@@ -72,6 +72,9 @@ public sealed class QmpClient : IDisposable
     StreamReader reader = null!;
     StreamWriter writer = null!;
     QmpClient(Socket socket) => this.socket = socket;
+    /// <summary>Runs once when the client is disposed; VmService uses it to let the next QMP user in.</summary>
+    internal Action? Released { get => released; set => released = value; }
+    Action? released;
 
     /// <summary>Connects to a VM started by this version: QMP on a Unix domain socket.</summary>
     public static Task<QmpClient> Connect(string socketPath, CancellationToken token) => Open(new UnixDomainSocketEndPoint(socketPath), token);
@@ -125,5 +128,5 @@ public sealed class QmpClient : IDisposable
         var name = (await Execute("query-name", token))?["name"]?.GetValue<string>();
         if (name != expected) throw new IOException(Text.Get("QMP 通道属于另一台虚拟机，操作已停止。", "The QMP channel belongs to another VM. Operation stopped."));
     }
-    public void Dispose() { writer?.Dispose(); reader?.Dispose(); stream?.Dispose(); socket.Dispose(); }
+    public void Dispose() { writer?.Dispose(); reader?.Dispose(); stream?.Dispose(); socket.Dispose(); Interlocked.Exchange(ref released, null)?.Invoke(); }
 }

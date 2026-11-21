@@ -47,6 +47,14 @@ async Task<(string Digits, Frame? Refusal)> AskToPair(SslStream tls, string fing
     await Frames.Write(tls, new JsonObject { ["type"] = "pair_reveal", ["nonce"] = Convert.ToHexString(mine).ToLowerInvariant() }, default, default);
     return (PairingSession.Digits(fingerprint, mine, Convert.FromHexString(answer.Text("nonce")!)), null);
 }
+// Starts pairing by install code: returns the helper's random value, the broker's, and the broker's proof.
+async Task<(byte[] Helper, byte[] Broker, byte[] Proof)> TicketChallenge(SslStream tls)
+{
+    var mine = RandomNumberGenerator.GetBytes(32);
+    var challenge = await Exchange(tls, new JsonObject { ["type"] = "ticket_begin", ["nonce"] = Convert.ToHexString(mine).ToLowerInvariant() });
+    if (challenge.Type != "ticket_challenge") throw new Exception("FAIL: expected a ticket challenge, got " + challenge.Type);
+    return (mine, Convert.FromHexString(challenge.Text("nonce")!), Convert.FromHexString(challenge.Text("proof")!));
+}
 async Task<bool> Closed(Stream stream, int milliseconds = 3000)
 {
     using var timeout = new CancellationTokenSource(milliseconds);
@@ -107,6 +115,31 @@ try
         stored[stored.Length / 2] ^= 0xFF; File.WriteAllBytes(path, stored);
         var replaced = BrokerSecrets.LoadOrCreate(path);
         Check(replaced.Replaced && replaced.Fingerprint != again.Fingerprint && replaced.PairedUsers.Count == 0, "unreadable secrets (other account, other machine, damage) give a new identity and no pairing");
+    }
+
+    // ---- Pairing through the install disk ----
+    {
+        var ticketTime = DateTime.UtcNow; var ticket = new InstallTicket(() => ticketTime);
+        byte[] cert = RandomNumberGenerator.GetBytes(32), nh = RandomNumberGenerator.GetBytes(32), nb = RandomNumberGenerator.GetBytes(32);
+        byte[] Helper(string code, byte[]? fingerprint = null) => InstallTicket.Mac(Encoding.ASCII.GetBytes(code), "helper", fingerprint ?? cert, nh, nb);
+        Check(ticket.Proof(cert, nh, nb) == null && !ticket.Redeem(new byte[32], cert, nh, nb) && ticket.ValidUntilUtc == null, "no install code is good before one is issued");
+        var (code, until) = ticket.Issue();
+        Check(Regex.IsMatch(code, "^[A-Za-z0-9_-]{18}$") && until == ticketTime + InstallTicket.Lifetime && ticket.ValidUntilUtc == until, "an install code is 108 bits and good for ten minutes");
+        var serial = InstallTicket.Serial(Integration.PortBase + 17, code);
+        Check(serial.Length == 20 && serial[0] == 'W' && serial[1] == 'R' && serial[2..] == code, "port and code fit the 20 characters a USB stick's serial number may have");
+        Check(ticket.Proof(cert, nh, nb)!.SequenceEqual(InstallTicket.Mac(Encoding.ASCII.GetBytes(code), "broker", cert, nh, nb)) && !ticket.Proof(cert, nh, nb)!.SequenceEqual(Helper(code)), "the broker proves the code first, with a proof the helper's cannot be mistaken for");
+        Check(!ticket.Redeem(Helper(code, RandomNumberGenerator.GetBytes(32)), cert, nh, nb), "a proof made over another certificate is refused: a program in between cannot pass it on");
+        Check(!ticket.Redeem(ticket.Proof(cert, nh, nb)!, cert, nh, nb), "the broker's own proof sent back is refused");
+        Check(ticket.Redeem(Helper(code), cert, nh, nb) && !ticket.Redeem(Helper(code), cert, nh, nb) && ticket.ValidUntilUtc == null, "the right proof works exactly once");
+        (code, _) = ticket.Issue();
+        for (int i = 0; i < InstallTicket.MaxWrongGuesses; i++) ticket.Redeem(new byte[32], cert, nh, nb);
+        Check(!ticket.Redeem(Helper(code), cert, nh, nb) && ticket.ValidUntilUtc == null, "five wrong proofs void the code");
+        var (older, _) = ticket.Issue(); (code, _) = ticket.Issue();
+        Check(!ticket.Redeem(Helper(older), cert, nh, nb) && ticket.Redeem(Helper(code), cert, nh, nb), "a new code replaces the earlier one");
+        (code, _) = ticket.Issue(); ticketTime += InstallTicket.Lifetime;
+        Check(ticket.ValidUntilUtc == null && ticket.Proof(cert, nh, nb) == null && !ticket.Redeem(Helper(code), cert, nh, nb), "an expired code is refused");
+        (code, _) = ticket.Issue(); ticket.Cancel();
+        Check(!ticket.Redeem(Helper(code), cert, nh, nb), "a cancelled code is refused");
     }
 
     // ---- Pairing by comparing numbers ----
@@ -278,6 +311,48 @@ try
         {
             await Hello(stale);
             Check((await Exchange(stale, new JsonObject { ["type"] = "auth", ["token"] = token })).Text("code") == "auth", "after a reset the old token is refused");
+        }
+        // Pairing through the install disk: both sides prove the one-time code; nobody answers in Manager.
+        string installFp = secrets.Fingerprint;
+        using (var ticketEarly = await Tls(port, installFp))
+        {
+            await Hello(ticketEarly);
+            var ticketNo = await Exchange(ticketEarly, new JsonObject { ["type"] = "ticket_begin", ["nonce"] = new string('0', 64) });
+            Check(ticketNo.Type == "error" && ticketNo.Text("code") == "ticket" && await Closed(ticketEarly) && secrets.PairedUsers.Count == 0, "a helper asking by install code is refused while none is outstanding");
+        }
+        var (installCode, _) = server.Ticket.Issue(); server.PublishPairing();
+        Check(status.Read(s => s.InstallUntilUtc) != null && !status.Snapshot().ToJsonString().Contains(installCode), "the status says an install code is outstanding and never contains it");
+        using (var ticketWrong = await Tls(port, installFp))
+        {
+            await Hello(ticketWrong);
+            var (_, _, _) = await TicketChallenge(ticketWrong);
+            var wrongAnswer = await Exchange(ticketWrong, new JsonObject { ["type"] = "ticket_proof", ["proof"] = new string('0', 64), ["user"] = "eve" });
+            Check(wrongAnswer.Text("code") == "ticket" && secrets.PairedUsers.Count == 0 && status.Read(s => s.InstallUntilUtc) != null, "a wrong proof pairs nothing and leaves the code for the real helper");
+        }
+        string installToken;
+        using (var ticketPair = await Tls(port, installFp))
+        {
+            await Hello(ticketPair);
+            var (helperNonce, brokerNonce, brokerProof) = await TicketChallenge(ticketPair);
+            byte[] cert = Convert.FromHexString(installFp), ticketKey = Encoding.ASCII.GetBytes(installCode);
+            Check(brokerProof.SequenceEqual(InstallTicket.Mac(ticketKey, "broker", cert, helperNonce, brokerNonce)), "the broker first proves that it knows the code, over its own certificate");
+            var ticketPaired = await Exchange(ticketPair, new JsonObject { ["type"] = "ticket_proof", ["proof"] = Convert.ToHexString(InstallTicket.Mac(ticketKey, "helper", cert, helperNonce, brokerNonce)).ToLowerInvariant(), ["user"] = "bob" });
+            installToken = ticketPaired.Text("token") ?? "";
+            Check(ticketPaired.Type == "paired" && ticketPaired.Text("user") == "bob" && secrets.Match(installToken)?.User == "bob" && await Closed(ticketPair), "the helper's proof pairs it with nobody answering in Manager");
+            Check(status.Read(s => s.InstallUntilUtc) == null && status.Read(s => s.PairedUsers).SequenceEqual(new[] { "bob" }), "a used install code is no longer outstanding");
+        }
+        using (var ticketReplay = await Tls(port, installFp))
+        {
+            await Hello(ticketReplay);
+            Check((await Exchange(ticketReplay, new JsonObject { ["type"] = "ticket_begin", ["nonce"] = new string('1', 64) })).Text("code") == "ticket" && secrets.PairedUsers.Count == 1, "the same install code does not work a second time");
+        }
+        using (var ticketHelper = await Tls(port, installFp))
+        {
+            await Hello(ticketHelper, 1, "clipboard-text");
+            Check((await Exchange(ticketHelper, new JsonObject { ["type"] = "auth", ["token"] = installToken })).Type == "ok", "the token from the install pairing authenticates the helper");
+            int deliveredBefore; lock (received) deliveredBefore = received.Count;
+            await Frames.Write(ticketHelper, new JsonObject { ["type"] = "install_media", ["ejected"] = true }, default, default);
+            Check(await Eventually(() => status.Read(s => s.InstallMediaEjected)) && received.Count == deliveredBefore, "the helper's report that it ejected the install volume reaches the status and nothing else");
         }
         stop.Cancel(); await running;
         await Rejects<SocketException>(async () => { using var c = new TcpClient(); await c.ConnectAsync(IPAddress.Loopback, port); }, "a stopped server no longer listens");
@@ -589,6 +664,33 @@ async Task ProcessChecks(string repo, string runtimeBin)
 
         await Integration.Command(c, "pair-reset");
         Check(await Closed(back) && await Eventually(() => BrokerState.Read(c) is { Online: true, PairedUsers.Count: 0 } s && s.Fingerprint != state.Fingerprint), "reset pairing drops the helper and changes the fingerprint");
+
+        // The install disk route against the real broker process: the ticket comes over the command pipe.
+        var ticketJson = (await Integration.Command(c, "install-ticket"))["ticket"]!.AsObject();
+        string ticketSerial = ticketJson["serial"]!.GetValue<string>(), ticketCode = ticketSerial[2..], ticketFp = BrokerState.Read(c).Fingerprint!; int ticketPort = BrokerState.Read(c).Port;
+        Check(ticketSerial == InstallTicket.Serial(ticketPort, ticketCode) && ticketJson["expires_utc"] != null, "the install ticket is a serial number that carries the broker's port and a one-time code");
+        Check(await Eventually(() => BrokerState.Read(c).InstallOpen) && !File.ReadAllText(Integration.StatePath(c)).Contains(ticketCode), "the state file says an install code is outstanding without containing it");
+        string viaImage;
+        using (var installer = await Tls(ticketPort, ticketFp))
+        {
+            await Hello(installer);
+            var (helperNonce, brokerNonce, brokerProof) = await TicketChallenge(installer);
+            byte[] cert = Convert.FromHexString(ticketFp), ticketKey = Encoding.ASCII.GetBytes(ticketCode);
+            var ticketDone = await Exchange(installer, new JsonObject { ["type"] = "ticket_proof", ["proof"] = Convert.ToHexString(InstallTicket.Mac(ticketKey, "helper", cert, helperNonce, brokerNonce)).ToLowerInvariant(), ["user"] = "installer" });
+            viaImage = ticketDone.Text("token") ?? "";
+            Check(brokerProof.SequenceEqual(InstallTicket.Mac(ticketKey, "broker", cert, helperNonce, brokerNonce)) && ticketDone.Type == "paired" && await Eventually(() => BrokerState.Read(c) is { InstallOpen: false } now && now.PairedUsers.SequenceEqual(new[] { "installer" })), "a helper that knows the code pairs without any answer from the user");
+        }
+        using (var installed = await Tls(ticketPort, ticketFp))
+        {
+            await Hello(installed, 1, "clipboard-text");
+            Check((await Exchange(installed, new JsonObject { ["type"] = "auth", ["token"] = viaImage })).Type == "ok", "the token it was given authenticates it");
+            await Frames.Write(installed, new JsonObject { ["type"] = "install_media", ["ejected"] = true }, default, default);
+            Check(await Eventually(() => BrokerState.Read(c).InstallMediaEjected), "its report that the install volume is ejected reaches the state file");
+            await Integration.Command(c, "install-media-removed");
+            Check(await Eventually(() => !BrokerState.Read(c).InstallMediaEjected), "the report that the disk is unplugged clears it");
+        }
+        var installLog = File.ReadAllText(Path.Combine(run, "broker.log"));
+        Check(installLog.Contains("install code issued") && installLog.Contains("paired with guest user installer through the install disk") && !installLog.Contains(ticketCode) && !installLog.Contains(viaImage), "the broker log records the install pairing without the code or the token");
 
         var logText = File.ReadAllText(Path.Combine(run, "broker.log"));
         Check(logText.Contains("paired with guest user tester") && logText.Contains("guest user tester asks to pair") && !logText.Contains(token) && !logText.Contains(shown), "the broker log records the pairing without the token or the number");
