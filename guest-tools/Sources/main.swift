@@ -13,6 +13,7 @@ import Network
 
 let helperVersion = "0.1.0"
 let protocolVersion = 1
+let helperCapabilities = ["clipboard-text", "self-update"]
 let hostAddress = "10.0.2.2"
 let portBase: UInt16 = 46400
 let portCount: UInt16 = 64
@@ -441,7 +442,7 @@ final class Client {
         phase = .hello
         link.onFrame = { [weak self, weak link] frame in if let link = link, self?.link === link { self?.handle(frame, on: link) } }
         link.onClosed = { [weak self, weak link] reason in if let link = link, self?.link === link { self?.closed(reason) } }
-        link.send(["type": "hello", "version": protocolVersion, "helper": helperVersion, "capabilities": ["clipboard-text"]])
+        link.send(["type": "hello", "version": protocolVersion, "helper": helperVersion, "capabilities": helperCapabilities])
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self, weak link] in
             if let link = link, self?.link === link, self?.phase != .session { link.close("the host did not complete the handshake in time") }
         }
@@ -456,6 +457,35 @@ final class Client {
         status = L("Disconnected. Reconnecting…", "连接已断开，正在重连…")
         if wasSession { retryDelay = 2 }
         scheduleRetry()
+    }
+
+    // MARK: Self-update
+
+    private var updating = false
+
+    /// A newer Weims Manager on the host sends its helper over the authenticated connection.
+    /// It is installed only if it is newer and signed by the signer of this running copy; see Updater.
+    private func applyUpdate(_ frame: Frame, on link: Link) {
+        guard !updating, let version = frame.header["version"] as? String, let digest = frame.header["sha256"] as? String else { return }
+        func answer(_ problem: String?) {
+            if let problem = problem { Log.write("update to \(version) not installed: \(problem)") }
+            link.send(["type": "update_result", "ok": problem == nil, "version": version, "reason": problem ?? ""])
+        }
+        guard Updater.newer(version, than: helperVersion) else { answer("it is not newer than \(helperVersion)"); return }
+        guard hexString(SHA256.hash(data: frame.body)) == digest.lowercased() else { answer("the archive arrived damaged"); return }
+        updating = true
+        let archive = frame.body
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let problem = Updater.install(archive: archive, version: version)
+            DispatchQueue.main.async {
+                self?.updating = false
+                answer(problem)
+                guard problem == nil else { return }
+                Log.write("updated from \(helperVersion) to \(version); restarting")
+                // Give the answer a moment to leave before launchd replaces this process.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { Updater.restart() }
+            }
+        }
     }
 
     // MARK: Pairing from the install disk
@@ -544,7 +574,7 @@ final class Client {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.connect() }
         }
         attempt.start { [weak attempt] in
-            attempt?.send(["type": "hello", "version": protocolVersion, "helper": helperVersion, "capabilities": ["clipboard-text"]])
+            attempt?.send(["type": "hello", "version": protocolVersion, "helper": helperVersion, "capabilities": helperCapabilities])
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self, weak attempt] in
             if let attempt = attempt, self?.redeeming === attempt { attempt.close("no answer") }
@@ -675,7 +705,7 @@ final class Client {
             attempt.link.onFrame = { [weak self, weak attempt] frame in if let attempt = attempt { self?.pairing(frame, attempt, onDigits) } }
             attempt.link.onClosed = { [weak self, weak attempt] _ in if let attempt = attempt { self?.pairingClosed(attempt) } }
             attempt.link.start { [weak attempt] in
-                attempt?.link.send(["type": "hello", "version": protocolVersion, "helper": helperVersion, "capabilities": ["clipboard-text"]])
+                attempt?.link.send(["type": "hello", "version": protocolVersion, "helper": helperVersion, "capabilities": helperCapabilities])
             }
         }
         // Ports that neither answer nor fail are given up on, so that "nobody is waiting to pair" can be said.
@@ -810,6 +840,8 @@ final class Client {
             lastCount = pasteboard.changeCount
             dirty = false
             Log.write("received text from the host: \(frame.body.count) bytes")
+        case "update":
+            applyUpdate(frame, on: link)
         case "clipboard_request":
             Log.write("the host asked for the latest pasteboard content; changed since last sent: \(dirty)")
             sendPasteboard(to: link, replyTo: frame.header["id"])
@@ -973,6 +1005,115 @@ final class PairingPanel: NSObject {
     @objc private func close() {
         hide()
         onClose?()
+    }
+}
+
+// MARK: - Self-update
+
+/// Replaces the installed app with a newer one that the host sent.
+///
+/// The connection it came over is authenticated, but that is not what makes the new app trusted:
+/// it must carry a valid signature that satisfies this running app's own designated requirement,
+/// that is, be signed with the same identity. A build with an ad-hoc signature has a requirement
+/// that names one exact build, so such a build never updates itself.
+enum Updater {
+    static let label = "io.weims.guest-tools"
+
+    private static func numbers(_ version: String) -> [Int]? {
+        let parts = version.split(separator: ".", omittingEmptySubsequences: false)
+        guard (1...4).contains(parts.count) else { return nil }
+        var result: [Int] = []
+        for part in parts {
+            guard !part.isEmpty, part.count <= 6, part.allSatisfy({ $0.isASCII && $0.isNumber }), let value = Int(part) else { return nil }
+            result.append(value)
+        }
+        return result
+    }
+
+    /// Dotted numbers compared number by number. Anything else is never newer.
+    static func newer(_ candidate: String, than current: String) -> Bool {
+        guard let a = numbers(candidate), let b = numbers(current) else { return false }
+        for index in 0..<max(a.count, b.count) {
+            let x = index < a.count ? a[index] : 0
+            let y = index < b.count ? b[index] : 0
+            if x != y { return x > y }
+        }
+        return false
+    }
+
+    /// Unpacks, checks and swaps. Returns nil on success, otherwise what went wrong.
+    static func install(archive: Data, version: String) -> String? {
+        let files = FileManager.default
+        let installed = URL(fileURLWithPath: Bundle.main.bundlePath)
+        guard installed.lastPathComponent == "Weims Guest Tools.app" else { return "this copy is not an installed one" }
+        let folder = installed.deletingLastPathComponent()
+        // Next to the installed app, so that moving the new one into place is a rename on one volume.
+        let work = folder.appendingPathComponent(".weims-guest-tools-update-\(UUID().uuidString)")
+        defer { try? files.removeItem(at: work) }
+        do {
+            try files.createDirectory(at: work, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            let file = work.appendingPathComponent("helper.tar")
+            try archive.write(to: file)
+            let tar = Process()
+            tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+            tar.arguments = ["-xf", file.path, "-C", work.path]
+            tar.standardOutput = FileHandle.nullDevice
+            tar.standardError = FileHandle.nullDevice
+            try tar.run()
+            tar.waitUntilExit()
+            guard tar.terminationStatus == 0 else { return "the archive could not be unpacked" }
+            let fresh = work.appendingPathComponent("Weims Guest Tools.app")
+            guard let bundle = Bundle(url: fresh), bundle.bundleIdentifier == Bundle.main.bundleIdentifier,
+                  bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == version else {
+                return "the archive does not hold version \(version) of this app"
+            }
+            if let problem = signedLikeThisCopy(fresh) { return problem }
+            let previous = folder.appendingPathComponent(".weims-guest-tools-previous.app")
+            try? files.removeItem(at: previous)
+            try files.moveItem(at: installed, to: previous)
+            do { try files.moveItem(at: fresh, to: installed) } catch {
+                try? files.moveItem(at: previous, to: installed)
+                throw error
+            }
+            try? files.removeItem(at: previous)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    private static func signedLikeThisCopy(_ app: URL) -> String? {
+        var running: SecCode?
+        var mine: SecStaticCode?
+        var requirement: SecRequirement?
+        guard SecCodeCopySelf([], &running) == errSecSuccess, let code = running,
+              SecCodeCopyStaticCode(code, [], &mine) == errSecSuccess, let own = mine,
+              SecCodeCopyDesignatedRequirement(own, [], &requirement) == errSecSuccess, let required = requirement else {
+            return "this copy has no signature to compare the new one with"
+        }
+        var text: CFString?
+        SecRequirementCopyString(required, [], &text)
+        if let text = text as String?, text.contains("cdhash") {
+            return "this copy is not signed with a lasting identity; install the new version from Weims Manager instead"
+        }
+        var fresh: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(app as CFURL, [], &fresh) == errSecSuccess, let candidate = fresh else {
+            return "the new app's signature cannot be read"
+        }
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
+        let status = SecStaticCodeCheckValidity(candidate, flags, required)
+        return status == errSecSuccess ? nil : "the new app is not signed by the signer of this copy (status \(status))"
+    }
+
+    /// Asks launchd to stop this process and start the job again, now from the new files. A copy that
+    /// was started by hand is not a launchd job; it keeps running and the new version starts next time.
+    static func restart() {
+        let tool = Process()
+        tool.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        tool.arguments = ["kickstart", "-k", "gui/\(getuid())/\(label)"]
+        tool.standardOutput = FileHandle.nullDevice
+        tool.standardError = FileHandle.nullDevice
+        try? tool.run()
     }
 }
 

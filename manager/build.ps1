@@ -11,14 +11,20 @@ if ($LASTEXITCODE -ne 0) { throw 'CLI publish failed' }
 & $DotNet publish "$PSScriptRoot/Weims.Broker/Weims.Broker.csproj" -c Release -r win-x64 --self-contained $mode -o $out --nologo
 if ($LASTEXITCODE -ne 0) { throw 'Broker publish failed' }
 $root=Split-Path $PSScriptRoot
-# The Guest Tools install disk is built on macOS (guest-tools/make-image.sh) and kept in the repository with its hash.
-$image=Join-Path $root 'guest-tools/prebuilt/weims-guest-tools.img'
-if (Test-Path -LiteralPath $image) {
-    $recorded=(Get-Content -LiteralPath (Join-Path $root 'guest-tools/prebuilt/SHA256SUMS') | Where-Object { $_ -match 'weims-guest-tools\.img$' } | Select-Object -First 1) -split '\s+' | Select-Object -First 1
-    if ((Get-FileHash -LiteralPath $image -Algorithm SHA256).Hash -ne $recorded) { throw 'The Guest Tools install image does not match its recorded hash' }
+# The Guest Tools install disk and the helper archive for self-update are built on macOS
+# (guest-tools/make-image.sh) and kept in the repository with their hashes.
+$prebuilt=Join-Path $root 'guest-tools/prebuilt'
+if (Test-Path -LiteralPath "$prebuilt/SHA256SUMS") {
     New-Item -ItemType Directory -Force "$out/guest-tools" | Out-Null
-    Copy-Item -LiteralPath $image -Destination "$out/guest-tools/weims-guest-tools.img"
-} else { Write-Warning 'No Guest Tools install image in guest-tools/prebuilt: Manager will not offer to install Guest Tools.' }
+    Get-ChildItem -LiteralPath "$out/guest-tools" -File | Remove-Item -Force
+    foreach ($line in Get-Content -LiteralPath "$prebuilt/SHA256SUMS") {
+        $recorded,$name=$line -split '\s+',2
+        if (!$name) { continue }
+        if ($name -notmatch '^[A-Za-z0-9._-]+$') { throw "Unexpected name in guest-tools/prebuilt/SHA256SUMS: $name" }
+        if ((Get-FileHash -LiteralPath "$prebuilt/$name" -Algorithm SHA256).Hash -ne $recorded) { throw "guest-tools/prebuilt/$name does not match its recorded hash" }
+        Copy-Item -LiteralPath "$prebuilt/$name" -Destination "$out/guest-tools/$name"
+    }
+} else { Write-Warning 'Nothing in guest-tools/prebuilt: Manager will not offer to install Guest Tools.' }
 Copy-Item -LiteralPath "$root/LICENSE" -Destination "$out/LICENSE"
 Copy-Item -LiteralPath "$root/NOTICE.md" -Destination "$out/NOTICE.md"
 Copy-Item -LiteralPath "$PSScriptRoot/README.zh-CN.md" -Destination "$out/使用说明.md"

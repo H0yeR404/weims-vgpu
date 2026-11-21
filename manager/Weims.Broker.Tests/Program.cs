@@ -117,6 +117,28 @@ try
         Check(replaced.Replaced && replaced.Fingerprint != again.Fingerprint && replaced.PairedUsers.Count == 0, "unreadable secrets (other account, other machine, damage) give a new identity and no pairing");
     }
 
+    // ---- Helper self-update ----
+    {
+        var folder = Path.Combine(temp, "update"); Directory.CreateDirectory(folder);
+        Check(HelperUpdate.Load(folder) == null && HelperUpdate.Load(Path.Combine(folder, "missing")) == null, "without a helper archive there is nothing to offer");
+        File.WriteAllBytes(Path.Combine(folder, "weims-guest-tools-helper-0.9.3.tar"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(folder, "weims-guest-tools-helper-0.10.0.tar"), [4, 5, 6, 7]);
+        File.WriteAllBytes(Path.Combine(folder, "weims-guest-tools-helper-latest.tar"), [9]);
+        var update = HelperUpdate.Load(folder)!;
+        Check(update.Version == "0.10.0", "the newest archive is chosen by version number, not by name order, and odd names are ignored");
+        Check(HelperUpdate.Newer("0.10.0", "0.9.3") && HelperUpdate.Newer("1.0", "0.99.99") && HelperUpdate.Newer("0.1.1", "0.1") && !HelperUpdate.Newer("0.1.0", "0.1.0") && !HelperUpdate.Newer("0.1", "0.1.0") && !HelperUpdate.Newer("0.1.0", "0.2.0"), "versions compare as dotted numbers");
+        Check(!HelperUpdate.Newer("2.0", "unknown") && !HelperUpdate.Newer("abc", "0.1.0") && !HelperUpdate.Newer("1.-2", "0.1.0") && !HelperUpdate.Newer("", "0.1.0"), "a version that is not dotted numbers is never updated to or from");
+        HelperSession Session(string version, params string[] capabilities) => new(new MemoryStream(), "alice", version, capabilities.ToHashSet());
+        Check(update.Wanted(Session("0.9.3", "clipboard-text", "self-update")), "an older helper that can update itself is offered the newer one");
+        Check(!update.Wanted(Session("0.9.3", "clipboard-text")) && !update.Wanted(Session("0.10.0", "self-update")) && !update.Wanted(Session("0.11.0", "self-update")), "a helper that cannot update itself, or is as new or newer, is left alone");
+        var refuser = Session("0.9.0", "self-update"); update.Declined(refuser);
+        Check(!update.Wanted(refuser) && !update.Wanted(Session("0.9.0", "self-update")) && update.Wanted(Session("0.9.1", "self-update")), "a helper that said no is not sent the archive again in this run");
+        var link = new FakeLink(); await update.Send(link);
+        Check(link.Sent.Count == 1 && link.Sent[0].Header["type"]!.GetValue<string>() == "update" && link.Sent[0].Header["version"]!.GetValue<string>() == "0.10.0" && link.Sent[0].Body.SequenceEqual(new byte[] { 4, 5, 6, 7 })
+            && link.Sent[0].Header["sha256"]!.GetValue<string>() == Convert.ToHexString(SHA256.HashData(new byte[] { 4, 5, 6, 7 })).ToLowerInvariant(), "the update is one frame: version, hash and the archive");
+        Check(HelperUpdate.Load(folder, limit: 3) == null, "an archive too large for one frame is not offered");
+    }
+
     // ---- Pairing through the install disk ----
     {
         var ticketTime = DateTime.UtcNow; var ticket = new InstallTicket(() => ticketTime);

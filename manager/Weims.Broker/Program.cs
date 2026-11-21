@@ -64,9 +64,25 @@ public static class Program
         var sync = new ClipboardSync(window, () => Volatile.Read(ref mode), note => status.Update(s => s.Note = note));
         window.ClipboardChanged += sync.HostChanged;
         window.FocusChanged += sync.FocusChanged;
-        server.Connected = session => window.Post(() => sync.HelperConnected(session));
+        // A newer helper shipped with this Manager goes to an older one that can update itself; see HelperUpdate.
+        var update = HelperUpdate.Load(Path.Combine(AppContext.BaseDirectory, "guest-tools"));
+        if (update != null) log.Write($"helper {update.Version} is available for guests that run an older one");
+        server.Connected = session =>
+        {
+            window.Post(() => sync.HelperConnected(session));
+            if (update?.Wanted(session) != true) return;
+            log.Write($"sending helper {update.Version} to guest user {session.User}, who runs {session.Version}");
+            _ = update.Send(session);
+        };
         server.Disconnected = session => window.Post(() => sync.HelperDisconnected(session));
-        server.Received = (session, frame) => window.Post(() => sync.FromGuest(session, frame));
+        server.Received = (session, frame) =>
+        {
+            if (frame.Type != "update_result") { window.Post(() => sync.FromGuest(session, frame)); return; }
+            if (frame.Flag("ok")) { log.Write($"guest user {session.User} installed the helper update and restarts"); return; }
+            update?.Declined(session);
+            var reason = new string((frame.Text("reason") ?? "").Where(c => !char.IsControl(c)).Take(200).ToArray());
+            log.Write($"guest user {session.User} did not install the helper update: {reason}");
+        };
 
         using var stop = new CancellationTokenSource();
         void Stop(string why) { log.Write("stopping: " + why); try { stop.Cancel(); } catch (ObjectDisposedException) { } window.Quit(); }

@@ -47,7 +47,7 @@ public sealed class HelperSession(Stream stream, string user, string version, IR
 /// </summary>
 public sealed class ControlServer
 {
-    public static readonly string[] Capabilities = ["clipboard-text"];
+    public static readonly string[] Capabilities = ["clipboard-text", HelperUpdate.Capability];
     public const int ProtocolVersion = 1;
     public TimeSpan HandshakeTimeout { get; init; } = TimeSpan.FromSeconds(10);
     public TimeSpan IdleTimeout { get; init; } = TimeSpan.FromSeconds(45);

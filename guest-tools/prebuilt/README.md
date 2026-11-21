@@ -5,8 +5,11 @@ clicks **Install Guest Tools**. It is a raw 8 MiB disk image with one HFS+ volum
 `Install Weims Guest Tools.app` (the helper, which installs itself when started under that name) and
 `Uninstall Weims Guest Tools.command`.
 
-It is kept here because it can only be built on macOS, while Manager is built on Windows.
-`manager/build.ps1` checks it against `SHA256SUMS` and copies it next to Manager.
+`weims-guest-tools-helper-<version>.tar` is the helper alone. The broker sends it to a helper in a
+guest that runs an older version; that helper installs it only if it is signed like itself.
+
+Both are kept here because they can only be built on macOS, while Manager is built on Windows.
+`manager/build.ps1` checks every file named in `SHA256SUMS` and copies it next to Manager.
 
 The image is the same for every VM. What is specific to a VM, its one-time pairing code, is given to
 the disk as its USB serial number when it is plugged in; nothing is written into the image.
@@ -20,7 +23,8 @@ sh make-identity.sh   # once per build Mac: creates the signing identity
 sh make-image.sh      # builds build/weims-guest-tools.img and the DMG
 ```
 
-Copy `build/weims-guest-tools.img` here and put its line from `build/SHA256SUMS` into `SHA256SUMS`.
+Copy `build/weims-guest-tools.img` and `build/weims-guest-tools-helper-<version>.tar` here, remove the
+archive of the previous version, and put their two lines from `build/SHA256SUMS` into `SHA256SUMS`.
 Two builds of the same sources are not byte-identical: the image carries timestamps and a signature.
 
 ## Signature
