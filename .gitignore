@@ -11,3 +11,5 @@ __pycache__/
 **/bin/
 **/obj/
 manager/artifacts/
+# The helper sources: the rule above would catch this folder on case-insensitive filesystems.
+!guest-tools/Sources/

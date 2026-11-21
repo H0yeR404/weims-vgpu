@@ -129,6 +129,12 @@ public static class VmService
         using var startupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         try { await ProcessRunner.Run(engine.PowerShell, new[] { "-NoProfile", "-NonInteractive", "-File", launcher, "-Plan", file }, env, startupTimeout.Token, captureOutput: false); }
         catch (IOException e) { throw new IOException(Text.Get("虚拟机启动失败，请查看：", "VM startup failed. See: ") + Path.Combine(run, "stderr.log"), e); }
+        // Guest Tools are optional. The VM is already running here, and a broker that cannot be started must
+        // not turn a successful start into a failure; whoever polls the state will try again.
+        if (c.IntegrationEnabled)
+            try { Integration.StartBroker(c); }
+            catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception or InvalidOperationException)
+            { try { File.AppendAllText(Path.Combine(run, "broker.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} not started: {e.Message}{Environment.NewLine}"); } catch (IOException) { } }
         return run;
     }
 }

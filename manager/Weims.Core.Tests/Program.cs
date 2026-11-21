@@ -43,6 +43,14 @@ try
     Reject(() => GuidedSetup.Create("valid",Path.Combine(temp,"guided"),FileAt("bad.iso"),200,engine,temp,new Progress<string>(),default).GetAwaiter().GetResult(), "guided setup refuses ISO before downloading");
     var plan = LaunchPlan.Build(c, engine, temp, new string('s',64), "test-vm");
     Check(plan.Arguments.Any(a => a.Contains("disk ,, 测试.qcow2")), "QEMU keyval comma escaping");
+    // Guest Tools must not reach QEMU at all: same arguments and environment whether integration is on or off.
+    Check(!c.IntegrationEnabled && c.ClipboardMode == "text" && Integration.InRange(c.IntegrationPort), "Guest Tools integration is off by default with a port inside its range");
+    c.IntegrationEnabled = true; c.ClipboardMode = "off"; c.IntegrationPort = Integration.PortBase + 63;
+    var integrated = LaunchPlan.Build(c, engine, temp, new string('s',64), "test-vm");
+    Check(integrated.Arguments.SequenceEqual(plan.Arguments) && integrated.Environment.OrderBy(p => p.Key).SequenceEqual(plan.Environment.OrderBy(p => p.Key)), "Guest Tools integration does not change the QEMU command line or environment");
+    c.IntegrationPort = Integration.PortBase + 64; Reject(() => c.Validate(false), "integration port outside its range rejected");
+    c.IntegrationPort = Integration.PortBase; c.ClipboardMode = "everything"; Reject(() => c.Validate(false), "unknown clipboard mode rejected");
+    foreach (var key in new[] { "integration_enabled", "clipboard_mode", "integration_port" }) c.Data.Remove(key);
     Check(plan.Arguments.Any(a => a.Contains("guest-memory=on")), "shared-memory graphics enabled");
     // The guest reaches host loopback TCP through user-mode networking, so QMP must never listen on TCP.
     Check(!plan.Arguments.Contains("-no-shutdown"), "QEMU exits when the guest powers off instead of staying behind");

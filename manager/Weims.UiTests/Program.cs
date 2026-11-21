@@ -49,7 +49,38 @@ internal static class Program
             Check(VmConfig.Load(config.ConfigPath).Resolution=="2560x1440","display save accepts tested 1440p through actual button handler");
             Check(VmConfig.Load(config.ConfigPath).DisplayMode=="auto","display policy saved through actual control");
             Check(!((CheckBox)w.FindName("FreePointer")).IsEnabled,"unsupported free pointer disabled");
-            model.CanEdit=false; Pump(); Check(!save.IsEnabled,"running-state configuration disabled"); model.CanEdit=true;
+            model.CanEdit=false; Pump(); Check(!save.IsEnabled,"running-state configuration disabled");
+            // Guest Tools: its own section on this page, usable while the VM runs, stored without touching other fields.
+            bool Until(Func<bool> done) { for(int i=0;i<150&&!done();i++) { Pump(); System.Threading.Thread.Sleep(20); } return done(); }
+            var integration=(CheckBox)w.FindName("IntegrationEnabled"); var clipboard=(CheckBox)w.FindName("ClipboardText"); var pair=(Button)w.FindName("PairButton"); var reset=(Button)w.FindName("ResetPairingButton");
+            var integrationStatus=(TextBlock)w.FindName("IntegrationStatus"); var pairingPanel=(StackPanel)w.FindName("PairingPanel");
+            Check(Until(()=>integrationStatus.Text=="集成：关闭") && integration.IsChecked==false && clipboard.IsChecked==true, "Guest Tools is off by default with clipboard text preselected");
+            Check(integration.IsEnabled && !clipboard.IsEnabled, "the Guest Tools switch stays available while the VM configuration is locked; its clipboard option waits for it");
+            Check(!pair.IsEnabled && !reset.IsEnabled && pairingPanel.Visibility==Visibility.Collapsed, "pairing needs a running VM with its broker; no code is shown");
+            model.CanEdit=true;
+            model.Selected!.Cpus=16;
+            integration.SetCurrentValue(CheckBox.IsCheckedProperty,true); integration.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(Until(()=>integrationStatus.Text=="集成：已开启，随虚拟机启动") && integration.IsChecked==true, "switching Guest Tools on is shown at once");
+            Check(VmConfig.Load(config.ConfigPath) is { IntegrationEnabled: true, Cpus: 8, Resolution: "2560x1440" }, "the switch is stored without an unsaved edit of another field");
+            model.Selected.Cpus=8;
+            clipboard.SetCurrentValue(CheckBox.IsCheckedProperty,false); clipboard.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(Until(()=>VmConfig.Load(config.ConfigPath).ClipboardMode=="off" && clipboard.IsChecked==false && !model.Busy), "clipboard sharing can be switched off on its own");
+            clipboard.SetCurrentValue(CheckBox.IsCheckedProperty,true); clipboard.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(Until(()=>VmConfig.Load(config.ConfigPath).ClipboardMode=="text" && clipboard.IsChecked==true && !model.Busy), "and on again");
+            // A broker with an open pairing window is played by a state file that names this test process, so that it reads as alive.
+            void Broker(string? digits, bool open=true) => JsonFiles.Write(Integration.StatePath(config), new JsonObject { ["pid"]=Environment.ProcessId, ["started_utc"]=System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime().ToString("o"), ["heartbeat_utc"]=DateTime.UtcNow.ToString("o"), ["status"]="running", ["port"]=46412, ["fingerprint"]=new string('a',64), ["paired_users"]=new JsonArray(), ["pairing_until_utc"]=open?DateTime.UtcNow.AddMinutes(10).ToString("o"):null, ["pairing_digits"]=digits, ["pairing_user"]=digits==null?null:"hoyer" });
+            var confirm=(Button)w.FindName("ConfirmPairingButton"); var decline=(Button)w.FindName("DeclinePairingButton"); var digitsText=(TextBlock)w.FindName("PairingDigits"); var prompt=(TextBlock)w.FindName("PairingPrompt");
+            Broker(null); _ = model.Refresh();
+            Check(Until(()=>pairingPanel.Visibility==Visibility.Visible && prompt.Text.Contains("正在等待 macOS")) && digitsText.Text=="" && !confirm.IsEnabled && !decline.IsEnabled && !pair.IsEnabled && reset.IsEnabled, "an open pairing window says what to do in macOS; there is nothing to answer yet");
+            Broker("0427"); _ = model.Refresh();
+            Check(Until(()=>digitsText.Text=="0427" && prompt.Text.Contains("hoyer")) && confirm.IsEnabled && decline.IsEnabled, "when a helper asks, its four digits and its macOS user are shown with the two answers");
+            ((FrameworkElement)pairingPanel.Children[3]).BringIntoView(); Pump(); Shot(w,Path.Combine(output,"guest-tools-zh.png"));
+            Broker(null, open:false); _ = model.Refresh();
+            Check(Until(()=>pairingPanel.Visibility==Visibility.Collapsed && digitsText.Text=="" && pair.IsEnabled), "when pairing is over the number leaves the screen and pairing can be started again");
+            File.Delete(Integration.StatePath(config)); _ = model.Refresh();
+            Check(Until(()=>!pair.IsEnabled && !reset.IsEnabled), "without a broker there is nothing to pair with");
+            integration.SetCurrentValue(CheckBox.IsCheckedProperty,false); integration.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(Until(()=>integrationStatus.Text=="集成：关闭" && !VmConfig.Load(config.ConfigPath).IntegrationEnabled && !model.Busy), "switching Guest Tools off is stored and shown");
             w.Width=960; w.Height=660; Pump(); Shot(w,Path.Combine(output,"display-minimum.png"));
             model.Page=5; Pump(); var preview=Descendants(w).OfType<Button>().Single(b=>Equals(b.Content,"预览启动参数")); preview.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
             Check(model.Details.Contains("resolution=2560x1440")&&model.Details.Contains("WEIMS_DISPLAY_MODE=auto")&&model.Details.Contains("<redacted>"),"UI preview uses edited display policy and redacts key");
@@ -98,6 +129,13 @@ internal static class Program
             Check(app.Theme == "dark" && BrushColor(english.Background) == Color.FromRgb(25,27,32), "language switch does not reset dark appearance");
             for (int i=0;i<7;i++) { enModel.Page=i; Pump(); Shot(english,Path.Combine(output,$"dark-page-{i}.png")); }
             enModel.Page=2; Pump();
+            Check(Descendants(english).OfType<TextBlock>().Any(t=>t.Text=="GUEST TOOLS") && Equals(((CheckBox)english.FindName("IntegrationEnabled")).Content,"Enable Guest Tools integration for this VM") && Equals(((Button)english.FindName("PairButton")).Content,"Pair Guest Tools…"), "Guest Tools section is present in English");
+            Broker("0427"); _ = enModel.Refresh();
+            var darkDigits=(TextBlock)english.FindName("PairingDigits");
+            Check(Until(()=>darkDigits.Text=="0427") && Equals(((Button)english.FindName("ConfirmPairingButton")).Content,"They match — pair") && Equals(((Button)english.FindName("DeclinePairingButton")).Content,"They differ") && ((TextBlock)english.FindName("PairingPrompt")).Text.Contains("macOS user hoyer asks to pair"), "the number comparison is presented in English");
+            ((FrameworkElement)((StackPanel)english.FindName("PairingPanel")).Children[3]).BringIntoView(); Pump(); Shot(english,Path.Combine(output,"guest-tools-en-dark.png"));
+            Check(BrushColor(darkDigits.Foreground)==BrushColor((Brush)app.FindResource("Ink")), "the pairing number is readable in the dark appearance");
+            File.Delete(Integration.StatePath(config)); _ = enModel.Refresh(); Until(()=>((StackPanel)english.FindName("PairingPanel")).Visibility==Visibility.Collapsed);
             var darkResolution=(ComboBox)english.FindName("Resolution");
             var editor=(TextBox)darkResolution.Template.FindName("PART_EditableTextBox",darkResolution);
             editor.SetCurrentValue(TextBox.TextProperty,"2560x1600"); Pump();

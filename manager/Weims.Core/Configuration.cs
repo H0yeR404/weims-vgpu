@@ -53,6 +53,11 @@ public sealed class VmConfig : Observable, IDataErrorInfo
     public bool FreePointer { get => Data["free_pointer"]?.GetValue<bool>() ?? false; set => Write("free_pointer", value); }
     public string Recovery { get => ReadText("recovery_image"); set => Write("recovery_image", value); }
     public bool RecoveryAttached { get => Data["recovery_attached"]?.GetValue<bool>() ?? false; set => Write("recovery_attached", value); }
+    // Guest Tools. All three keys are optional: a configuration without them behaves exactly as before,
+    // and older versions keep these keys untouched because unknown keys in Data are written back as they are.
+    public bool IntegrationEnabled { get => Data["integration_enabled"]?.GetValue<bool>() ?? false; set => Write("integration_enabled", value); }
+    public int IntegrationPort { get => Number("integration_port", Integration.DefaultPort(this)); set => Write("integration_port", value); }
+    public string ClipboardMode { get => ReadText("clipboard_mode", "text"); set => Write("clipboard_mode", value); }
 
     public void Validate(bool files = true)
     {
@@ -66,6 +71,10 @@ public sealed class VmConfig : Observable, IDataErrorInfo
             throw new InvalidDataException(Text.Get("显示模式应为 legacy、auto 或 fixed。", "Display mode must be legacy, auto or fixed."));
         if (SshPort < 1024 || SshPort > 65535)
             throw new InvalidDataException(Text.Get("SSH 转发端口应为 1024–65535 之间的整数。", "The SSH forwarding port must be an integer between 1024 and 65535."));
+        if (!Integration.InRange(IntegrationPort))
+            throw new InvalidDataException(Text.Get($"集成端口应在 {Integration.PortBase}–{Integration.PortBase + Integration.PortCount - 1} 之间。", $"The integration port must be between {Integration.PortBase} and {Integration.PortBase + Integration.PortCount - 1}."));
+        if (ClipboardMode is not ("off" or "text"))
+            throw new InvalidDataException(Text.Get("剪贴板模式应为 off 或 text。", "Clipboard mode must be off or text."));
         if (!Regex.IsMatch(Mac, @"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")) throw new InvalidDataException(Text.Get("MAC 地址格式错误。", "Invalid MAC address format."));
         foreach (var path in new[] { Disk, OpenCore, FirmwareCode, FirmwareVars, Rom }.Concat(RecoveryAttached ? new[] { Recovery } : Array.Empty<string>()))
         {
@@ -75,6 +84,18 @@ public sealed class VmConfig : Observable, IDataErrorInfo
         if (Cpu.Any(c => c < 32)) throw new InvalidDataException(Text.Get("CPU 配置无效。", "Invalid CPU configuration."));
     }
     public void Save() { Validate(); JsonFiles.Write(ConfigPath, Data); }
+    /// <summary>
+    /// Writes just the given keys into the stored configuration and leaves the rest of the file as it is.
+    /// For settings that may change while the VM runs: edits to other fields that the user has not
+    /// saved yet must not slip into the file along with them.
+    /// </summary>
+    public void SaveOnly(params string[] keys)
+    {
+        var stored = Load(ConfigPath);
+        foreach (var key in keys) { if (Data[key] is { } value) stored.Data[key] = value.DeepClone(); else stored.Data.Remove(key); }
+        stored.Validate(false);
+        JsonFiles.Write(ConfigPath, stored.Data);
+    }
 }
 
 public sealed class EngineSettings : Observable

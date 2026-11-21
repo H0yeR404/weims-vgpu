@@ -47,3 +47,15 @@ Name: "{autodesktop}\Weims Manager"; Filename: "{app}\Weims.Manager.exe"; IconFi
 Filename: "{app}\Weims.Manager.exe"; Description: "{cm:LaunchProgram,Weims Manager}"; Flags: nowait postinstall skipifsilent
 
 ; User preferences, downloaded runtimes and VM files are intentionally not owned by uninstall.
+[UninstallRun]
+; A Guest Tools broker has no window to close and would keep its file locked. Ending it does not affect a VM.
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM Weims.Broker.exe"; Flags: runhidden; RunOnceId: "StopBroker"
+
+[Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var Code: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM Weims.Broker.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Result := '';
+end;
+

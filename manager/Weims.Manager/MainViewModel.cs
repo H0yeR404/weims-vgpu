@@ -12,9 +12,9 @@ public sealed class MainViewModel : Observable
     public ObservableCollection<VmConfig> Machines { get; } = new();
     public EngineSettings Engine { get; }
     VmConfig? selected; bool busy, canEdit, isRunning; int page; string status = Text.Get("请选择虚拟机", "Select a virtual machine"), message = Text.Get("欢迎使用 Weims。导入已有虚拟机，或通过恢复镜像开始。", "Welcome to Weims. Import a VM or start with a recovery image."), details = "";
-    public VmConfig? Selected { get => selected; set { if (Set(ref selected, value)) { Changed(nameof(HasVm)); Changed(nameof(CanConfigure)); } } }
+    public VmConfig? Selected { get => selected; set { if (Set(ref selected, value)) { Changed(nameof(HasVm)); Changed(nameof(CanConfigure)); Changed(nameof(CanIntegrate)); Changed(nameof(ClipboardShared)); PairingOpen = false; PairingDigits = ""; PairingPrompt = ""; } } }
     public bool HasVm => Selected != null;
-    public bool Busy { get => busy; set { Set(ref busy, value); Changed(nameof(Available)); Changed(nameof(CanConfigure)); Changed(nameof(CanPower)); } }
+    public bool Busy { get => busy; set { Set(ref busy, value); Changed(nameof(Available)); Changed(nameof(CanConfigure)); Changed(nameof(CanPower)); Changed(nameof(CanIntegrate)); Changed(nameof(CanPair)); Changed(nameof(CanStartPairing)); Changed(nameof(CanAnswerPairing)); } }
     public bool Available => !Busy;
     public bool CanEdit { get => canEdit; set { Set(ref canEdit, value); Changed(nameof(CanConfigure)); } }
     public bool CanConfigure => HasVm && CanEdit && !Busy;
@@ -23,6 +23,23 @@ public sealed class MainViewModel : Observable
     public string Status { get => status; set => Set(ref status, value); }
     public string Message { get => message; set => Set(ref message, value); }
     public string Details { get => details; set => Set(ref details, value); }
+    // Guest Tools. Unlike the hardware settings these do not need a stopped VM: they never reach QEMU.
+    string integrationStatus = "", integrationDetail = "", pairingDigits = "", pairingPrompt = ""; bool brokerOnline, pairingOpen;
+    public bool CanIntegrate => HasVm && !Busy;
+    public bool CanPair => HasVm && brokerOnline && !Busy;
+    public bool CanStartPairing => CanPair && !PairingOpen;
+    public bool ClipboardShared => Selected?.ClipboardMode == "text";
+    public bool BrokerConnected { get; private set; }
+    public string IntegrationStatus { get => integrationStatus; set => Set(ref integrationStatus, value); }
+    public string IntegrationDetail { get => integrationDetail; set => Set(ref integrationDetail, value); }
+    // Pairing is done by comparing a number: nothing is typed on either side.
+    /// <summary>A pairing window is open on the broker.</summary>
+    public bool PairingOpen { get => pairingOpen; private set { if (Set(ref pairingOpen, value)) Changed(nameof(CanStartPairing)); } }
+    /// <summary>The four digits the helper in macOS is showing; empty until a helper has asked to pair.</summary>
+    public string PairingDigits { get => pairingDigits; private set { if (Set(ref pairingDigits, value)) Changed(nameof(CanAnswerPairing)); } }
+    public string PairingPrompt { get => pairingPrompt; private set => Set(ref pairingPrompt, value); }
+    public bool CanAnswerPairing => PairingDigits != "" && !Busy;
+    public void ClipboardChanged() => Changed(nameof(ClipboardShared));
     public MainViewModel(string data, string? repo)
     {
         DataDirectory = data; Repo = repo; Directory.CreateDirectory(data);
@@ -59,10 +76,25 @@ public sealed class MainViewModel : Observable
     public void SaveEngine() { Engine.Validate(); JsonFiles.Write(Path.Combine(DataDirectory, "engine.json"), Engine); }
     public async Task Refresh()
     {
-        if (Selected == null) { Status = Text.Get("未选择虚拟机", "No VM selected"); CanEdit = false; isRunning = false; Changed(nameof(CanPower)); return; }
+        if (Selected == null) { Status = Text.Get("未选择虚拟机", "No VM selected"); CanEdit = false; isRunning = false; Changed(nameof(CanPower)); brokerOnline = false; BrokerConnected = false; Changed(nameof(CanPair)); Changed(nameof(CanStartPairing)); IntegrationStatus = ""; IntegrationDetail = ""; PairingOpen = false; PairingDigits = ""; PairingPrompt = ""; return; }
         var current = Selected;
         var state = await VmService.State(current);
         if (Selected != current) return;
         Status = state.Label; CanEdit = state.CanEdit; isRunning = state.Running; Changed(nameof(CanPower));
+        // Looking at the state is also what brings a missing broker back: there is no resident supervisor.
+        // Off the UI thread, because it may have to start a process.
+        var broker = await Task.Run(() => Integration.Supervise(current, state.Running));
+        if (Selected != current) return;
+        brokerOnline = broker.Online; BrokerConnected = broker.Connected; Changed(nameof(CanPair)); Changed(nameof(CanStartPairing));
+        IntegrationStatus = !current.IntegrationEnabled ? Text.Get("集成：关闭", "Integration: off")
+            : !state.Running ? Text.Get("集成：已开启，随虚拟机启动", "Integration: on, starts with the VM") : broker.Label;
+        IntegrationDetail = !current.IntegrationEnabled || !broker.Online ? ""
+            : broker.PairedUsers.Count == 0 ? Text.Get("尚未与 macOS 里的 Guest Tools 配对。", "Not paired with Guest Tools in macOS yet.")
+            : Text.Get("已配对的 macOS 用户：", "Paired macOS users: ") + string.Join(Text.Get("、", ", "), broker.PairedUsers);
+        PairingOpen = broker.Online && broker.PairingOpen;
+        PairingDigits = PairingOpen ? broker.PairingDigits ?? "" : "";
+        PairingPrompt = !PairingOpen ? ""
+            : PairingDigits == "" ? Text.Get("正在等待 macOS。请在 macOS 菜单栏点 Weims Guest Tools 的图标，选“与宿主配对”。", "Waiting for macOS. In the macOS menu bar, click the Weims Guest Tools icon and choose Pair with Host.")
+            : Text.Get($"macOS 用户 {broker.PairingUser} 请求配对。macOS 里显示的也是这个数字吗？", $"macOS user {broker.PairingUser} asks to pair. Does macOS show this same number?");
     }
 }

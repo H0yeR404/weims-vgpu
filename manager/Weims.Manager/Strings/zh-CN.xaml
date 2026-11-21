@@ -229,4 +229,15 @@ QEMU/Reims 运行库仍固定为 pre.1。虚拟机卡死仍在排查；也已收
  <sys:String x:Key="ThemeLabel">外观</sys:String>
  <sys:String x:Key="ThemeLight">浅色</sys:String>
  <sys:String x:Key="ThemeDark">深色</sys:String>
+<sys:String x:Key="G1">GUEST TOOLS · 与 macOS 集成</sys:String>
+<sys:String x:Key="G2">为此虚拟机开启 Guest Tools 集成</sys:String>
+<sys:String x:Key="G3">当此虚拟机的窗口在前台时，与 macOS 共享剪贴板。需要先在 macOS 里安装并运行 Weims Guest Tools。它不给 QEMU 启动参数加任何内容，所以虚拟机运行时也可以开关。</sys:String>
+<sys:String x:Key="G4">在 Windows 和 macOS 之间共享剪贴板文本</sys:String>
+<sys:String x:Key="G5">文本上限 4 MiB。密码管理器标记为敏感的内容，到另一边后不会进入剪贴板历史。</sys:String>
+<sys:String x:Key="G6">配对 Guest Tools…</sys:String>
+<sys:String x:Key="G7">重置配对</sys:String>
+<sys:String x:Key="G8">配对数字</sys:String>
+<sys:String x:Key="G9">不需要输入任何东西。macOS 里的 Weims Guest Tools 会显示一个四位数字，只有和上面的数字相同时才在这里确认。如果两个数字不一样，请点“不一致”：那说明是别的程序在请求配对。</sys:String>
+<sys:String x:Key="G10">数字一致，完成配对</sys:String>
+<sys:String x:Key="G11">不一致</sys:String>
 </ResourceDictionary>

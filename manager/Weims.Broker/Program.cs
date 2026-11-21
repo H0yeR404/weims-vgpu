@@ -1,0 +1,137 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+using System.Diagnostics;
+using System.Text.Json.Nodes;
+using Weims.Core;
+
+namespace Weims.Broker;
+
+/// <summary>
+/// Weims.Broker.exe: the host side of Guest Tools for one running VM. It is started after QEMU, exits
+/// when QEMU exits, and neither injects anything into QEMU nor talks to QMP. If it dies, the VM and its
+/// window are unaffected; only clipboard sharing stops until someone starts it again.
+/// </summary>
+public static class Program
+{
+    public const int ExitUsage = 64, ExitNoVm = 3, ExitAlreadyRunning = 2, ExitNoPort = 4, ExitFailed = 1;
+
+    [STAThread]
+    public static int Main(string[] args)
+    {
+        if (args.Length != 2 || args[0] != "--config") return ExitUsage;
+        VmConfig config; JsonObject? runtime; Process qemu;
+        try
+        {
+            config = VmConfig.Load(args[1]);
+            runtime = VmService.Runtime(config);
+            // Guest Tools need QMP on a socket: with QMP on loopback TCP the guest could reach it, and the VM must be restarted first.
+            if (!Integration.RuntimeSupported(runtime) || !VmService.ProcessMatches(runtime!)) return ExitNoVm;
+            qemu = Process.GetProcessById(runtime!["pid"]!.GetValue<int>());
+            _ = qemu.SafeHandle;
+            // The handle is now held, so the process id cannot be reused under us; make sure it is still the recorded QEMU.
+            if (!VmService.ProcessMatches(runtime)) return ExitNoVm;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.Json.JsonException or ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { return ExitNoVm; }
+
+        // One broker per QEMU process. The name carries the start time, so the broker of a VM that was just
+        // restarted is not blocked by the previous one while that is still on its way out.
+        using var single = new Mutex(true, $@"Local\weims-broker-{qemu.Id}-{qemu.StartTime.ToFileTimeUtc()}", out bool first);
+        if (!first) return ExitAlreadyRunning;
+
+        var runDirectory = runtime["run_directory"] is JsonValue v && v.TryGetValue<string>(out var d) && Directory.Exists(d) ? d : Integration.StateDirectory(config);
+        var log = new Log(Path.Combine(runDirectory, "broker.log"));
+        var status = new BrokerStatus(qemu.Id);
+        try { return Run(config, qemu, status, log); }
+        catch (Exception e)
+        {
+            log.Write("fatal: " + e);
+            status.Update(s => { s.LastError = e.Message; s.Stopped = true; });
+            status.Write(Integration.StatePath(config), log.Write);
+            return e is IOException ? ExitNoPort : ExitFailed;
+        }
+    }
+
+    static int Run(VmConfig config, Process qemu, BrokerStatus status, Log log)
+    {
+        string mode = config.ClipboardMode;
+        status.Update(s => s.ClipboardMode = mode);
+        var secrets = BrokerSecrets.LoadOrCreate(Integration.SecretsPath(config));
+        if (secrets.Replaced) { log.Write("stored secrets could not be read; a new identity was created"); status.Update(s => s.Note = "The stored pairing could not be read on this account or machine. Pair the guest again."); }
+        var pairing = new PairingSession();
+        var server = new ControlServer(ControlServer.Bind(config.IntegrationPort), secrets, pairing, status, log.Write);
+        log.Write($"broker {BrokerStatus.Version} for QEMU {qemu.Id}, listening on 127.0.0.1:{server.Port}, fingerprint {secrets.Fingerprint}");
+
+        var window = new HostWindow(qemu.Id, Integration.VmKey(config), log.Write);
+        var sync = new ClipboardSync(window, () => Volatile.Read(ref mode), note => status.Update(s => s.Note = note));
+        window.ClipboardChanged += sync.HostChanged;
+        window.FocusChanged += sync.FocusChanged;
+        server.Connected = session => window.Post(() => sync.HelperConnected(session));
+        server.Disconnected = session => window.Post(() => sync.HelperDisconnected(session));
+        server.Received = (session, frame) => window.Post(() => sync.FromGuest(session, frame));
+
+        using var stop = new CancellationTokenSource();
+        void Stop(string why) { log.Write("stopping: " + why); try { stop.Cancel(); } catch (ObjectDisposedException) { } window.Quit(); }
+
+        JsonObject Command(JsonObject request)
+        {
+            string name = request["command"] is JsonValue c && c.TryGetValue<string>(out var given) ? given : "";
+            switch (name)
+            {
+                case "status": break;
+                case "pair-begin":
+                    pairing.Open(); server.PublishPairing();
+                    log.Write("pairing window opened");
+                    break;
+                case "pair-confirm":
+                case "pair-decline":
+                    // The answer applies to the number Manager showed. If that request is gone, say so instead of answering for another.
+                    var showing = pairing.Showing;
+                    if (showing == null || (request["digits"] is JsonValue d && d.TryGetValue<string>(out var digits) && digits != showing.Digits) || !pairing.Decide(name == "pair-confirm"))
+                        return new JsonObject { ["ok"] = false, ["error"] = Text.Get("这次配对请求已经不在了，请在 macOS 里重新发起。", "That pairing request is no longer there. Start it again in macOS.") };
+                    server.PublishPairing();
+                    break;
+                case "pair-cancel":
+                    pairing.Close(); server.PublishPairing();
+                    break;
+                case "pair-reset":
+                    pairing.Close(); secrets.Reset(); server.ReloadIdentity(); server.PublishPairing();
+                    log.Write("pairing reset: all tokens revoked, new certificate");
+                    break;
+                case "reload":
+                    try { Volatile.Write(ref mode, VmConfig.Load(config.ConfigPath).ClipboardMode); status.Update(s => s.ClipboardMode = mode); }
+                    catch (Exception e) when (e is IOException or InvalidDataException or System.Text.Json.JsonException) { return new JsonObject { ["ok"] = false, ["error"] = e.Message }; }
+                    break;
+                case "stop": _ = Task.Delay(100).ContinueWith(_ => Stop("requested over the command pipe"), TaskScheduler.Default); break; // answer first
+                default: return new JsonObject { ["ok"] = false, ["error"] = "Unknown command." };
+            }
+            return new JsonObject { ["ok"] = true, ["state"] = status.Snapshot() };
+        }
+
+        var statePath = Integration.StatePath(config);
+        var tasks = new[]
+        {
+            server.Run(stop.Token),
+            new CommandPipe(Integration.PipeName(config), Command, log.Write).Run(stop.Token),
+            status.Publish(statePath, log.Write, stop.Token),
+            qemu.WaitForExitAsync(stop.Token).ContinueWith(t => { if (t.IsCompletedSuccessfully) Stop("QEMU exited"); }, TaskScheduler.Default)
+        };
+        // Blocks on this thread until Stop.
+        window.Run(() => sync.Start(window.HasForeignText(), window.Foreground));
+        try { stop.Cancel(); } catch (ObjectDisposedException) { }
+        Task.WaitAll(tasks, TimeSpan.FromSeconds(3));
+        status.Update(s => { s.Stopped = true; s.HelperUser = null; });
+        status.Write(statePath, log.Write);
+        log.Write("stopped");
+        return 0;
+    }
+}
+
+/// <summary>Append-only log next to QEMU's own logs. It never receives tokens, codes or clipboard content.</summary>
+sealed class Log(string path)
+{
+    readonly object gate = new();
+    public void Write(string message)
+    {
+        try { lock (gate) File.AppendAllText(path, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}"); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
+}

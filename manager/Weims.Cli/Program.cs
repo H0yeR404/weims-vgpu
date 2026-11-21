@@ -6,11 +6,11 @@ try
 {
     if (args.Length == 0 || args[0] is "--help" or "help")
     {
-        Console.WriteLine("Weims 1.1.1 — Windows x64\nKnown issue: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH [--display-mode auto|fixed|legacy]\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only for a VM started by 1.1.0 or older, after guest shutdown)\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown asks macOS to quit all apps and shut down; it asks about unsaved documents first. QEMU exits when the guest has powered off.");
+        Console.WriteLine("Weims 1.1.1 — Windows x64\nKnown issue: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH [--display-mode auto|fixed|legacy]\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only for a VM started by 1.1.0 or older, after guest shutdown)\nWeims.Cli tools-enable|tools-disable --config PATH (Guest Tools: clipboard sharing with macOS; off by default)\nWeims.Cli tools-status --config PATH\nWeims.Cli tools-pair --config PATH (pairs with Weims Guest Tools in macOS: both show a four-digit number to compare)\nWeims.Cli tools-reset-pairing --config PATH\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown asks macOS to quit all apps and shut down; it asks about unsaved documents first. QEMU exits when the guest has powered off.");
         return 0;
     }
     string command = args[0];
-    if (command is not ("setup" or "create" or "start" or "status" or "shutdown" or "stop")) throw new ArgumentException("Unknown command. Use --help.");
+    if (command is not ("setup" or "create" or "start" or "status" or "shutdown" or "stop" or "tools-enable" or "tools-disable" or "tools-status" or "tools-pair" or "tools-reset-pairing")) throw new ArgumentException("Unknown command. Use --help.");
     var options = new Dictionary<string,string>();
     for (int i = 1; i < args.Length; i += 2)
     {
@@ -46,7 +46,44 @@ try
             if (options.TryGetValue("--display-mode", out var mode)) c.DisplayMode = mode;
             Console.WriteLine("Logs: " + await VmService.Start(c, engine, "", Path.Combine(AppContext.BaseDirectory, "launch-vm.ps1")));
         }
-        else if (command == "status") Console.WriteLine((await VmService.State(c)).Label);
+        else if (command == "status")
+        {
+            var state = await VmService.State(c); Console.WriteLine(state.Label);
+            // Looking at the state is also what brings a missing broker back; there is no resident supervisor.
+            if (c.IntegrationEnabled) Console.WriteLine(Integration.Supervise(c, state.Running).Label);
+        }
+        else if (command is "tools-enable" or "tools-disable")
+        {
+            c.IntegrationEnabled = command == "tools-enable"; c.Save();
+            bool running = (await VmService.State(c)).Running;
+            if (c.IntegrationEnabled) { Integration.Supervise(c, running); Console.WriteLine("Guest Tools integration is on." + (running ? " Starting it for the running VM." : " It starts with the VM.")); }
+            else { if (running) try { await Integration.Command(c, "stop"); } catch (IOException) { } Console.WriteLine("Guest Tools integration is off."); }
+        }
+        else if (command == "tools-status")
+        {
+            var broker = Integration.Supervise(c, (await VmService.State(c)).Running);
+            Console.WriteLine(c.IntegrationEnabled ? broker.Label : "Integration: off");
+            if (broker.Online) Console.WriteLine($"Port {broker.Port}; certificate {broker.Fingerprint?[..8]}; paired with: {(broker.PairedUsers.Count == 0 ? "nobody" : string.Join(", ", broker.PairedUsers))}");
+        }
+        else if (command == "tools-pair")
+        {
+            await Integration.Command(c, "pair-begin", cancel.Token);
+            Console.WriteLine("Waiting for macOS. In the guest, choose Weims Guest Tools (menu bar) > Pair with Host. Ctrl+C cancels.");
+            // Nothing is typed: both sides show a four-digit number and the answer is given here.
+            while (true)
+            {
+                await Task.Delay(500, cancel.Token);
+                var broker = BrokerState.Read(c);
+                if (!broker.PairingOpen) throw new IOException("The pairing window closed before a helper asked to pair.");
+                if (broker.PairingDigits is not { } digits) continue;
+                Console.Write($"macOS user {broker.PairingUser} asks to pair and shows a number. Manager's number is {digits}. Same number in macOS? [y/N] ");
+                bool same = Console.ReadLine()?.Trim().ToLowerInvariant() is "y" or "yes";
+                await Integration.Command(c, new System.Text.Json.Nodes.JsonObject { ["command"] = same ? "pair-confirm" : "pair-decline", ["digits"] = digits }, cancel.Token);
+                Console.WriteLine(same ? "Paired." : "Declined. Nothing was paired.");
+                break;
+            }
+        }
+        else if (command == "tools-reset-pairing") { await Integration.Command(c, "pair-reset", cancel.Token); Console.WriteLine("Pairing reset. Every guest helper has to pair again."); }
         else if (command == "stop") { await VmService.StopAfterShutdown(c); Console.WriteLine("Stopped."); }
         else { await VmService.Shutdown(c); Console.WriteLine("Asked macOS to shut down. It asks about unsaved documents first; QEMU exits when the guest has powered off."); }
     }

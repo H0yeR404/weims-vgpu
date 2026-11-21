@@ -24,7 +24,7 @@ public partial class MainWindow : Window
         InitializeComponent(); DataContext = vm; LanguagePicker.SelectedIndex = Text.Chinese ? 0 : 1;
         ThemePicker.SelectedValue = app.Theme;
         Loaded += async (_, _) => { UpdateCapability(); await vm.Refresh(); timer.Start(); if (detectOnLoad) await Work(DetectEnvironment); };
-        timer.Tick += async (_, _) => { if (refreshing || vm.Busy) return; refreshing = true; try { await vm.Refresh(); } finally { refreshing = false; } };
+        timer.Tick += async (_, _) => { if (refreshing || vm.Busy) return; refreshing = true; try { await vm.Refresh(); } finally { refreshing = false; Pace(); } };
         Closed += (_, _) => { timer.Stop(); setupCancellation?.Cancel(); updateCancellation?.Cancel(); };
         RefreshUpdateText(); RefreshRuntimeSummary();
         vm.Engine.PropertyChanged += (_, _) => { environmentReport = null; RefreshRuntimeSummary(); };
@@ -34,8 +34,10 @@ public partial class MainWindow : Window
         if (vm.Busy) return; vm.Busy = true;
         try { await work(); }
         catch (Exception e) { vm.Message = Text.Get("操作未完成：", "Operation incomplete: ") + e.Message; MessageBox.Show(this, e.Message, Text.Get("Weims · 请检查", "Weims · Please check"), MessageBoxButton.OK, MessageBoxImage.Warning); }
-        finally { vm.Busy = false; await vm.Refresh(); }
+        finally { vm.Busy = false; await vm.Refresh(); Pace(); }
     }
+    // While a pairing is under way the number should appear promptly, so the state is looked at every second instead of every five.
+    void Pace() => timer.Interval = TimeSpan.FromSeconds(vm.PairingOpen ? 1 : 5);
     VmConfig Current() => vm.Selected ?? throw new InvalidOperationException(Text.Get("请先导入或创建虚拟机。", "Import or create a virtual machine first."));
     bool HasErrors(DependencyObject obj)
     {
@@ -130,6 +132,46 @@ public partial class MainWindow : Window
         f.Seek(Math.Max(0, f.Length - 32000), SeekOrigin.Begin); using var r = new StreamReader(f); return r.ReadToEnd();
     }
     async void OpenLogs(object sender, RoutedEventArgs e) => await Work(() => { var dir = LogDirectory(); if (!Directory.Exists(dir)) throw new DirectoryNotFoundException(Text.Get("尚无运行日志。", "No runtime logs yet.")); Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { dir }, UseShellExecute = false }); return Task.CompletedTask; });
+    // ---- Guest Tools ----
+    async void ToggleIntegration(object sender, RoutedEventArgs e) => await Work(async () =>
+    {
+        var c = Current(); bool on = ((CheckBox)sender).IsChecked == true;
+        c.IntegrationEnabled = on;
+        try { c.SaveOnly("integration_enabled"); } catch { c.IntegrationEnabled = !on; throw; }
+        // Turning it off ends the broker of a running VM. Turning it on needs nothing here: the refresh that follows starts one.
+        if (!on) { try { await Integration.Command(c, "stop"); } catch (IOException) { } }
+        vm.Message = on ? Text.Get("已开启 Guest Tools 集成。", "Guest Tools integration is on.") : Text.Get("已关闭 Guest Tools 集成。", "Guest Tools integration is off.");
+    });
+    async void ToggleClipboard(object sender, RoutedEventArgs e) => await Work(async () =>
+    {
+        var c = Current(); string before = c.ClipboardMode;
+        c.ClipboardMode = ((CheckBox)sender).IsChecked == true ? "text" : "off";
+        try { c.SaveOnly("clipboard_mode"); } catch { c.ClipboardMode = before; throw; } finally { vm.ClipboardChanged(); }
+        // A running broker reads the new mode at once; without one there is nothing to tell.
+        try { await Integration.Command(c, "reload"); } catch (IOException) { }
+        vm.Message = c.ClipboardMode == "text" ? Text.Get("剪贴板文本共享已开启。", "Clipboard text sharing is on.") : Text.Get("剪贴板共享已关闭。", "Clipboard sharing is off.");
+    });
+    // Pairing compares a number shown on both sides; nothing is typed. See PairingSession in the broker.
+    async void PairGuestTools(object sender, RoutedEventArgs e) => await Work(async () =>
+    {
+        await Integration.Command(Current(), "pair-begin");
+        vm.Message = Text.Get("已打开配对，10 分钟内有效。请到 macOS 里发起配对。", "Pairing is open for 10 minutes. Start it in macOS.");
+    });
+    Task AnswerPairing(bool same) => Work(async () =>
+    {
+        // The digits go along so that the answer can only apply to the number that was on screen.
+        await Integration.Command(Current(), new System.Text.Json.Nodes.JsonObject { ["command"] = same ? "pair-confirm" : "pair-decline", ["digits"] = vm.PairingDigits });
+        vm.Message = same ? Text.Get("配对完成。", "Paired.") : Text.Get("已拒绝这次配对请求，没有配对任何设备。", "That request was declined. Nothing was paired.");
+    });
+    async void ConfirmPairing(object sender, RoutedEventArgs e) => await AnswerPairing(true);
+    async void DeclinePairing(object sender, RoutedEventArgs e) => await AnswerPairing(false);
+    async void CancelPairing(object sender, RoutedEventArgs e) => await Work(async () => { await Integration.Command(Current(), "pair-cancel"); vm.Message = Text.Get("已取消配对。", "Pairing cancelled."); });
+    async void ResetPairing(object sender, RoutedEventArgs e)
+    {
+        if (vm.Busy) return;
+        if (MessageBox.Show(this, Text.Get("重置后，这台虚拟机里所有已配对的 Guest Tools 都要重新配对。继续？", "After a reset every paired Guest Tools helper in this VM has to pair again. Continue?"), Text.Get("确认重置配对", "Confirm pairing reset"), MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+        await Work(async () => { await Integration.Command(Current(), "pair-reset"); vm.Message = Text.Get("配对已重置。", "Pairing reset."); });
+    }
     void NewVm(object sender, RoutedEventArgs e)
     {
         if (vm.Busy) return;

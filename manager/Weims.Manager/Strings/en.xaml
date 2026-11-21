@@ -229,4 +229,15 @@ The QEMU/Reims runtime remains pinned to pre.1. VM freezes remain under investig
  <sys:String x:Key="ThemeLabel">Appearance</sys:String>
  <sys:String x:Key="ThemeLight">Light</sys:String>
  <sys:String x:Key="ThemeDark">Dark</sys:String>
+<sys:String x:Key="G1">GUEST TOOLS</sys:String>
+<sys:String x:Key="G2">Enable Guest Tools integration for this VM</sys:String>
+<sys:String x:Key="G3">Shares the clipboard with macOS while this VM's window is in front. Weims Guest Tools must be installed and running in macOS. Nothing is added to the QEMU command line, so this can be switched while the VM runs.</sys:String>
+<sys:String x:Key="G4">Share clipboard text between Windows and macOS</sys:String>
+<sys:String x:Key="G5">Up to 4 MiB of text. Content that a password manager marks as sensitive stays out of clipboard history on the other side.</sys:String>
+<sys:String x:Key="G6">Pair Guest Tools…</sys:String>
+<sys:String x:Key="G7">Reset pairing</sys:String>
+<sys:String x:Key="G8">Pairing number</sys:String>
+<sys:String x:Key="G9">Nothing is typed. Weims Guest Tools in macOS shows a four-digit number; confirm here only if it is the same as the one above. If the numbers differ, decline: something else asked to pair.</sys:String>
+<sys:String x:Key="G10">They match — pair</sys:String>
+<sys:String x:Key="G11">They differ</sys:String>
 </ResourceDictionary>

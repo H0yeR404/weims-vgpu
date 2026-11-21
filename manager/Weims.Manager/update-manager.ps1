@@ -23,6 +23,9 @@ try {
     if (!$manager.WaitForExit(120000)) { throw 'Manager did not exit; update cancelled.' }
     if (Get-Process -Name 'qemu-system-x86_64' -ErrorAction SilentlyContinue) { throw 'A QEMU VM is running; update cancelled.' }
     if (Get-Process -Name 'Weims.Manager' -ErrorAction SilentlyContinue) { throw 'Another Manager is open; update cancelled.' }
+    # A Guest Tools broker exits with its QEMU. One that is still here would keep its file locked: wait briefly, then end it.
+    for ($i = 0; $i -lt 50 -and (Get-Process -Name 'Weims.Broker' -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 100 }
+    Get-Process -Name 'Weims.Broker' -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill() }
     $arguments = '/SILENT /SUPPRESSMSGBOXES /NORESTART /DIR="' + $job.destination.TrimEnd('\') + '" /LOG="' + $JobFile + '.installer.log"'
     $install = Start-Process -FilePath $job.installer -ArgumentList $arguments -PassThru -Wait
     if ($install.ExitCode -ne 0) { throw ('Installer failed: ' + $install.ExitCode) }

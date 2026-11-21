@@ -7,6 +7,9 @@ $mode=if ($SelfContained) { 'true' } else { 'false' }
 if ($LASTEXITCODE -ne 0) { throw 'Manager publish failed' }
 & $DotNet publish "$PSScriptRoot/Weims.Cli/Weims.Cli.csproj" -c Release -r win-x64 --self-contained $mode -o $out --nologo
 if ($LASTEXITCODE -ne 0) { throw 'CLI publish failed' }
+# The Guest Tools broker lives next to Manager and the CLI; both start it from their own folder.
+& $DotNet publish "$PSScriptRoot/Weims.Broker/Weims.Broker.csproj" -c Release -r win-x64 --self-contained $mode -o $out --nologo
+if ($LASTEXITCODE -ne 0) { throw 'Broker publish failed' }
 $root=Split-Path $PSScriptRoot
 Copy-Item -LiteralPath "$root/LICENSE" -Destination "$out/LICENSE"
 Copy-Item -LiteralPath "$root/NOTICE.md" -Destination "$out/NOTICE.md"
