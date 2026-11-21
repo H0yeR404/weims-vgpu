@@ -986,6 +986,7 @@ final class PairingPanel: NSObject {
         stack.alignment = .centerX
         stack.spacing = 12
         stack.edgeInsets = NSEdgeInsets(top: 22, left: 26, bottom: 22, right: 26)
+        stack.setCustomSpacing(18, after: detail)
         window.contentView = stack
     }
 
@@ -995,9 +996,22 @@ final class PairingPanel: NSObject {
         number.isHidden = digits.isEmpty
         detail.stringValue = text
         button.title = label
+        fit()
         if !window.isVisible { window.center() }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+    }
+
+    /// Makes the window as tall as what it shows. It shows a large number only while two numbers are
+    /// being compared; at its fixed size the other messages left an empty half under the button.
+    /// A window that is already on screen keeps its top edge where it is.
+    private func fit() {
+        guard let content = window.contentView else { return }
+        content.layoutSubtreeIfNeeded()
+        let size = NSSize(width: 440, height: max(content.fittingSize.height, 120))
+        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        frame.origin = NSPoint(x: window.frame.minX, y: window.frame.maxY - frame.height)
+        window.setFrame(frame, display: true)
     }
 
     func hide() { window.orderOut(nil) }
