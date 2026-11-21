@@ -8,7 +8,7 @@ The current Manager source accepts startup resolutions from 800–4096 pixels wi
 
 ## Build and use
 
-1. Complete the native Windows source build in the main README. Use its pinned Rust toolchain and MSYS2 UCRT64; install the .NET 8 SDK for the Manager.
+1. Complete the native Windows source build in the main README. Use its pinned Rust toolchain and MSYS2 UCRT64; install the .NET 10 SDK for the Manager.
 2. From the repository root in Windows PowerShell 7:
 
    ```powershell

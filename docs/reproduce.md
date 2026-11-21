@@ -87,7 +87,7 @@ This packaging separately checks source reconstruction and script syntax. See `v
 
 ## Preview 1.1.0-pre.1 additions
 
-After the native build, install .NET 8 SDK and run in Windows PowerShell 7:
+After the native build, install .NET 10 SDK and run in Windows PowerShell 7:
 
 ```powershell
 pwsh -File manager/build-display.ps1

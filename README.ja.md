@@ -117,7 +117,7 @@ sources/reims/firmware/prebuilt/ReimsGraphics.rom
 ```
 
 
-Manager/CLI のビルドには .NET 8 SDK をインストールし、次を実行します：
+Manager/CLI のビルドには .NET 10 SDK をインストールし、次を実行します：
 
 ```powershell
 pwsh -File manager/build-display.ps1

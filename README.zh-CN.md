@@ -117,7 +117,7 @@ sources/reims/firmware/prebuilt/ReimsGraphics.rom
 ```
 
 
-构建软件和 CLI 前请安装 .NET 8 SDK，然后运行：
+构建软件和 CLI 前请安装 .NET 10 SDK，然后运行：
 
 ```powershell
 pwsh -File manager/build-display.ps1
