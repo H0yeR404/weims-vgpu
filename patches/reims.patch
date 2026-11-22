@@ -1214,6 +1214,51 @@ index dd034da95..7d617dee2 100644
  pub mod death;
  pub mod faults;
  pub mod guest_ram;
+diff --git a/crates/reims-vgpu-vulkan/src/exit_gate.rs b/crates/reims-vgpu-vulkan/src/exit_gate.rs
+index 5507e07d0..7632fd605 100644
+--- a/crates/reims-vgpu-vulkan/src/exit_gate.rs
++++ b/crates/reims-vgpu-vulkan/src/exit_gate.rs
+@@ -181,6 +181,16 @@ extern "C" fn at_exit() {
+     if others() == 0 {
+         return;
+     }
++    // Where the exit ended the other threads before it ran this (Windows, in a DLL), their steps
++    // never end and nothing of theirs can run beside a destructor: nothing to wait for.
++    if rt::exit_ended_other_threads() {
++        say_alone(&format!(
++            "reims-vgpu: the exit does not wait for {} of the library's GPU steps, whose threads \
++             the exit ended\n",
++            others()
++        ));
++        return;
++    }
+     let clock = crate::os::OsClock::new();
+     let start = clock.now_mono();
+     let mut said = false;
+@@ -216,6 +226,23 @@ extern "C" fn at_exit() {
+     }
+ }
+ 
++/// Writes `line` on standard error once the exit ended the other threads: through the C
++/// library's `write`, since a lock of Rust's standard error that one of them held is never
++/// released.
++#[cfg(windows)]
++fn say_alone(line: &str) {
++    unsafe extern "C" {
++        #[link_name = "_write"]
++        fn write(fd: i32, buffer: *const u8, count: u32) -> i32;
++    }
++    // SAFETY: writes the line's bytes, live for the call; a failed write is ignored.
++    unsafe { write(2, line.as_ptr(), line.len() as u32) };
++}
++
++/// The exit ends no thread before the hook elsewhere (`rt::exit_ended_other_threads`).
++#[cfg(not(windows))]
++fn say_alone(_: &str) {}
++
+ #[cfg(test)]
+ mod tests {
+     use std::process::Command;
 diff --git a/crates/reims-vgpu-vulkan/src/gpu/device.rs b/crates/reims-vgpu-vulkan/src/gpu/device.rs
 index 42cdd3ec7..01fec5a22 100644
 --- a/crates/reims-vgpu-vulkan/src/gpu/device.rs
