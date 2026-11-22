@@ -41,6 +41,7 @@ try
     else
     {
         var c = VmConfig.Load(Required("--config"));
+        if (command == "start" && EnvironmentSetup.RuntimeOutdated(engine, data)) Console.Error.WriteLine("This version comes with a newer runtime than the installed one. Run: Weims.Cli setup");
         if (command == "start")
         {
             if (options.TryGetValue("--display-mode", out var mode)) c.DisplayMode = mode;

@@ -26,6 +26,25 @@ try { await EnvironmentSetup.Ensure(new EngineSettings(), Path.Combine(test, "ca
 catch (OperationCanceledException) { cancelled = true; }
 if (!cancelled || Directory.Exists(Path.Combine(test, "cancelled"))) throw new Exception("Cancelled setup must not create runtime files.");
 Console.WriteLine("PASS cancelled automatic setup leaves paths untouched");
+// A runtime that Manager installed is replaced once the catalog names another version; the tested runtime is moved, not copied.
+string data = Path.Combine(test, "managed"), installId = Guid.NewGuid().ToString("N");
+string current = Path.Combine(data, "runtimes", catalog.Runtime.Version + "-" + installId), old = Path.Combine(data, "runtimes", "weims-runtime-0.0.0-" + installId);
+Directory.CreateDirectory(Path.GetDirectoryName(current)!); Directory.Move(dir, current);
+EngineSettings At(string folder) => new() { Qemu = Path.Combine(folder,"qemu-system-x86_64.exe"), RuntimeBin = folder, Bios = Path.Combine(folder,"pc-bios") };
+var managed = At(current);
+if (!ReferenceEquals(managed, await EnvironmentSetup.Ensure(managed, data, new Progress<string>(Console.WriteLine), timeout.Token)) || (await EnvironmentSetup.Detect(managed, timeout.Token, data)).RuntimeOutdated)
+    throw new Exception("A managed runtime of the catalog's version should be kept.");
+Console.WriteLine("PASS managed runtime of the catalog's version is kept");
+Directory.Move(current, old);
+var outdated = At(old);
+if (!(await EnvironmentSetup.Detect(outdated, timeout.Token, data)).RuntimeOutdated) throw new Exception("A managed runtime of another version should be reported as outdated.");
+if (!ReferenceEquals(outdated, await EnvironmentSetup.Ensure(outdated, data, new Progress<string>(), timeout.Token))) throw new Exception("Starting a VM should keep a working runtime, outdated or not.");
+using var stop = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+var steps = new StopAtDownload(stop, catalog.Runtime.Version); bool replaced = false;
+try { await EnvironmentSetup.Ensure(outdated, data, steps, stop.Token, replaceOutdated: true); replaced = true; } catch (OperationCanceledException) { }
+if (replaced || !steps.Reached || Directory.GetDirectories(Path.Combine(data, "runtimes")).Length != 1 || !File.Exists(outdated.Qemu))
+    throw new Exception("An outdated managed runtime should go on to the catalog's download, and stay in place when that is cancelled.");
+Console.WriteLine("PASS outdated managed runtime is reported, goes on to the catalog's download, and stays when that is cancelled");
 if (args.Contains("--powershell"))
 {
     string psDir = await EnvironmentSetup.InstallPackage(catalog.PowerShell, test, new Progress<string>(Console.WriteLine), timeout.Token);
@@ -40,4 +59,15 @@ if (args.Contains("--download"))
     if (!Path.IsPathFullyQualified(installed.PowerShell) || !installed.SupportsFreePointer) throw new Exception("Private runtime was not prepared.");
     await EnvironmentSetup.CheckPowerShell(installed.PowerShell, timeout.Token);
     Console.WriteLine("PASS clean-PATH automatic runtime and PowerShell installation");
+}
+
+// Cancels at the step that would download the runtime, before any request is sent.
+sealed class StopAtDownload(CancellationTokenSource stop, string version) : IProgress<string>
+{
+    public bool Reached;
+    public void Report(string value)
+    {
+        Console.WriteLine(value);
+        if (value.EndsWith(version) && (value.StartsWith("Downloading ") || value.StartsWith("下载 "))) { Reached = true; stop.Cancel(); }
+    }
 }

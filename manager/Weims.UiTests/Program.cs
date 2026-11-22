@@ -105,6 +105,11 @@ internal static class Program
             enModel.Page = 4; english.Width = 960; english.Height = 660; Pump(); Shot(english, Path.Combine(output,"en-runtime-minimum.png"));
             Check(Descendants(english).OfType<Button>().Any(b => Equals(b.Content,"One-click setup")), "English automatic setup action is present");
             Check(!((Button)english.FindName("CancelSetup")).IsEnabled, "cancel setup disabled while idle");
+            english.ShowEnvironment(new EnvironmentReport(true, true, true, true, true, "fixture", true)); Pump();
+            Check(((TextBlock)english.FindName("RuntimeState")).Text == "Update available" && ((TextBlock)english.FindName("RuntimeHeadline")).Text == "A newer runtime is available" && ((TextBlock)english.FindName("RuntimeNextStep")).Text.Contains("One-click setup") && enModel.Message.Contains("newer runtime"), "outdated runtime is announced with the action that replaces it");
+            Shot(english, Path.Combine(output, "en-runtime-outdated.png"));
+            english.ShowEnvironment(new EnvironmentReport(true, true, true, true, true, "fixture")); Pump();
+            Check(((TextBlock)english.FindName("RuntimeState")).Text == "Ready" && ((TextBlock)english.FindName("RuntimeHeadline")).Text == "Ready for your macOS VM", "current runtime shows as ready");
             var advancedRuntime = (Expander)english.FindName("AdvancedRuntime");
             Check(!advancedRuntime.IsExpanded && !((TextBox)english.FindName("QemuPath")).IsVisible, "manual runtime paths hidden by default");
             advancedRuntime.IsExpanded = true; Pump();

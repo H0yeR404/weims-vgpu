@@ -197,6 +197,15 @@ try
     bool corrupt = false;
     try { await EnvironmentSetup.InstallPackage(package with { Sha256 = new string('0',64) }, installRoot, progress, default, transport); } catch(InvalidDataException) { corrupt = true; }
     Check(corrupt && Directory.GetDirectories(installRoot).Length == 2, "corrupt download does not publish or overwrite");
+    string profile = Path.Combine(temp, "profile"), managed = Path.Combine(profile, "runtimes"), installId = new string('a', 32);
+    EngineSettings RuntimeAt(string folder) => new() { Qemu = Path.Combine(folder, "qemu-system-x86_64.exe"), RuntimeBin = folder };
+    Check(EnvironmentSetup.RuntimeOutdated(RuntimeAt(Path.Combine(managed, "weims-runtime-1.1.0-pre.1-" + installId)), profile, "weims-runtime-1.1.2"), "managed runtime of another version than the catalog's is outdated");
+    Check(!EnvironmentSetup.RuntimeOutdated(RuntimeAt(Path.Combine(managed, "weims-runtime-1.1.2-" + installId)), profile, "weims-runtime-1.1.2"), "managed runtime of the catalog's version is current");
+    Check(EnvironmentSetup.RuntimeOutdated(RuntimeAt(Path.Combine(managed.ToUpperInvariant(), "weims-runtime-1.0-" + installId)), profile + Path.DirectorySeparatorChar, "weims-runtime-1.1.2"), "letter case and a trailing separator do not hide a managed runtime");
+    Check(!EnvironmentSetup.RuntimeOutdated(RuntimeAt(Path.Combine(temp, "custom", "weims-runtime-1.0-" + installId)), profile, "weims-runtime-1.1.2"), "runtime outside the managed folder is never outdated");
+    Check(!EnvironmentSetup.RuntimeOutdated(RuntimeAt(Path.Combine(managed, "my-own-build")), profile, "weims-runtime-1.1.2"), "folder without an install id is not a managed runtime");
+    Check(!EnvironmentSetup.RuntimeOutdated(RuntimeAt(Path.Combine(managed, "weims-runtime-1.0-" + installId, "bin")), profile, "weims-runtime-1.1.2"), "runtime nested deeper in the managed folder is not a managed runtime");
+    Check(!EnvironmentSetup.RuntimeOutdated(new EngineSettings(), profile, "weims-runtime-1.1.2"), "empty runtime settings are not outdated");
     Console.WriteLine($"{passed} contract checks passed.");
 }
 finally { Directory.Delete(temp,true); }

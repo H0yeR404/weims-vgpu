@@ -15,44 +15,55 @@ public partial class MainWindow
     {
         string uncheckedText = Text.Get("待检查", "Not checked");
         string State(bool ready) => ready ? Text.Get("已就绪", "Ready") : Text.Get("需要处理", "Needs attention");
-        RuntimeState.Text = environmentReport == null ? uncheckedText : State(environmentReport.RuntimeReady && environmentReport.PowerShellReady);
+        bool outdated = environmentReport is { RuntimeReady: true, RuntimeOutdated: true };
+        RuntimeState.Text = environmentReport == null ? uncheckedText : outdated ? Text.Get("有新版本", "Update available") : State(environmentReport.RuntimeReady && environmentReport.PowerShellReady);
         VirtualizationState.Text = environmentReport == null ? uncheckedText : State(environmentReport.HypervisorReady && environmentReport.SupportedHost);
         GraphicsState.Text = environmentReport == null ? uncheckedText : State(environmentReport.VulkanReady);
         bool ready = environmentReport is { SupportedHost: true, HypervisorReady: true, VulkanReady: true, RuntimeReady: true, PowerShellReady: true };
         RuntimeHeadline.Text = setupCancellation != null ? Text.Get("正在自动准备…", "Preparing your environment…")
             : runtimeChecking ? Text.Get("正在检查这台电脑…", "Checking this computer…")
+            : ready && outdated ? Text.Get("运行组件有新版本", "A newer runtime is available")
             : ready ? Text.Get("可以开始使用 macOS 了", "Ready for your macOS VM")
             : Text.Get("把环境准备交给 Weims", "Let Weims handle the setup");
         RuntimeNextStep.Text = setupCancellation != null ? Text.Get("下载、校验并自动保存配置。可以取消，原设置会保留。", "Downloading, verifying and saving your configuration. Cancel safely to keep existing settings.")
             : environmentReport is { SupportedHost: false } ? Text.Get("需要 Windows 10 2004 或更新的 x64 系统。", "Windows 10 2004 or newer on x64 is required.")
             : environmentReport is { HypervisorReady: false } ? Text.Get("运行组件可自动准备；请在 BIOS/UEFI 中开启虚拟化，并启用 Windows 虚拟机监控程序平台后重启。", "Components can be prepared automatically. Enable virtualization in BIOS/UEFI and Windows Hypervisor Platform, then restart.")
             : environmentReport is { VulkanReady: false } ? Text.Get("运行组件可自动准备；显卡支持尚未就绪，请检查 Vulkan 驱动与诊断详情。", "Components can be prepared automatically. Review the Vulkan driver and diagnostics to resolve graphics support.")
+            : ready && outdated ? RuntimeUpdateHint()
             : ready ? Text.Get("无需填写路径。现在可以创建或导入虚拟机。", "No paths to fill in. Create or import a virtual machine to continue.")
             : Text.Get("点击一键准备。下载完成后，所有路径会自动保存。", "Click One-click setup. All paths will be saved automatically after download.");
         SystemActions.Visibility = environmentReport is { HypervisorReady: false } or { VulkanReady: false } ? Visibility.Visible : Visibility.Collapsed;
         WindowsFeaturesButton.Visibility = environmentReport is { HypervisorReady: false } ? Visibility.Visible : Visibility.Collapsed;
         GpuHelpButton.Visibility = environmentReport is { VulkanReady: false } ? Visibility.Visible : Visibility.Collapsed;
     }
+    static string RuntimeUpdateHint() => Text.Get("点击“一键准备运行环境”即可下载并切换到新的运行组件。虚拟机和磁盘不受影响；正在运行的虚拟机在下次启动时改用新组件。", "Click One-click setup to download the newer runtime and switch to it. VMs and disks are not affected; a running VM uses the new runtime the next time it starts.");
     async Task DetectEnvironment()
     {
         runtimeChecking = true; RefreshRuntimeSummary();
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(55));
-            environmentReport = await Task.Run(() => EnvironmentSetup.Detect(vm.Engine, timeout.Token));
-            SetupReport.Text = environmentReport.Details;
-            vm.Message = Text.Get("环境检测完成。需要的组件可一键准备，无需填写路径。", "Environment checked. Prepare missing components in one click, without filling in paths.");
+            ShowEnvironment(await Task.Run(() => EnvironmentSetup.Detect(vm.Engine, timeout.Token, vm.DataDirectory)));
         }
         finally { runtimeChecking = false; RefreshRuntimeSummary(); }
     }
+    public void ShowEnvironment(EnvironmentReport report)
+    {
+        environmentReport = report;
+        SetupReport.Text = report.Details;
+        vm.Message = report is { RuntimeReady: true, RuntimeOutdated: true }
+            ? Text.Get("运行组件有新版本。请到“运行环境”页点击“一键准备运行环境”。", "A newer runtime is available. Open Runtime and click One-click setup.")
+            : Text.Get("环境检测完成。需要的组件可一键准备，无需填写路径。", "Environment checked. Prepare missing components in one click, without filling in paths.");
+        RefreshRuntimeSummary();
+    }
     async void CheckEnvironment(object sender, RoutedEventArgs e) => await Work(DetectEnvironment);
-    async Task EnsureRuntime()
+    async Task EnsureRuntime(bool replaceOutdated = false)
     {
         setupCancellation = new(); CancelSetup.IsEnabled = true; RefreshRuntimeSummary();
         try
         {
             var progress = new Progress<string>(s => { SetupReport.Text = s; RuntimeNextStep.Text = s; vm.Message = s; });
-            var engine = await EnvironmentSetup.Ensure(vm.Engine, vm.DataDirectory, progress, setupCancellation.Token);
+            var engine = await EnvironmentSetup.Ensure(vm.Engine, vm.DataDirectory, progress, setupCancellation.Token, replaceOutdated);
             setupCancellation.Token.ThrowIfCancellationRequested();
             JsonFiles.Write(Path.Combine(vm.DataDirectory, "engine.json"), engine);
             vm.Engine.Qemu = engine.Qemu; vm.Engine.RuntimeBin = engine.RuntimeBin; vm.Engine.Bios = engine.Bios; vm.Engine.PowerShell = engine.PowerShell;
@@ -63,7 +74,7 @@ public partial class MainWindow
     }
     async void PrepareEnvironment(object sender, RoutedEventArgs e) => await Work(async () =>
     {
-        try { await EnsureRuntime(); }
+        try { await EnsureRuntime(replaceOutdated: true); }
         catch (OperationCanceledException)
         {
             SetupReport.Text = RuntimeNextStep.Text = vm.Message = Text.Get("已取消。原运行环境设置保持不变，可以重试。", "Cancelled. Existing runtime settings are unchanged; you can retry.");

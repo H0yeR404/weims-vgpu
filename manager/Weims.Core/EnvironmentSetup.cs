@@ -8,18 +8,38 @@ namespace Weims.Core;
 
 public sealed record SetupPackage(string Version, string Url, string Sha256, long MaxBytes);
 public sealed record SetupCatalog(SetupPackage Runtime, SetupPackage PowerShell);
-public sealed record EnvironmentReport(bool SupportedHost, bool HypervisorReady, bool VulkanReady, bool RuntimeReady, bool PowerShellReady, string Details);
+public sealed record EnvironmentReport(bool SupportedHost, bool HypervisorReady, bool VulkanReady, bool RuntimeReady, bool PowerShellReady, string Details, bool RuntimeOutdated = false);
 
 public static class EnvironmentSetup
 {
     static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(20) };
     public static SetupCatalog Catalog() => JsonSerializer.Deserialize<SetupCatalog>(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "runtime-catalog.json"))) ?? throw new InvalidDataException("Invalid runtime catalog.");
 
-    public static async Task<EnvironmentReport> Detect(EngineSettings engine, CancellationToken token)
+    // A runtime that Manager installed lives in <data>\runtimes\<catalog version>-<32 hex digits>. It is outdated when this
+    // Manager's catalog names another version. A runtime the user chose elsewhere is theirs and is never called outdated.
+    public static bool RuntimeOutdated(EngineSettings engine, string dataDirectory, string catalogVersion)
+    {
+        try
+        {
+            string? folder = Path.GetDirectoryName(Path.GetFullPath(engine.Qemu));
+            if (folder == null || !string.Equals(Path.GetDirectoryName(folder), Path.GetFullPath(Path.Combine(dataDirectory, "runtimes")), StringComparison.OrdinalIgnoreCase)) return false;
+            var name = System.Text.RegularExpressions.Regex.Match(Path.GetFileName(folder), "^(.+)-[0-9a-f]{32}$");
+            return name.Success && name.Groups[1].Value != catalogVersion;
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { return false; }
+    }
+
+    public static bool RuntimeOutdated(EngineSettings engine, string dataDirectory)
+    {
+        try { return RuntimeOutdated(engine, dataDirectory, Catalog().Runtime.Version); }
+        catch (Exception e) when (e is IOException or JsonException or InvalidDataException) { return false; } // a build from source may carry no catalog
+    }
+
+    public static async Task<EnvironmentReport> Detect(EngineSettings engine, CancellationToken token, string? dataDirectory = null)
     {
         bool host = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) && RuntimeInformation.OSArchitecture == Architecture.X64;
         var lines = new List<string> { $"Windows: {Environment.OSVersion.Version}; {RuntimeInformation.OSArchitecture}" };
-        bool whpx = false, vulkan = false, runtime = false, ps = false;
+        bool whpx = false, vulkan = false, runtime = false, ps = false, outdated = false;
         try { whpx = WHvGetCapability(0, out int present, 4, out _) == 0 && present != 0; }
         catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException) { }
         lines.Add(Text.Get("固件虚拟化：", "Firmware virtualization: ") + (IsProcessorFeaturePresent(21) || whpx ? "OK" : Text.Get("请在 BIOS/UEFI 启用，或检查嵌套虚拟化。", "Enable in BIOS/UEFI, or check nested virtualization.")));
@@ -28,11 +48,13 @@ public static class EnvironmentSetup
         catch (Exception e) { lines.Add("Vulkan: " + e.Message); }
         try { await ValidateRuntime(engine, token); runtime = true; lines.Add("QEMU / Reims: OK"); }
         catch (Exception e) when (e is not OperationCanceledException) { lines.Add("QEMU / Reims: " + e.Message); }
+        if (runtime && dataDirectory != null && (outdated = RuntimeOutdated(engine, dataDirectory)))
+            lines.Add(Text.Get("运行组件：此版本配套的运行组件比已安装的新，点击“一键准备运行环境”即可更换。", "Runtime: this version comes with a newer runtime than the installed one. Click One-click setup to switch to it."));
         try { await CheckPowerShell(engine.PowerShell, token); ps = true; lines.Add("PowerShell 7+: OK"); }
         catch (Exception e) when (e is not OperationCanceledException) { lines.Add("PowerShell: " + e.Message); }
         if (!host) lines.Add(Text.Get("此版本需要 Windows 10 2004 或更新的 x64 系统。", "This release requires Windows 10 2004 or newer on x64."));
         lines.Add(Text.Get("恢复镜像、OpenCore、OVMF 和 ROM 在导入或创建虚拟机时单独检查。", "Recovery, OpenCore, OVMF and ROM files are checked when importing or creating a VM."));
-        return new(host, whpx, vulkan, runtime, ps, string.Join(Environment.NewLine, lines));
+        return new(host, whpx, vulkan, runtime, ps, string.Join(Environment.NewLine, lines), outdated);
     }
 
     public static async Task CheckPowerShell(string executable, CancellationToken token)
@@ -56,7 +78,10 @@ public static class EnvironmentSetup
     }
 
     // Reuse a verified custom or managed runtime; never download again just because the user clicks setup.
-    public static async Task<EngineSettings> Ensure(EngineSettings current, string dataDirectory, IProgress<string> progress, CancellationToken token)
+    // The exception, only where the caller asks for it (the setup button, not a VM start, which must keep working offline):
+    // a managed runtime of another version than this Manager's catalog names (RuntimeOutdated). The catalog's is
+    // installed beside it, and the settings change only once that one is verified.
+    public static async Task<EngineSettings> Ensure(EngineSettings current, string dataDirectory, IProgress<string> progress, CancellationToken token, bool replaceOutdated = false)
     {
         token.ThrowIfCancellationRequested();
         try
@@ -64,15 +89,17 @@ public static class EnvironmentSetup
             progress.Report(Text.Get("正在检查现有运行组件…", "Checking existing runtime components…"));
             await ValidateRuntime(current, token);
             await CheckPowerShell(current.PowerShell, token);
-            return current;
+            if (!replaceOutdated || !RuntimeOutdated(current, dataDirectory)) return current;
         }
         catch (Exception) when (!token.IsCancellationRequested)
         {
             return await Prepare(dataDirectory, progress, token);
         }
+        // The PowerShell in use was checked just now and stays.
+        return await Prepare(dataDirectory, progress, token, current.PowerShell);
     }
 
-    public static async Task<EngineSettings> Prepare(string dataDirectory, IProgress<string> progress, CancellationToken token)
+    public static async Task<EngineSettings> Prepare(string dataDirectory, IProgress<string> progress, CancellationToken token, string? powerShell = null)
     {
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) || RuntimeInformation.OSArchitecture != Architecture.X64)
             throw new PlatformNotSupportedException(Text.Get("自动准备仅支持 Windows x64。", "Automatic setup requires Windows x64."));
@@ -80,7 +107,7 @@ public static class EnvironmentSetup
         using var setupLock = new FileStream(Path.Combine(dataDirectory, "setup.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         var catalog = Catalog();
         string root = Path.Combine(dataDirectory, "runtimes"); Directory.CreateDirectory(root);
-        string ps = "pwsh.exe";
+        string ps = powerShell ?? "pwsh.exe";
         try { await CheckPowerShell(ps, token); }
         catch (Exception) when (!token.IsCancellationRequested)
         {
