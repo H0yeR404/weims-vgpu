@@ -197,6 +197,14 @@ EFI 補助スクリプトは `tomllib` を使うため **Python 3.11 以降**が
 
 ## 上流プロジェクトとライセンス
 
-[Reims vGPU](https://github.com/steelbrain/reims-vgpu)、[metal2vulkan](https://github.com/steelbrain/metal2vulkan)、[QEMU Reims](https://github.com/steelbrain/qemu-reims-vgpu)、および [tqmane の Windows 移植](https://github.com/tqmane/reims-vgpu) に基づいています。公式の上流リリースではありません。
+本プロジェクトは上流の [Reims vGPU](https://github.com/steelbrain/reims-vgpu) をベースに、Windows 上でワンクリックで macOS 仮想マシンを体験・利用できるようにすることを目指しています。
+
+利用している上流プロジェクト：
+
+- **[Reims vGPU](https://github.com/steelbrain/reims-vgpu)**：仮想グラフィックスデバイス、macOS ゲストドライバー、ホスト側ウィンドウ。
+- **[metal2vulkan](https://github.com/steelbrain/metal2vulkan)**：Apple の Metal API とシェーダーを Vulkan に変換します。
+- **[QEMU Reims](https://github.com/steelbrain/qemu-reims-vgpu)**：このデバイスを組み込んだ QEMU ビルド。
+
+これら三つのプロジェクトの作者である [steelbrain](https://github.com/steelbrain) に感謝します。本プロジェクトは上流の公式リリースではありません。
 
 Reims と metal2vulkan は `GPL-2.0-or-later OR LGPL-3.0-or-later`、QEMU は元のファイルごとのライセンスを維持します。統合スクリプトと文書は GPL-2.0-or-later です。[LICENSE](LICENSE)、[帰属と来歴](NOTICE.md)、[ライセンス全文](licenses/) を参照してください。スクリーンショット内の Apple ソフトウェア、商標、第三者コンテンツの権利は、このリポジトリから許諾されるものではありません。

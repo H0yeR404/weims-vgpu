@@ -205,6 +205,14 @@ The implementation passed 22 C API tests. One 10-second drag test measured 54.17
 
 ## Upstream and licensing
 
-Built on [Reims vGPU](https://github.com/steelbrain/reims-vgpu), [metal2vulkan](https://github.com/steelbrain/metal2vulkan), [QEMU Reims](https://github.com/steelbrain/qemu-reims-vgpu) and Windows work from [tqmane](https://github.com/tqmane/reims-vgpu). This project is not an official upstream release.
+This project is built on upstream [Reims vGPU](https://github.com/steelbrain/reims-vgpu). Its goal is to let you try and use a macOS virtual machine on Windows with one click.
+
+Upstream projects used:
+
+- **[Reims vGPU](https://github.com/steelbrain/reims-vgpu)**: the virtual graphics device, its macOS guest drivers and the host window.
+- **[metal2vulkan](https://github.com/steelbrain/metal2vulkan)**: translates Apple's Metal API and shaders to Vulkan.
+- **[QEMU Reims](https://github.com/steelbrain/qemu-reims-vgpu)**: the QEMU build that carries the device.
+
+Thanks to [steelbrain](https://github.com/steelbrain), the author of all three. This project is not an official upstream release.
 
 Reims and metal2vulkan retain `GPL-2.0-or-later OR LGPL-3.0-or-later`; QEMU retains its original per-file licenses. Integration scripts and documentation use GPL-2.0-or-later. Read [LICENSE](LICENSE), [attribution and provenance](NOTICE.md), and the [license texts](licenses/). Apple software and third-party content shown in the screenshot are not licensed by this repository.

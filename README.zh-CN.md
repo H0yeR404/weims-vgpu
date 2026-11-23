@@ -197,6 +197,14 @@ EFI 辅助脚本因使用 `tomllib` 而要求 **Python 3.11 或更新版本**。
 
 ## 上游与许可证
 
-基于 [Reims vGPU](https://github.com/steelbrain/reims-vgpu)、[metal2vulkan](https://github.com/steelbrain/metal2vulkan)、[QEMU Reims](https://github.com/steelbrain/qemu-reims-vgpu) 以及 [tqmane 的 Windows 移植](https://github.com/tqmane/reims-vgpu)。本项目不是上游官方发行版；
+本项目基于上游 [Reims vGPU](https://github.com/steelbrain/reims-vgpu)，旨在让用户在 Windows 上一键体验和使用 macOS 虚拟机。
+
+用到的上游项目：
+
+- **[Reims vGPU](https://github.com/steelbrain/reims-vgpu)**：虚拟图形设备、macOS 客户机驱动和主机窗口。
+- **[metal2vulkan](https://github.com/steelbrain/metal2vulkan)**：把 Apple 的 Metal 接口和着色器翻译成 Vulkan。
+- **[QEMU Reims](https://github.com/steelbrain/qemu-reims-vgpu)**：带有该设备的 QEMU 版本。
+
+感谢以上三个项目的作者 [steelbrain](https://github.com/steelbrain)。本项目不是上游的官方发布。
 
 Reims 和 metal2vulkan 保留 `GPL-2.0-or-later OR LGPL-3.0-or-later` 双许可证；QEMU 保留各文件原有许可证。集成脚本和文档采用 GPL-2.0-or-later。详见 [LICENSE](LICENSE)、[署名与来源](NOTICE.md) 和 [完整许可证文本](licenses/)。截图中的 Apple 软件、商标及第三方内容不由本仓库授予许可。
