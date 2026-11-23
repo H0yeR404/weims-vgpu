@@ -202,21 +202,21 @@
 <sys:String x:Key="S200">Advanced · bring your own boot files</sys:String>
 <sys:String x:Key="S201">Use my boot files and ports instead of automatic preparation</sys:String>
 <sys:String x:Key="S202">Known issues · The VM may freeze, including during resolution changes. This is a known issue planned for correction. Back up important data. After preparation, start recovery and install macOS in its own window.</sys:String>
-<sys:String x:Key="S203">1.1.1 · VM freezes are possible, including during resolution changes. A fix is planned. Keep backups and use a test VM.</sys:String>
+<sys:String x:Key="S203">1.2.0-pre.1 · VM freezes are possible, including during resolution changes. A fix is planned. Keep backups and use a test VM.</sys:String>
  <sys:String x:Key="UpdateTitle">Software updates</sys:String>
  <sys:String x:Key="UpdateCheck">Check for updates</sys:String>
  <sys:String x:Key="UpdateInstall">Update now</sys:String>
  <sys:String x:Key="UpdateNotes">Release notes</sys:String>
  <sys:String x:Key="UpdateHelp">Downloads from the official GitHub repository and verifies SHA256 before installing. Close all VMs before installation. The manager will restart. Portable copies install into the per-user Weims Manager folder; VM disks and runtime paths are preserved.</sys:String>
- <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Weims Manager 1.1.1 — maintenance release
+ <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Weims Manager 1.2.0-pre.1 — preview
 
-• Security: QEMU's control channel (QMP) no longer listens on a local TCP port, which software inside the guest could reach. It is now a Unix domain socket.
-• Shut down in the Manager now works. It sends the key combination macOS uses to quit all apps and shut down; macOS asks about unsaved documents first.
-• QEMU exits when macOS powers off. No black window or leftover process keeps the VM locked and its port in use (issue #3).
-• The QMP port setting is gone. Existing VM settings are kept.
-• 1.1.0 and pre.2 can update to 1.1.1 here.
+• Guest Tools: share the text clipboard between Windows and macOS. Turn it on for a VM, click Install Guest Tools… and double-click the installer in macOS. Pairing needs no input.
+• The Guest Tools helper in macOS updates itself when a newer Manager is installed.
+• New runtime 1.2.0-pre.1: QEMU exits at once when a VM is closed or shut down, instead of staying behind for minutes.
+• Manager tells you when the runtime it installed is older than the one it comes with. One-click setup on the Runtime page replaces it.
+• Built on .NET 10.
 
-The QEMU/Reims runtime remains pinned to pre.1. VM freezes remain under investigation; Intel Arc 140T setup problems have also been reported. This release does not fix these graphics issues.</sys:String>
+VM freezes during use remain under investigation.</sys:String>
  <sys:String x:Key="RuntimeWelcome">Let Weims handle the setup</sys:String>
  <sys:String x:Key="RuntimeAutomatic">Weims downloads the required components, verifies them, and saves every path for you. No manual file selection is needed.</sys:String>
  <sys:String x:Key="RuntimeComponents">Virtual machine components</sys:String>

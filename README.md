@@ -1,6 +1,8 @@
 # weims-vgpu
 
 > Latest release: **1.1.1** — closes a way for software in the guest to reach QEMU's control channel, and fixes shutdown: the Manager's Shut down works and QEMU exits when macOS powers off. [Download](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.1.1)
+>
+> Preview: **1.2.0-pre.1** — Guest Tools shares the text clipboard between Windows and macOS, and a new runtime lets QEMU exit at once when a VM closes. [Download](https://github.com/H0yeR404/weims-vgpu/releases/tag/v1.2.0-pre.1)
 
 [English](README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
@@ -20,7 +22,7 @@ Requirements: Windows 10 2004+/11 x64, BIOS/UEFI virtualization, **Windows Hyper
 4. Start the VM. In OpenCore select recovery (press **Space** if hidden). In **Disk Utility → View → Show All Devices**, erase **only the new empty system disk**, identified by its capacity, as **GUID Partition Map / APFS**. Never erase the recovery or OpenCore disks.
 5. Close Disk Utility, choose **Reinstall macOS Tahoe**, and select the new volume. Allow downloads and restarts; choose the installer/system entry as installation progresses. After reaching the desktop, shut down macOS (the VM window closes by itself), detach recovery in the Manager, save and boot again.
 
-New guided VMs enable **automatic guest resolution** and free pointer. Drag the separate Reims window after login. For imported VMs, shut down first, select **Display & Input → Auto fit guest resolution**, disable borderless mode, and save. Startup bounds: **800–4096 × 600–2160**; **2560×1440 is validated on this host only**. Fixed mode scales the complete image; Compatibility preserves the old behavior. If resizing stops responding, preserve logs and restart normally when possible. Clipboard and file sharing are not included.
+New guided VMs enable **automatic guest resolution** and free pointer. Drag the separate Reims window after login. For imported VMs, shut down first, select **Display & Input → Auto fit guest resolution**, disable borderless mode, and save. Startup bounds: **800–4096 × 600–2160**; **2560×1440 is validated on this host only**. Fixed mode scales the complete image; Compatibility preserves the old behavior. If resizing stops responding, preserve logs and restart normally when possible. Clipboard sharing comes with Guest Tools in the 1.2.0-pre.1 preview; file sharing is not included.
 
 ### Command line (included with installer and portable ZIP)
 
@@ -48,6 +50,16 @@ The updater preserves the chosen settings directory for subsequent GUI and CLI l
 ## One-click runtime setup
 
 First-time users open the runtime page automatically. **One-click setup** downloads, verifies and saves runtime paths; a valid existing runtime is reused. If the runtime that Manager installed is older than the one this version comes with, the Runtime page says so and **One-click setup** switches to the newer one; a runtime you chose yourself is left alone. Manual paths remain available under **Advanced**. Starting an imported VM prepares missing components automatically. Firmware virtualization, Windows features and GPU drivers may still require manual action.
+
+## Guest Tools: clipboard sharing — preview 1.2.0-pre.1
+
+Guest Tools shares the text clipboard between Windows and macOS while the VM's window is in front.
+
+1. Start the VM and log in to macOS.
+2. In Manager, turn on **Enable Guest Tools integration for this VM** and click **Install Guest Tools…**. An install disk appears in macOS.
+3. In macOS, open the disk and double-click **Install Weims Guest Tools**. It installs for the current user, pairs with this VM and ejects the disk. Nothing is typed.
+
+Copy on one side, paste on the other. Text up to 4 MiB is carried, and what a password manager marks as sensitive stays out of the clipboard history on the other side. A newer Manager updates Guest Tools in macOS by itself. To remove it, run **Uninstall Weims Guest Tools.command** from the install disk. The CLI has the same functions: `tools-enable`, `tools-install`, `tools-status`.
 
 ### Option B: Build from Source (Advanced Users)
 
