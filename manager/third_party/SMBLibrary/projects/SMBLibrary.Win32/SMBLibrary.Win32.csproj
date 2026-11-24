@@ -1,0 +1,18 @@
+<!-- Weims' build of SMBLibrary.Win32 from the unmodified sources in ..\..\SMBLibrary.Win32. See ..\..\README.md. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>SMBLibrary.Win32</AssemblyName>
+    <RootNamespace>SMBLibrary.Win32</RootNamespace>
+    <Version>1.5.8</Version><AssemblyVersion>1.5.8.0</AssemblyVersion><FileVersion>1.5.8.0</FileVersion>
+    <Product>SMBLibrary.Win32</Product>
+    <Copyright>Copyright © Tal Aloni 2014-2026</Copyright>
+    <ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <WarningLevel>0</WarningLevel><TreatWarningsAsErrors>false</TreatWarningsAsErrors><NoWarn>$(NoWarn);CS0618;CS1573;CS1591;SYSLIB0021;SYSLIB0023;SYSLIB0041;SYSLIB0045;CA1416;CA2022</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SMBLibrary.Win32\**\*.cs" />
+    <ProjectReference Include="..\SMBLibrary\SMBLibrary.csproj" />
+  </ItemGroup>
+</Project>

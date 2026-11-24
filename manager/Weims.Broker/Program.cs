@@ -8,7 +8,8 @@ namespace Weims.Broker;
 /// <summary>
 /// Weims.Broker.exe: the host side of Guest Tools for one running VM. It is started after QEMU, exits
 /// when QEMU exits, and neither injects anything into QEMU nor talks to QMP. If it dies, the VM and its
-/// window are unaffected; only clipboard sharing stops until someone starts it again.
+/// window are unaffected; clipboard sharing stops and the guest's mounts of shared folders time out until
+/// someone starts it again.
 /// </summary>
 public static class Program
 {
@@ -65,18 +66,24 @@ public static class Program
         window.ClipboardChanged += sync.HostChanged;
         window.FocusChanged += sync.FocusChanged;
         // A newer helper shipped with this Manager goes to an older one that can update itself; see HelperUpdate.
+        // One limit for everything this VM's guest sends here; the shared folders are served while a helper is connected.
+        var limit = new RateLimit(UploadLimit(config));
+        var shares = new ShareServer(status, limit, log.Write, () => server.Port);
+        shares.Configure(config.Shares);
         var update = HelperUpdate.Load(Path.Combine(AppContext.BaseDirectory, "guest-tools"));
         if (update != null) log.Write($"helper {update.Version} is available for guests that run an older one");
         server.Connected = session =>
         {
             window.Post(() => sync.HelperConnected(session));
+            shares.HelperConnected(session);
             if (update?.Wanted(session) != true) return;
             log.Write($"sending helper {update.Version} to guest user {session.User}, who runs {session.Version}");
             _ = update.Send(session);
         };
-        server.Disconnected = session => window.Post(() => sync.HelperDisconnected(session));
+        server.Disconnected = session => { window.Post(() => sync.HelperDisconnected(session)); shares.HelperDisconnected(session); };
         server.Received = (session, frame) =>
         {
+            if (frame.Type == "shares_state") { shares.FromGuest(session, frame); return; }
             if (frame.Type != "update_result") { window.Post(() => sync.FromGuest(session, frame)); return; }
             if (frame.Flag("ok")) { log.Write($"guest user {session.User} installed the helper update and restarts"); return; }
             update?.Declined(session);
@@ -129,7 +136,13 @@ public static class Program
                     log.Write("pairing reset: all tokens revoked, new certificate");
                     break;
                 case "reload":
-                    try { Volatile.Write(ref mode, VmConfig.Load(config.ConfigPath).ClipboardMode); status.Update(s => s.ClipboardMode = mode); }
+                    try
+                    {
+                        var stored = VmConfig.Load(config.ConfigPath);
+                        Volatile.Write(ref mode, stored.ClipboardMode); status.Update(s => s.ClipboardMode = mode);
+                        limit.BytesPerSecond = UploadLimit(stored);
+                        shares.Configure(stored.Shares);
+                    }
                     catch (Exception e) when (e is IOException or InvalidDataException or System.Text.Json.JsonException) { return new JsonObject { ["ok"] = false, ["error"] = e.Message }; }
                     break;
                 case "stop": _ = Task.Delay(100).ContinueWith(_ => Stop("requested over the command pipe"), TaskScheduler.Default); break; // answer first
@@ -149,15 +162,25 @@ public static class Program
         // Blocks on this thread until Stop.
         window.Run(() => sync.Start(window.HasForeignText(), window.Foreground));
         try { stop.Cancel(); } catch (ObjectDisposedException) { }
+        shares.Stop();
         Task.WaitAll(tasks, TimeSpan.FromSeconds(3));
         status.Update(s => { s.Stopped = true; s.HelperUser = null; });
         status.Write(statePath, log.Write);
         log.Write("stopped");
         return 0;
     }
+
+    /// <summary>The configured upload limit in bytes per second, 0 for none; the default when the stored value is no number in range.</summary>
+    static long UploadLimit(VmConfig config)
+    {
+        int mib = VmConfig.DefaultUploadLimitMiB;
+        try { if (config.UploadLimitMiB is >= 0 and <= VmConfig.MaxUploadLimitMiB and var given) mib = given; }
+        catch (Exception e) when (e is InvalidOperationException or FormatException) { }
+        return mib * 1024L * 1024L;
+    }
 }
 
-/// <summary>Append-only log next to QEMU's own logs. It never receives tokens, codes or clipboard content.</summary>
+/// <summary>Append-only log next to QEMU's own logs. It never receives tokens, codes, passwords or clipboard content.</summary>
 sealed class Log(string path)
 {
     readonly object gate = new();

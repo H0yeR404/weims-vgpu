@@ -229,7 +229,7 @@ VM freezes during use remain under investigation.</sys:String>
  <sys:String x:Key="ThemeDark">Dark</sys:String>
 <sys:String x:Key="G1">GUEST TOOLS</sys:String>
 <sys:String x:Key="G2">Enable Guest Tools integration for this VM</sys:String>
-<sys:String x:Key="G3">Shares the clipboard with macOS while this VM's window is in front. Weims Guest Tools must be installed and running in macOS. Nothing is added to the QEMU command line, so this can be switched while the VM runs.</sys:String>
+<sys:String x:Key="G3">Shares the clipboard with macOS while this VM's window is in front, and the folders chosen below while the VM runs. Weims Guest Tools must be installed and running in macOS. Nothing is added to the QEMU command line, so this can be switched while the VM runs.</sys:String>
 <sys:String x:Key="G4">Share clipboard text between Windows and macOS</sys:String>
 <sys:String x:Key="G5">Up to 4 MiB of text. Content that a password manager marks as sensitive stays out of clipboard history on the other side.</sys:String>
 <sys:String x:Key="G6">Pair Guest Tools…</sys:String>
@@ -239,4 +239,12 @@ VM freezes during use remain under investigation.</sys:String>
 <sys:String x:Key="G10">They match — pair</sys:String>
 <sys:String x:Key="G11">They differ</sys:String>
 <sys:String x:Key="G12">Install Guest Tools…</sys:String>
+<sys:String x:Key="G13">Shared folders</sys:String>
+<sys:String x:Key="G14">Folders on this PC that Guest Tools mounts in macOS. There they are in the folder Weims Shared Folders of your home folder, and in the Guest Tools menu in the menu bar. They are for exchanging documents, installers and source files. They are not a macOS disk: there are no symbolic links, and apps or Xcode projects should not be kept there. Changing this list disconnects the folders in macOS for a moment.</sys:String>
+<sys:String x:Key="G15">Share a folder…</sys:String>
+<sys:String x:Key="G16">Read-only</sys:String>
+<sys:String x:Key="G17">Stop sharing</sys:String>
+<sys:String x:Key="G18">Upload limit, macOS to Windows (MiB/s)</sys:String>
+<sys:String x:Key="G19">Most that macOS may write to shared folders per second; 0, the default, means no limit. Set one if the VM's picture stutters while macOS writes large files. Reading from Windows is never limited.</sys:String>
+<sys:String x:Key="G20">Apply</sys:String>
 </ResourceDictionary>

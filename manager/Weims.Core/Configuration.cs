@@ -59,11 +59,25 @@ public sealed class VmConfig : Observable, IDataErrorInfo
     public bool FreePointer { get => Data["free_pointer"]?.GetValue<bool>() ?? false; set => Write("free_pointer", value); }
     public string Recovery { get => ReadText("recovery_image"); set => Write("recovery_image", value); }
     public bool RecoveryAttached { get => Data["recovery_attached"]?.GetValue<bool>() ?? false; set => Write("recovery_attached", value); }
-    // Guest Tools. All three keys are optional: a configuration without them behaves exactly as before,
+    // Guest Tools. All of these keys are optional: a configuration without them behaves exactly as before,
     // and older versions keep these keys untouched because unknown keys in Data are written back as they are.
     public bool IntegrationEnabled { get => Data["integration_enabled"]?.GetValue<bool>() ?? false; set => Write("integration_enabled", value); }
     public int IntegrationPort { get => Number("integration_port", Integration.DefaultPort(this)); set => Write("integration_port", value); }
     public string ClipboardMode { get => ReadText("clipboard_mode", "text"); set => Write("clipboard_mode", value); }
+    /// <summary>The Windows folders the guest may mount. Entries that cannot be read are left out here and refused by Validate.</summary>
+    public IReadOnlyList<ShareConfig> Shares
+    {
+        get => Data["shares"] is JsonArray a ? [.. a.Select(ShareConfig.Read).OfType<ShareConfig>()] : [];
+        set { Data["shares"] = new JsonArray([.. value.Select(s => (JsonNode)s.ToJson())]); Changed(); }
+    }
+    /// <summary>
+    /// Most the guest may send to this machine, in MiB per second; 0, the default, for no limit. On the runtime
+    /// of 1.2 and earlier a fast upload made the guest's picture stutter (a window drag fell from 32 frames per
+    /// second to between 5 and 11). On the runtime built from upstream it did not (56 against 58 at 41 MiB/s,
+    /// measured 2026-11-25), so nothing is limited unless the user asks for it.
+    /// </summary>
+    public const int DefaultUploadLimitMiB = 0, MaxUploadLimitMiB = 1024;
+    public int UploadLimitMiB { get => Number("upload_limit_mib", DefaultUploadLimitMiB); set => Write("upload_limit_mib", value); }
     // Which runtime's guest drivers and option ROM the VM's boot files hold (BootImage.SetId), or OwnBootFiles for
     // files the user supplied, which are never replaced. Absent in a VM made by a version before the upstream engine.
     public const string OwnBootFiles = "own";
@@ -85,6 +99,11 @@ public sealed class VmConfig : Observable, IDataErrorInfo
             throw new InvalidDataException(Text.Get($"集成端口应在 {Integration.PortBase}–{Integration.PortBase + Integration.PortCount - 1} 之间。", $"The integration port must be between {Integration.PortBase} and {Integration.PortBase + Integration.PortCount - 1}."));
         if (ClipboardMode is not ("off" or "text"))
             throw new InvalidDataException(Text.Get("剪贴板模式应为 off 或 text。", "Clipboard mode must be off or text."));
+        if (Data["shares"] is { } shares && (shares is not JsonArray list || Shares.Count != list.Count))
+            throw new InvalidDataException(Text.Get("共享文件夹设置无法读取。", "The shared folder settings cannot be read."));
+        if (ShareConfig.Problem(Shares) is { } problem) throw new InvalidDataException(problem);
+        if (UploadLimitMiB < 0 || UploadLimitMiB > MaxUploadLimitMiB)
+            throw new InvalidDataException(Text.Get($"上传限速应为 0–{MaxUploadLimitMiB} MiB/s，0 表示不限。", $"The upload limit must be 0–{MaxUploadLimitMiB} MiB/s; 0 means no limit."));
         if (!Regex.IsMatch(Mac, @"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")) throw new InvalidDataException(Text.Get("MAC 地址格式错误。", "Invalid MAC address format."));
         foreach (var path in new[] { Disk, OpenCore, FirmwareCode, FirmwareVars, Rom }.Concat(RecoveryAttached ? new[] { Recovery } : Array.Empty<string>()))
         {

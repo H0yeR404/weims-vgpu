@@ -8,7 +8,7 @@ namespace Weims.Broker;
 
 /// <summary>
 /// What the broker publishes about itself: to state\integration.json every two seconds, and to the
-/// command pipe on request. It never contains tokens, codes or keys.
+/// command pipe on request. It never contains tokens, codes, keys or the shared folders' password.
 /// </summary>
 public sealed class BrokerStatus(int qemuPid)
 {
@@ -20,6 +20,10 @@ public sealed class BrokerStatus(int qemuPid)
         public IReadOnlyList<string> PairedUsers = [];
         public string ClipboardMode = "text";
         public bool Stopped, InstallMediaEjected;
+        // Shared folders: what each one's state is, the port they are served on (0 when not), whether the
+        // connected helper can mount them, and what is wrong with the configured list if anything is.
+        public IReadOnlyList<ShareState> Shares = [];
+        public int SharePort; public bool HelperMounts; public string? ShareProblem;
     }
     readonly object gate = new();
     readonly Fields fields = new();
@@ -49,7 +53,9 @@ public sealed class BrokerStatus(int qemuPid)
                 ["pairing_digits"] = fields.PairingDigits, ["pairing_user"] = fields.PairingUser,
                 // While an install code is good, and whether the guest has let go of the install volume. Never the code itself.
                 ["install_until_utc"] = fields.InstallUntilUtc?.ToString("o"), ["install_media_ejected"] = fields.InstallMediaEjected,
-                ["clipboard_mode"] = fields.ClipboardMode, ["last_error"] = fields.LastError, ["note"] = fields.Note
+                ["clipboard_mode"] = fields.ClipboardMode, ["last_error"] = fields.LastError, ["note"] = fields.Note,
+                ["share_port"] = fields.SharePort, ["helper_mounts"] = fields.HelperMounts, ["share_problem"] = fields.ShareProblem,
+                ["shares"] = new JsonArray([.. fields.Shares.Select(s => (JsonNode)new JsonObject { ["name"] = s.Name, ["read_only"] = s.ReadOnly, ["state"] = s.State, ["error"] = s.Error })])
             };
     }
 

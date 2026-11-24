@@ -64,6 +64,21 @@ internal static class Program
             Check(Until(()=>VmConfig.Load(config.ConfigPath).ClipboardMode=="off" && clipboard.IsChecked==false && !model.Busy), "clipboard sharing can be switched off on its own");
             clipboard.SetCurrentValue(CheckBox.IsCheckedProperty,true); clipboard.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Check(Until(()=>VmConfig.Load(config.ConfigPath).ClipboardMode=="text" && clipboard.IsChecked==true && !model.Busy), "and on again");
+            // Shared folders: stored and shown at once, like the clipboard switch. The folder dialog itself is not driven here.
+            var shareList=(ItemsControl)w.FindName("ShareList"); var uploadLimit=(TextBox)w.FindName("UploadLimit"); var uploadButton=(Button)w.FindName("UploadLimitButton");
+            Check(shareList.Items.Count==0 && uploadLimit.Text=="0" && ((Button)w.FindName("AddShareButton")).IsEnabled, "no folder is shared at first and the upload limit shows its default, none");
+            var sharedFolder=Path.Combine(fixture,"Work Files"); Directory.CreateDirectory(sharedFolder);
+            Task.Run(()=>Integration.ApplyShares(model.Selected, [new ShareConfig(ShareConfig.SuggestName(sharedFolder, []), sharedFolder, false)], 0)).GetAwaiter().GetResult(); model.SharesChanged(); _ = model.Refresh();
+            Check(Until(()=>shareList.Items.Count==1 && ((ShareRow)shareList.Items[0]).State=="虚拟机运行时共享") && (ShareRow)shareList.Items[0] is { Name: "Work Files", ReadOnly: false }, "a shared folder is listed under its own name, with when it is shared");
+            Pump(); var rowReadOnly=Descendants(shareList).OfType<CheckBox>().Single();
+            rowReadOnly.SetCurrentValue(CheckBox.IsCheckedProperty,true); rowReadOnly.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(Until(()=>VmConfig.Load(config.ConfigPath).Shares is [{ ReadOnly: true, Name: "Work Files" }] && !model.Busy && shareList.Items.Count==1 && ((ShareRow)shareList.Items[0]).ReadOnly), "ticking read-only is stored and shown");
+            model.UploadLimitText="abc"; uploadButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(Until(()=>model.Message.Contains("整数")) && VmConfig.Load(config.ConfigPath).UploadLimitMiB==0, "an upload limit that is no number is refused");
+            model.UploadLimitText="30"; uploadButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(Until(()=>VmConfig.Load(config.ConfigPath).UploadLimitMiB==30 && !model.Busy) && VmConfig.Load(config.ConfigPath).Cpus==8 && uploadLimit.Text=="30", "a changed upload limit is stored on its own");
+            Pump(); Descendants(shareList).OfType<Button>().Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(Until(()=>VmConfig.Load(config.ConfigPath).Shares.Count==0 && shareList.Items.Count==0 && !model.Busy), "a folder can be taken out of the list again");
             // A broker with an open pairing window is played by a state file that names this test process, so that it reads as alive.
             void Broker(string? digits, bool open=true) => JsonFiles.Write(Integration.StatePath(config), new JsonObject { ["pid"]=Environment.ProcessId, ["started_utc"]=System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime().ToString("o"), ["heartbeat_utc"]=DateTime.UtcNow.ToString("o"), ["status"]="running", ["port"]=46412, ["fingerprint"]=new string('a',64), ["paired_users"]=new JsonArray(), ["pairing_until_utc"]=open?DateTime.UtcNow.AddMinutes(10).ToString("o"):null, ["pairing_digits"]=digits, ["pairing_user"]=digits==null?null:"hoyer" });
             var confirm=(Button)w.FindName("ConfirmPairingButton"); var decline=(Button)w.FindName("DeclinePairingButton"); var digitsText=(TextBlock)w.FindName("PairingDigits"); var prompt=(TextBlock)w.FindName("PairingPrompt");

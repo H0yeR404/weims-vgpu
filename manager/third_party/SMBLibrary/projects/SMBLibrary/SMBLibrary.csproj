@@ -1,0 +1,23 @@
+<!-- Weims' build of SMBLibrary: the unmodified sources in ..\..\SMBLibrary and ..\..\Utilities as one assembly, which is
+     how upstream's release packages them (it merges Utilities.dll into SMBLibrary.dll). See ..\..\README.md. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>SMBLibrary</AssemblyName>
+    <RootNamespace>SMBLibrary</RootNamespace>
+    <Version>1.5.8.1</Version><AssemblyVersion>1.5.8.1</AssemblyVersion><FileVersion>1.5.8.1</FileVersion>
+    <Product>SMBLibrary</Product>
+    <Copyright>Copyright © Tal Aloni 2014-2026</Copyright>
+    <ImplicitUsings>disable</ImplicitUsings><Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- Upstream also defines ENABLE_NTLMV1. It is left out: a guest authenticates with NTLMv2 or not at all. -->
+    <DefineConstants></DefineConstants>
+    <!-- The code is upstream's; its warnings are not acted on here. -->
+    <WarningLevel>0</WarningLevel><TreatWarningsAsErrors>false</TreatWarningsAsErrors><NoWarn>$(NoWarn);CS0618;CS1573;CS1591;SYSLIB0021;SYSLIB0023;SYSLIB0041;SYSLIB0045;CA1416;CA2022</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SMBLibrary\**\*.cs;..\..\Utilities\**\*.cs" />
+    <!-- Upstream builds for .NET Standard 2.0, which has no AesCcm of its own. Here the name must be said to mean upstream's. -->
+    <Using Include="Utilities.AesCcm" Alias="AesCcm" />
+  </ItemGroup>
+</Project>

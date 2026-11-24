@@ -43,12 +43,22 @@ The updater preserves the chosen settings directory for subsequent GUI and CLI l
 
 First-time users open the runtime page automatically. **One-click setup** downloads, verifies and saves runtime paths; a valid existing runtime is reused. If the runtime that Manager installed is older than the one this version comes with, the Runtime page says so and **One-click setup** switches to the newer one; a runtime you chose yourself is left alone. Manual paths remain available under **Advanced**. Starting an imported VM prepares missing components automatically. Firmware virtualization, Windows features and GPU drivers may still require manual action.
 
-## Guest Tools: clipboard sharing
+## Guest Tools: clipboard and shared folders
 
-Guest Tools shares the text clipboard between Windows and macOS while the VM's window is in front.
+Guest Tools shares the text clipboard between Windows and macOS while the VM's window is in front, and mounts folders of this PC in macOS.
 
 1. Start the VM and log in to macOS.
 2. In Manager, turn on **Enable Guest Tools integration for this VM** and click **Install Guest Tools…**. An install disk appears in macOS.
 3. In macOS, open the disk and double-click **Install Weims Guest Tools**. It installs for the current user, pairs with this VM and ejects the disk. Nothing is typed.
 
 Copy on one side, paste on the other. Text up to 4 MiB is carried, and what a password manager marks as sensitive stays out of the clipboard history on the other side. A newer Manager updates Guest Tools in macOS by itself. To remove it, run **Uninstall Weims Guest Tools.command** from the install disk. The CLI has the same functions: `tools-enable`, `tools-install`, `tools-status`.
+
+### Shared folders
+
+Under **Guest Tools → Shared folders**, click **Share a folder…** and choose a folder on this PC. While the VM runs, Guest Tools mounts it in macOS under `/Volumes` and puts a link to it into the folder **Weims Shared Folders** in your macOS home folder; the Guest Tools menu in the menu bar opens it too. A folder is there about a second after it is shared. Finder's sidebar does not list the folders: it would show their server's address, which leads to no folders. Tick **Read-only** to keep macOS from changing a folder. The list can be changed while the VM runs; the folders disconnect for a moment and come back.
+
+The folders are for exchanging documents, installers and source files. They are not a macOS disk: symbolic links are not supported, and apps or Xcode projects should not be kept there. Finder leaves `.DS_Store` files in folders it has shown. A link inside a shared folder that leads out of it is closed to macOS. The first time an app in macOS opens a shared folder, macOS asks whether it may access files on a network volume.
+
+Nothing in Windows is changed for this: no Windows share is created, no administrator rights are needed and the firewall is not touched. Manager's own component serves the folders on this PC's loopback address, under a name and password it makes up anew each time.
+
+**Upload limit** is the most that macOS may write to shared folders per second. It is 0, no limit, unless you set one; set one if the VM's picture stutters while macOS writes large files. From the command line: `tools-share --folder D:\Work [--name Work] [--access read]`, `tools-unshare --name Work`, `tools-upload-limit --mib 12`.

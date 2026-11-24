@@ -596,6 +596,9 @@ try
         stop.Cancel(); await pipe;
     }
 
+    // ---- Shared folders (Shares.cs) ----
+    await Shares.Run(Check, Eventually, temp);
+
     // ---- The real broker process against a diskless test QEMU ----
     if (args.Length == 1) await ProcessChecks(Path.GetFullPath(args[0]));
     else Console.WriteLine("INFO process checks skipped: pass repository-root to run them");

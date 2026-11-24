@@ -12,7 +12,7 @@ public sealed class MainViewModel : Observable
     public ObservableCollection<VmConfig> Machines { get; } = new();
     public EngineSettings Engine { get; }
     VmConfig? selected; bool busy, canEdit, isRunning; int page; string status = Text.Get("请选择虚拟机", "Select a virtual machine"), message = Text.Get("欢迎使用 Weims。导入已有虚拟机，或通过恢复镜像开始。", "Welcome to Weims. Import a VM or start with a recovery image."), details = "";
-    public VmConfig? Selected { get => selected; set { if (Set(ref selected, value)) { Changed(nameof(HasVm)); Changed(nameof(CanConfigure)); Changed(nameof(CanIntegrate)); Changed(nameof(ClipboardShared)); PairingOpen = false; PairingDigits = ""; PairingPrompt = ""; } } }
+    public VmConfig? Selected { get => selected; set { if (Set(ref selected, value)) { Changed(nameof(HasVm)); Changed(nameof(CanConfigure)); Changed(nameof(CanIntegrate)); Changed(nameof(ClipboardShared)); SharesChanged(); PairingOpen = false; PairingDigits = ""; PairingPrompt = ""; } } }
     public bool HasVm => Selected != null;
     public bool Busy { get => busy; set { Set(ref busy, value); Changed(nameof(Available)); Changed(nameof(CanConfigure)); Changed(nameof(CanPower)); Changed(nameof(CanIntegrate)); Changed(nameof(CanPair)); Changed(nameof(CanStartPairing)); Changed(nameof(CanAnswerPairing)); } }
     public bool Available => !Busy;
@@ -47,6 +47,31 @@ public sealed class MainViewModel : Observable
     public string PairingPrompt { get => pairingPrompt; private set => Set(ref pairingPrompt, value); }
     public bool CanAnswerPairing => PairingDigits != "" && !Busy;
     public void ClipboardChanged() => Changed(nameof(ClipboardShared));
+    // Shared folders. The rows are the selected VM's stored folders; what each one says about itself comes from the broker.
+    public ObservableCollection<ShareRow> Shares { get; } = new();
+    string uploadLimitText = "";
+    public string UploadLimitText { get => uploadLimitText; set => Set(ref uploadLimitText, value); }
+    /// <summary>Shows the selected VM's folders and upload limit as they are stored now.</summary>
+    public void SharesChanged()
+    {
+        var stored = Selected?.Shares ?? [];
+        if (!Shares.Select(r => r.Share).SequenceEqual(stored)) { Shares.Clear(); foreach (var share in stored) Shares.Add(new ShareRow(share)); }
+        UploadLimitText = Selected?.UploadLimitMiB.ToString() ?? "";
+    }
+    static string ShareText(VmConfig c, bool running, BrokerState broker, ShareConfig share)
+    {
+        if (!c.IntegrationEnabled) return Text.Get("集成已关闭，没有共享", "Not shared: integration is off");
+        if (!running || !broker.Online) return Text.Get("虚拟机运行时共享", "Shared while the VM runs");
+        return broker.Shares.FirstOrDefault(s => s.Name == share.Name) switch
+        {
+            { State: "mounted" } => Text.Get("已在 macOS 里挂载", "Mounted in macOS"),
+            { State: "failed" } failed => Text.Get("macOS 挂载失败：", "macOS could not mount it: ") + failed.Error,
+            { State: "ready" } => Text.Get("正在等待 macOS 挂载", "Waiting for macOS to mount it"),
+            { Error: { } error } => error,
+            _ => broker.Connected && !broker.HelperMounts ? Text.Get("macOS 里的 Guest Tools 是旧版本，不支持共享文件夹。它会自动更新；没有更新时请重新安装。", "Guest Tools in macOS is from before shared folders. It updates itself; if it does not, install it again.")
+                : Text.Get("等待 macOS 里的 Guest Tools 连接", "Waiting for Guest Tools in macOS to connect")
+        };
+    }
     public MainViewModel(string data, string? repo)
     {
         DataDirectory = data; Repo = repo; Directory.CreateDirectory(data);
@@ -101,10 +126,22 @@ public sealed class MainViewModel : Observable
         IntegrationDetail = !current.IntegrationEnabled || !broker.Online ? ""
             : broker.PairedUsers.Count == 0 ? Text.Get("尚未与 macOS 里的 Guest Tools 配对。", "Not paired with Guest Tools in macOS yet.")
             : Text.Get("已配对的 macOS 用户：", "Paired macOS users: ") + string.Join(Text.Get("、", ", "), broker.PairedUsers);
+        foreach (var row in Shares) row.State = ShareText(current, state.Running, broker, row.Share);
         PairingOpen = broker.Online && broker.PairingOpen;
         PairingDigits = PairingOpen ? broker.PairingDigits ?? "" : "";
         PairingPrompt = !PairingOpen ? ""
             : PairingDigits == "" ? Text.Get("正在等待 macOS。请在 macOS 菜单栏点 Weims Guest Tools 的图标，选“与宿主配对”。", "Waiting for macOS. In the macOS menu bar, click the Weims Guest Tools icon and choose Pair with Host.")
             : Text.Get($"macOS 用户 {broker.PairingUser} 请求配对。macOS 里显示的也是这个数字吗？", $"macOS user {broker.PairingUser} asks to pair. Does macOS show this same number?");
     }
+}
+
+/// <summary>One shared folder in Manager's list.</summary>
+public sealed class ShareRow(ShareConfig share) : Observable
+{
+    string state = "";
+    public ShareConfig Share { get; } = share;
+    public string Name => Share.Name;
+    public string Path => Share.Path;
+    public bool ReadOnly => Share.ReadOnly;
+    public string State { get => state; set => Set(ref state, value); }
 }

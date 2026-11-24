@@ -102,7 +102,81 @@ public static class Integration
         return response;
     }
     public static Task<JsonObject> Command(VmConfig c, string command, CancellationToken token = default) => Command(c, new JsonObject { ["command"] = command }, token);
+
+    /// <summary>
+    /// Stores a VM's shared folders and upload limit and has a running broker take them up. Nothing else in the
+    /// configuration is written, so this is safe while the VM runs and beside unsaved edits. Without a broker
+    /// there is nobody to tell: it reads the configuration when it starts.
+    /// </summary>
+    public static async Task ApplyShares(VmConfig c, IReadOnlyList<ShareConfig> shares, int uploadLimitMiB, CancellationToken token = default)
+    {
+        var (before, limit) = (c.Shares, c.UploadLimitMiB);
+        c.Shares = shares; c.UploadLimitMiB = uploadLimitMiB;
+        try { c.SaveOnly("shares", "upload_limit_mib"); } catch { c.Shares = before; c.UploadLimitMiB = limit; throw; }
+        if (!BrokerState.Read(c).Online) return;
+        try { await Command(c, "reload", token); } catch (IOException) { }
+    }
 }
+
+/// <summary>
+/// A Windows folder the guest may mount. The name is the SMB share's and becomes the volume's name in
+/// macOS; a guest may only read a folder unless the configuration says otherwise.
+/// </summary>
+public sealed record ShareConfig(string Name, string Path, bool ReadOnly)
+{
+    public const int NameLimit = 32, CountLimit = 16;
+
+    public static ShareConfig? Read(JsonNode? node)
+    {
+        if (node is not JsonObject o || o["name"] is not JsonValue n || !n.TryGetValue<string>(out var name) || o["path"] is not JsonValue p || !p.TryGetValue<string>(out var path)) return null;
+        return new(name, path, o["read_only"] is not JsonValue r || !r.TryGetValue<bool>(out var readOnly) || readOnly);
+    }
+    public JsonObject ToJson() => new() { ["name"] = Name, ["path"] = Path, ["read_only"] = ReadOnly };
+
+    /// <summary>Null for a name that can be an SMB share and a macOS volume; otherwise what is wrong with it.</summary>
+    public static string? NameProblem(string name)
+        => name.Length is > 0 and <= NameLimit && name == name.Trim() && name[0] != '.' && name[^1] != '.' && name.All(c => char.IsLetterOrDigit(c) || " -_.()".Contains(c)) ? null
+            : Text.Get($"共享名称“{name}”无效：只能用文字、数字、空格和 - _ . ( )，最多 {NameLimit} 个字符，不能以点开头或结尾。", $"The share name \"{name}\" is not valid: use letters, digits, spaces and - _ . ( ), at most {NameLimit} characters, not starting or ending with a dot.");
+
+    /// <summary>Null for a folder on a local drive, written out in full; otherwise what is wrong with it.</summary>
+    public static string? PathProblem(string path)
+    {
+        bool ok = path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' && path[2] == '\\' && !path.Any(c => c < 32);
+        try { ok = ok && System.IO.Path.GetFullPath(path) == path; } catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) { ok = false; }
+        return ok ? null : Text.Get($"共享文件夹“{path}”应为本机磁盘上的完整路径，例如 D:\\Shared。", $"The shared folder \"{path}\" must be a full path on a local drive, such as D:\\Shared.");
+    }
+
+    public static string? Problem(IReadOnlyList<ShareConfig> shares)
+    {
+        if (shares.Count > CountLimit) return Text.Get($"最多共享 {CountLimit} 个文件夹。", $"At most {CountLimit} folders can be shared.");
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var share in shares)
+        {
+            if ((NameProblem(share.Name) ?? PathProblem(share.Path)) is { } problem) return problem;
+            if (!names.Add(share.Name)) return Text.Get($"共享名称“{share.Name}”重复。", $"The share name \"{share.Name}\" is used twice.");
+        }
+        return null;
+    }
+
+    /// <summary>A valid name for a folder that none of the others uses: the folder's own name where that will do.</summary>
+    public static string SuggestName(string path, IEnumerable<string> taken)
+    {
+        var leaf = System.IO.Path.GetFileName(path.TrimEnd('\\'));
+        if (leaf.Length == 0) leaf = path.Length > 0 && char.IsAsciiLetter(path[0]) ? path[..1].ToUpperInvariant() : "";
+        var cleaned = new string(leaf.Select(c => char.IsLetterOrDigit(c) || " -_.()".Contains(c) ? c : '-').ToArray()).Trim(' ', '.');
+        if (cleaned.Length == 0) cleaned = "Shared";
+        var used = new HashSet<string>(taken, StringComparer.OrdinalIgnoreCase);
+        for (int n = 1; ; n++)
+        {
+            var suffix = n == 1 ? "" : " " + n;
+            var name = cleaned[..Math.Min(cleaned.Length, NameLimit - suffix.Length)].TrimEnd(' ', '.') + suffix;
+            if (!used.Contains(name)) return name;
+        }
+    }
+}
+
+/// <summary>What the broker says about one shared folder: "offline", "ready", "mounted" or "failed", and why.</summary>
+public sealed record ShareState(string Name, bool ReadOnly, string State, string? Error);
 
 /// <summary>
 /// The broker's last published state. A killed broker cannot write "offline", so the reader decides:
@@ -121,6 +195,10 @@ public sealed record BrokerState(bool Online, int Port, string? Fingerprint, str
     public bool InstallOpen { get; init; }
     /// <summary>The helper has unmounted the install volume; the stick can be unplugged.</summary>
     public bool InstallMediaEjected { get; init; }
+    /// <summary>The shared folders as the broker serves them; empty when none are configured.</summary>
+    public IReadOnlyList<ShareState> Shares { get; init; } = [];
+    /// <summary>The connected helper can mount shared folders. False for a helper from before they existed.</summary>
+    public bool HelperMounts { get; init; }
     public string Label => !Online ? Text.Get("集成：离线", "Integration: offline") + (Error is null ? "" : " · " + Error)
         : Connected ? Text.Get($"集成：已连接（{HelperUser}）", $"Integration: connected ({HelperUser})")
         : PairedUsers.Count == 0 ? Text.Get("集成：等待配对", "Integration: waiting for pairing")
@@ -143,7 +221,10 @@ public sealed record BrokerState(bool Online, int Port, string? Fingerprint, str
             return new(true, j["port"]!.GetValue<int>(), Str("fingerprint"), Str("helper_user"), Str("helper_version"), paired, error)
             {
                 PairingOpen = pairingOpen || Str("pairing_digits") != null, PairingDigits = Str("pairing_digits"), PairingUser = Str("pairing_user"),
-                InstallOpen = Future("install_until_utc"), InstallMediaEjected = j["install_media_ejected"] is JsonValue e && e.TryGetValue<bool>(out var ejected) && ejected
+                InstallOpen = Future("install_until_utc"), InstallMediaEjected = j["install_media_ejected"] is JsonValue e && e.TryGetValue<bool>(out var ejected) && ejected,
+                HelperMounts = j["helper_mounts"] is JsonValue m && m.TryGetValue<bool>(out var mounts) && mounts,
+                Shares = j["shares"] is JsonArray shares
+                    ? [.. shares.OfType<JsonObject>().Select(s => new ShareState(s["name"]!.GetValue<string>(), s["read_only"]!.GetValue<bool>(), s["state"]!.GetValue<string>(), s["error"]?.GetValue<string>()))] : []
             };
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException or FormatException or NullReferenceException or ArgumentException) { return Offline(); }

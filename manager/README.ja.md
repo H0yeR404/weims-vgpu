@@ -43,12 +43,22 @@ macOS の解像度は VM のウィンドウに追従します。ウィンドウ�
 
 初回起動時は実行環境のページを表示します。**One-click setup** で取得、検証、パスの保存を行い、有効な既存環境は再利用します。Manager が導入した実行環境がこのバージョンに付属するものより古い場合は実行環境のページに表示され、**One-click setup** で新しいものに切り替わります。自分で指定した実行環境は置き換えません。手動パスは **Advanced** にあります。インポートした VM の起動時も不足コンポーネントを準備します。BIOS の仮想化、Windows 機能、GPU ドライバーは手動対応が必要な場合があります。
 
-## Guest Tools：クリップボード共有
+## Guest Tools：クリップボードと共有フォルダ
 
-VM のウィンドウが前面にある間、Guest Tools が Windows と macOS の間でクリップボードのテキストを共有します。
+VM のウィンドウが前面にある間、Guest Tools が Windows と macOS の間でクリップボードのテキストを共有します。また、この PC のフォルダを macOS にマウントします。
 
 1. VM を起動して macOS にログインします。
 2. Manager で **Enable Guest Tools integration for this VM** をオンにし、**Install Guest Tools…** をクリックします。macOS にインストールディスクが現れます。
 3. macOS でディスクを開き、**Install Weims Guest Tools** をダブルクリックします。現在のユーザーにインストールされ、この VM とペアリングし、ディスクを取り出します。入力は不要です。
 
 片方でコピーし、もう片方で貼り付けます。テキストは 4 MiB までで、パスワードマネージャーが機密と示した内容は相手側のクリップボード履歴に残りません。新しい Manager を入れると macOS 側の Guest Tools は自動で更新されます。削除するには、インストールディスクの **Uninstall Weims Guest Tools.command** を実行します。CLI にも同じ機能があります：`tools-enable`、`tools-install`、`tools-status`。
+
+### 共有フォルダ
+
+**Guest Tools → Shared folders** で **Share a folder…** をクリックし、この PC のフォルダを選びます。VM の実行中、Guest Tools がそれを macOS の `/Volumes` にマウントし、ホームフォルダの **Weims Shared Folders** にリンクを置きます。メニューバーの Guest Tools メニューからも開けます。共有してから約 1 秒でフォルダが現れます。共有フォルダは Finder のサイドバーには表示されません。サイドバーに出るのはサーバーのアドレスだけで、そこを開いてもこれらのフォルダはないためです。**Read-only** にチェックを入れると、macOS からは変更できません。一覧は VM の実行中に変更できます。フォルダは一度切断され、すぐに戻ります。
+
+共有フォルダは書類、インストーラ、ソースファイルの受け渡し用です。macOS のディスクではありません。シンボリックリンクは使えず、アプリや Xcode プロジェクトを置く場所には向きません。Finder で開いたフォルダには `.DS_Store` が残ります。共有フォルダの中にあってフォルダの外を指すリンクは、macOS からは開けません。macOS のアプリが共有フォルダを初めて開くとき、ネットワークボリューム上のファイルへのアクセスを許可するか macOS が尋ねます。
+
+Windows 側は何も変更しません。Windows の共有は作成せず、管理者権限も不要で、ファイアウォールにも触れません。Manager 付属のコンポーネントがこの PC のループバックアドレスでフォルダを提供し、ユーザー名とパスワードは毎回作り直されます。
+
+**Upload limit** は、macOS が共有フォルダへ 1 秒あたりに書き込める上限です。既定は 0（無制限）です。macOS が大きなファイルを書き込む間に VM の画面がカクつく場合に設定してください。コマンドライン：`tools-share --folder D:\Work [--name Work] [--access read]`、`tools-unshare --name Work`、`tools-upload-limit --mib 12`。

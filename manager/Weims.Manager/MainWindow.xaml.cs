@@ -148,6 +148,40 @@ public partial class MainWindow : Window
         try { await Integration.Command(c, "reload"); } catch (IOException) { }
         vm.Message = c.ClipboardMode == "text" ? Text.Get("剪贴板文本共享已开启。", "Clipboard text sharing is on.") : Text.Get("剪贴板共享已关闭。", "Clipboard sharing is off.");
     });
+    // Shared folders and the upload limit are stored and taken up at once, like the clipboard setting.
+    Task StoreShares(IReadOnlyList<ShareConfig> shares, int uploadLimitMiB, string done) => Work(async () =>
+    {
+        try { await Integration.ApplyShares(Current(), shares, uploadLimitMiB); } finally { vm.SharesChanged(); }
+        vm.Message = done;
+    });
+    async void AddShare(object sender, RoutedEventArgs e)
+    {
+        if (vm.Busy || vm.Selected is not { } c) return;
+        var dialog = new OpenFolderDialog { Title = Text.Get("选择要与 macOS 共享的文件夹", "Choose a folder to share with macOS") };
+        if (dialog.ShowDialog(this) != true) return;
+        var shares = c.Shares.ToList();
+        if (shares.Any(s => s.Path.Equals(dialog.FolderName, StringComparison.OrdinalIgnoreCase))) { vm.Message = Text.Get("这个文件夹已经共享了。", "That folder is shared already."); return; }
+        shares.Add(new ShareConfig(ShareConfig.SuggestName(dialog.FolderName, shares.Select(s => s.Name)), dialog.FolderName, false));
+        await StoreShares(shares, c.UploadLimitMiB, Text.Get("已共享文件夹。稍后它会出现在 macOS 个人文件夹下的 Weims Shared Folders 里。", "Folder shared. In a moment it appears in Weims Shared Folders in the macOS home folder."));
+    }
+    async void RemoveShare(object sender, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)sender).DataContext is not ShareRow row || vm.Selected is not { } c) return;
+        await StoreShares([.. c.Shares.Where(s => s != row.Share)], c.UploadLimitMiB, Text.Get("已停止共享这个文件夹。", "That folder is no longer shared."));
+    }
+    async void ToggleShareReadOnly(object sender, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)sender).DataContext is not ShareRow row || vm.Selected is not { } c) return;
+        bool readOnly = ((CheckBox)sender).IsChecked == true;
+        await StoreShares([.. c.Shares.Select(s => s == row.Share ? s with { ReadOnly = readOnly } : s)], c.UploadLimitMiB,
+            readOnly ? Text.Get("macOS 现在只能读这个文件夹。", "macOS can now only read that folder.") : Text.Get("macOS 现在可以读写这个文件夹。", "macOS can now read and write that folder."));
+    }
+    async void ApplyUploadLimit(object sender, RoutedEventArgs e)
+    {
+        if (vm.Selected is not { } c) return;
+        if (!int.TryParse(vm.UploadLimitText.Trim(), out int mib)) { vm.Message = Text.Get("上传限速应为整数，单位是 MiB/s；0 表示不限。", "The upload limit is a whole number of MiB/s; 0 means no limit."); return; }
+        await StoreShares(c.Shares, mib, mib == 0 ? Text.Get("已取消上传限速。", "Uploads from macOS are no longer limited.") : Text.Get($"上传限速已设为 {mib} MiB/s。", $"Uploads from macOS are limited to {mib} MiB/s."));
+    }
     // Plugs the install disk, carrying this VM's pairing ticket, into the running VM. See InstallMedia.
     async void InstallGuestTools(object sender, RoutedEventArgs e) => await Work(async () =>
     {

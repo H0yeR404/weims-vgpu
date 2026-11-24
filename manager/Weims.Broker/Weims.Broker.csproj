@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><AssemblyName>Weims.Broker</AssemblyName><RootNamespace>Weims.Broker</RootNamespace></PropertyGroup>
-  <ItemGroup><ProjectReference Include="../Weims.Core/Weims.Core.csproj"/></ItemGroup>
+  <ItemGroup><ProjectReference Include="../Weims.Core/Weims.Core.csproj"/><ProjectReference Include="../third_party/SMBLibrary/projects/SMBLibrary.Win32/SMBLibrary.Win32.csproj"/><ProjectReference Include="../third_party/SMBLibrary/projects/SMBLibrary/SMBLibrary.csproj"/></ItemGroup>
 </Project>

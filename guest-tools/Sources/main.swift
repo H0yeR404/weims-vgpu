@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Weims Guest Tools: the macOS side of clipboard sharing with the Windows host.
+// Weims Guest Tools: the macOS side of clipboard sharing and shared folders with the Windows host.
 //
 // It runs as the logged-in user, needs no root and installs nothing into the system. It connects to
 // the host's broker at 10.0.2.2 (QEMU's user-mode network maps that to the host's loopback), checks
@@ -11,9 +11,9 @@ import CryptoKit
 import Foundation
 import Network
 
-let helperVersion = "0.1.0"
+let helperVersion = "0.2.0"
 let protocolVersion = 1
-let helperCapabilities = ["clipboard-text", "self-update"]
+let helperCapabilities = ["clipboard-text", "self-update", "shares"]
 let hostAddress = "10.0.2.2"
 let portBase: UInt16 = 46400
 let portCount: UInt16 = 64
@@ -316,6 +316,11 @@ final class Client {
     private var lastReceived = Date()
     private(set) var status = "" { didSet { if status != oldValue { Log.write("status: \(status)"); onStatus?(status) } } }
     var onStatus: ((String) -> Void)?
+    /// The host's shared folders; see SharedFolders.swift.
+    private let folders = SharedFolders()
+    var onFolders: (([SharedFolders.Mounted]) -> Void)?
+    /// Before the helper goes: the shared folders are unmounted while they still can be.
+    func end() { folders.end() }
     var isPaired: Bool { pairing != nil }
     var isPairing: Bool { pairingDone != nil }
 
@@ -327,6 +332,14 @@ final class Client {
         workspace.addObserver(forName: NSWorkspace.sessionDidResignActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.suspend(true) }
         workspace.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.suspend(false) }
         DistributedNotificationCenter.default().addObserver(forName: reloadNotification, object: nil, queue: .main) { [weak self] _ in self?.reload() }
+        folders.onChange = { [weak self] mounted, failed in
+            guard let self = self else { return }
+            self.onFolders?(mounted)
+            guard self.phase == .session, let link = self.link else { return }
+            link.send(["type": "shares_state", "mounted": mounted.map { $0.name }, "failed": failed.map { ["name": $0.name, "error": $0.error] }])
+        }
+        // Mounts an earlier run left behind stay only if the host offers them again in time.
+        folders.hostGone()
         Log.write("helper \(helperVersion) started")
         connect()
     }
@@ -348,6 +361,7 @@ final class Client {
         link = nil
         old?.onClosed = nil
         old?.close("replaced")
+        if phase == .session { folders.hostGone() }
         // No link, no session: the keep-alive check must not judge the next connection by the last one.
         phase = .hello
         active = false
@@ -455,7 +469,7 @@ final class Client {
         active = false
         Log.write((wasSession ? "disconnected: " : "handshake failed: ") + reason)
         status = L("Disconnected. Reconnecting…", "连接已断开，正在重连…")
-        if wasSession { retryDelay = 2 }
+        if wasSession { retryDelay = 2; folders.hostGone() }
         scheduleRetry()
     }
 
@@ -842,6 +856,24 @@ final class Client {
             Log.write("received text from the host: \(frame.body.count) bytes")
         case "update":
             applyUpdate(frame, on: link)
+        case "shares":
+            var offer = SharedFolders.Offer()
+            for entry in frame.header["shares"] as? [[String: Any]] ?? [] {
+                // The name becomes part of an address and of a path under /Volumes.
+                guard let name = entry["name"] as? String, !name.isEmpty, name.count <= 64, !name.hasPrefix("."), !name.contains("/"),
+                      !name.unicodeScalars.contains(where: { $0.value < 32 }) else { continue }
+                offer.shares.append(SharedFolders.Share(name: name, readOnly: entry["read_only"] as? Bool ?? true))
+            }
+            if !offer.shares.isEmpty {
+                guard let port = frame.header["port"] as? Int, port >= Int(portBase), port < Int(portBase + portCount),
+                      let user = frame.header["user"] as? String, user.hasPrefix("weims-"),
+                      let password = frame.header["password"] as? String else { Log.write("the host's offer of shared folders is incomplete"); return }
+                offer.port = port
+                offer.user = user
+                offer.password = password
+            }
+            Log.write("the host offers \(offer.shares.count) shared folder(s)")
+            folders.apply(offer)
         case "clipboard_request":
             Log.write("the host asked for the latest pasteboard content; changed since last sent: \(dirty)")
             sendPasteboard(to: link, replyTo: frame.header["id"])
@@ -887,6 +919,7 @@ final class Client {
         guard phase == .session, let link = link else { return }
         if Date().timeIntervalSince(lastReceived) > 45 { link.close("the host stopped answering"); return }
         link.send(["type": "ping"])
+        folders.check()
     }
 }
 
@@ -899,8 +932,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "Weims Guest Tools")
-        if item.button?.image == nil { item.button?.title = "W" }
+        item.button?.image = Self.menuBarIcon()
         let menu = NSMenu()
         statusLine.isEnabled = false
         menu.addItem(statusLine)
@@ -910,6 +942,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: L("Quit Weims Guest Tools", "退出 Weims Guest Tools"), action: #selector(quit), keyEquivalent: "q").target = self
         item.menu = menu
         client.onStatus = { [weak self] text in self?.statusLine.title = text }
+        client.onFolders = { [weak self] mounts in self?.showFolders(mounts) }
         // After an install from the install disk the helper pairs by itself; say so, because the first
         // thing macOS shows is its own question about the local network.
         client.onInstall = { [weak self] event in
@@ -930,8 +963,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.panel.show(title: L("Installed, but not paired", "已安装，但未配对"), digits: "", detail: problem, button: close)
             }
         }
+        // launchd ends the helper with this signal, for an uninstall or a new version. The shared folders are let
+        // go of first, as when the user quits.
+        signal(SIGTERM, SIG_IGN)
+        let leave = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        leave.setEventHandler { [weak self] in
+            self?.client.end()
+            exit(0)
+        }
+        leave.resume()
+        termination = leave
         client.start()
         statusLine.title = client.status
+    }
+
+    /// The Weims mark in one colour: a rounded square with the W left out of it. A template image, so macOS
+    /// draws it dark on a light menu bar and light on a dark one. The W's line is heavier than in the coloured
+    /// mark, where it would be under a point wide at this size.
+    static func menuBarIcon() -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { bounds in
+            let square = bounds.insetBy(dx: 1, dy: 1)
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: square, xRadius: square.width * 0.24, yRadius: square.width * 0.24).fill()
+            let letter = NSBezierPath()
+            let strokes: [(x: CGFloat, y: CGFloat)] = [(0.22, 0.33), (0.35, 0.72), (0.5, 0.45), (0.65, 0.72), (0.78, 0.33)]
+            for (index, point) in strokes.enumerated() {
+                let at = NSPoint(x: square.minX + point.x * square.width, y: square.minY + point.y * square.height)
+                if index == 0 { letter.move(to: at) } else { letter.line(to: at) }
+            }
+            letter.lineWidth = 1.4
+            letter.lineCapStyle = .round
+            letter.lineJoinStyle = .round
+            // Taken out of the square, not drawn onto it: a template image has one colour and its absence.
+            NSGraphicsContext.current?.compositingOperation = .destinationOut
+            NSColor.black.setStroke()
+            letter.stroke()
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Weims Guest Tools"
+        return image
     }
 
     let panel = PairingPanel()
@@ -956,7 +1027,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
     }
 
-    @objc func quit() { NSApp.terminate(nil) }
+    private var folderItems: [NSMenuItem] = []
+    private var termination: DispatchSourceSignal?
+
+    /// One menu entry for each mounted shared folder, between the status line and the pairing entry.
+    private func showFolders(_ mounts: [SharedFolders.Mounted]) {
+        guard let menu = item.menu else { return }
+        for old in folderItems { menu.removeItem(old) }
+        folderItems = mounts.sorted { $0.name < $1.name }.map { mount in
+            let entry = NSMenuItem(title: L("Open “\(mount.name)”", "打开“\(mount.name)”"), action: #selector(openFolder(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = mount.path
+            return entry
+        }
+        if !folderItems.isEmpty { folderItems.append(.separator()) }
+        for (offset, entry) in folderItems.enumerated() { menu.insertItem(entry, at: 2 + offset) }
+    }
+
+    @objc func openFolder(_ sender: NSMenuItem) {
+        if let path = sender.representedObject as? String { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
+    }
+
+    @objc func quit() {
+        client.end()
+        NSApp.terminate(nil)
+    }
 }
 
 /// The small window that shows the number to compare while pairing.

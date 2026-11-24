@@ -6,15 +6,15 @@ try
 {
     if (args.Length == 0 || args[0] is "--help" or "help")
     {
-        Console.WriteLine("Weims 1.2.0-pre.1 — Windows x64\nKnown issue: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only for a VM started by 1.1.0 or older, after guest shutdown)\nWeims.Cli tools-enable|tools-disable --config PATH (Guest Tools: clipboard sharing with macOS; off by default)\nWeims.Cli tools-status --config PATH\nWeims.Cli tools-install --config PATH (puts the Guest Tools install disk into the running VM; installing from it pairs without input)\nWeims.Cli tools-pair --config PATH (pairs with Weims Guest Tools in macOS: both show a four-digit number to compare)\nWeims.Cli tools-reset-pairing --config PATH\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown asks macOS to quit all apps and shut down; it asks about unsaved documents first. QEMU exits when the guest has powered off.");
+        Console.WriteLine("Weims 1.2.0-pre.1 — Windows x64\nKnown issue: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only for a VM started by 1.1.0 or older, after guest shutdown)\nWeims.Cli tools-enable|tools-disable --config PATH (Guest Tools: clipboard sharing with macOS; off by default)\nWeims.Cli tools-status --config PATH\nWeims.Cli tools-install --config PATH (puts the Guest Tools install disk into the running VM; installing from it pairs without input)\nWeims.Cli tools-pair --config PATH (pairs with Weims Guest Tools in macOS: both show a four-digit number to compare)\nWeims.Cli tools-reset-pairing --config PATH\nWeims.Cli tools-share --config PATH --folder PATH [--name NAME] [--access write|read] (shares a Windows folder with macOS, where Guest Tools mounts it; an existing name is replaced)\nWeims.Cli tools-unshare --config PATH --name NAME\nWeims.Cli tools-upload-limit --config PATH --mib N (most the guest may send to this PC, in MiB per second; 0, the default, for no limit)\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown asks macOS to quit all apps and shut down; it asks about unsaved documents first. QEMU exits when the guest has powered off.");
         return 0;
     }
     string command = args[0];
-    if (command is not ("setup" or "create" or "start" or "status" or "shutdown" or "stop" or "tools-enable" or "tools-disable" or "tools-status" or "tools-install" or "tools-pair" or "tools-reset-pairing")) throw new ArgumentException("Unknown command. Use --help.");
+    if (command is not ("setup" or "create" or "start" or "status" or "shutdown" or "stop" or "tools-enable" or "tools-disable" or "tools-status" or "tools-install" or "tools-pair" or "tools-reset-pairing" or "tools-share" or "tools-unshare" or "tools-upload-limit")) throw new ArgumentException("Unknown command. Use --help.");
     var options = new Dictionary<string,string>();
     for (int i = 1; i < args.Length; i += 2)
     {
-        if (i + 1 == args.Length || !new[] { "--data-dir", "--destination", "--name", "--disk-gib", "--recovery", "--config", "--display-mode" }.Contains(args[i]) || !options.TryAdd(args[i], args[i + 1]))
+        if (i + 1 == args.Length || !new[] { "--data-dir", "--destination", "--name", "--disk-gib", "--recovery", "--config", "--display-mode", "--folder", "--access", "--mib" }.Contains(args[i]) || !options.TryAdd(args[i], args[i + 1]))
             throw new ArgumentException("Invalid or duplicate option. Use --help.");
     }
     string Required(string key) => options.TryGetValue(key, out var value) ? value : throw new ArgumentException("Required: " + key);
@@ -74,6 +74,38 @@ try
             var broker = Integration.Supervise(c, (await VmService.State(c)).Running);
             Console.WriteLine(c.IntegrationEnabled ? broker.Label : "Integration: off");
             if (broker.Online) Console.WriteLine($"Port {broker.Port}; certificate {broker.Fingerprint?[..8]}; paired with: {(broker.PairedUsers.Count == 0 ? "nobody" : string.Join(", ", broker.PairedUsers))}");
+            Console.WriteLine($"Upload limit: {(c.UploadLimitMiB == 0 ? "none" : c.UploadLimitMiB + " MiB/s")}");
+            foreach (var share in c.Shares)
+            {
+                var served = broker.Shares.FirstOrDefault(s => s.Name == share.Name);
+                Console.WriteLine($"Shared folder \"{share.Name}\" ({(share.ReadOnly ? "read-only" : "read-write")}): {share.Path} — {served?.State ?? "offline"}{(served?.Error is { } error ? ": " + error : "")}");
+            }
+            if (broker.Connected && !broker.HelperMounts && c.Shares.Count > 0) Console.WriteLine("The Guest Tools helper in macOS is from before shared folders. It updates itself from this version; otherwise install it again.");
+        }
+        else if (command is "tools-share" or "tools-unshare")
+        {
+            var shares = c.Shares.ToList();
+            if (command == "tools-unshare")
+            {
+                if (shares.RemoveAll(s => s.Name.Equals(Required("--name"), StringComparison.OrdinalIgnoreCase)) == 0) throw new ArgumentException("No shared folder has that name.");
+            }
+            else
+            {
+                var folder = Path.GetFullPath(Required("--folder"));
+                if (!Directory.Exists(folder)) throw new DirectoryNotFoundException("The folder does not exist: " + folder);
+                if (options.GetValueOrDefault("--access", "write") is not ("write" or "read")) throw new ArgumentException("--access is write or read.");
+                var name = options.GetValueOrDefault("--name") ?? ShareConfig.SuggestName(folder, shares.Select(s => s.Name));
+                shares.RemoveAll(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                shares.Add(new ShareConfig(name, folder, options.GetValueOrDefault("--access") == "read"));
+            }
+            await Integration.ApplyShares(c, shares, c.UploadLimitMiB, cancel.Token);
+            Console.WriteLine((shares.Count == 0 ? "No folder is shared." : "Shared folders: " + string.Join(", ", shares.Select(s => $"{s.Name}{(s.ReadOnly ? " (read-only)" : "")}")) + ".") + (c.IntegrationEnabled ? "" : " Guest Tools integration is off for this VM: turn it on with tools-enable."));
+        }
+        else if (command == "tools-upload-limit")
+        {
+            if (!int.TryParse(Required("--mib"), out int mib)) throw new ArgumentException("--mib is a whole number of MiB per second; 0 for no limit.");
+            await Integration.ApplyShares(c, c.Shares, mib, cancel.Token);
+            Console.WriteLine(mib == 0 ? "Uploads from the guest are not limited." : $"Uploads from the guest are limited to {mib} MiB/s.");
         }
         else if (command == "tools-install")
         {

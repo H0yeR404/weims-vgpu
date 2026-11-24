@@ -25,6 +25,14 @@ if (Test-Path -LiteralPath "$prebuilt/SHA256SUMS") {
         Copy-Item -LiteralPath "$prebuilt/$name" -Destination "$out/guest-tools/$name"
     }
 } else { Write-Warning 'Nothing in guest-tools/prebuilt: Manager will not offer to install Guest Tools.' }
+# SMBLibrary (LGPL-3.0-or-later) is two assemblies beside the broker. Its license, the GPL that license refers to,
+# and the note on where its source is and how to replace it go with them.
+$smb=Join-Path $out 'licenses/SMBLibrary'
+New-Item -ItemType Directory -Force $smb | Out-Null
+foreach ($assembly in 'SMBLibrary.dll','SMBLibrary.Win32.dll') { if (!(Test-Path -LiteralPath "$out/$assembly")) { throw "Missing from the publish output: $assembly" } }
+Copy-Item -LiteralPath "$PSScriptRoot/third_party/SMBLibrary/License.txt" -Destination "$smb/LGPL-3.0.txt"
+Copy-Item -LiteralPath "$root/licenses/GPL-3.0-or-later.txt" -Destination "$smb/GPL-3.0.txt"
+Copy-Item -LiteralPath "$PSScriptRoot/third_party/SMBLibrary/README.md" -Destination "$smb/README.md"
 Copy-Item -LiteralPath "$root/LICENSE" -Destination "$out/LICENSE"
 Copy-Item -LiteralPath "$root/NOTICE.md" -Destination "$out/NOTICE.md"
 Copy-Item -LiteralPath "$PSScriptRoot/README.zh-CN.md" -Destination "$out/使用说明.md"

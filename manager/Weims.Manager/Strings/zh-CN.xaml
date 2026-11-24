@@ -229,7 +229,7 @@
  <sys:String x:Key="ThemeDark">深色</sys:String>
 <sys:String x:Key="G1">GUEST TOOLS · 与 macOS 集成</sys:String>
 <sys:String x:Key="G2">为此虚拟机开启 Guest Tools 集成</sys:String>
-<sys:String x:Key="G3">当此虚拟机的窗口在前台时，与 macOS 共享剪贴板。需要先在 macOS 里安装并运行 Weims Guest Tools。它不给 QEMU 启动参数加任何内容，所以虚拟机运行时也可以开关。</sys:String>
+<sys:String x:Key="G3">当此虚拟机的窗口在前台时，与 macOS 共享剪贴板；虚拟机运行期间，共享下面选定的文件夹。需要先在 macOS 里安装并运行 Weims Guest Tools。它不给 QEMU 启动参数加任何内容，所以虚拟机运行时也可以开关。</sys:String>
 <sys:String x:Key="G4">在 Windows 和 macOS 之间共享剪贴板文本</sys:String>
 <sys:String x:Key="G5">文本上限 4 MiB。密码管理器标记为敏感的内容，到另一边后不会进入剪贴板历史。</sys:String>
 <sys:String x:Key="G6">配对 Guest Tools…</sys:String>
@@ -239,4 +239,12 @@
 <sys:String x:Key="G10">数字一致，完成配对</sys:String>
 <sys:String x:Key="G11">不一致</sys:String>
 <sys:String x:Key="G12">安装 Guest Tools…</sys:String>
+<sys:String x:Key="G13">共享文件夹</sys:String>
+<sys:String x:Key="G14">这台电脑上的文件夹，由 Guest Tools 在 macOS 里挂载。在 macOS 里，它们在个人文件夹下的 Weims Shared Folders 里，也在菜单栏 Guest Tools 图标的菜单里。用来交换文档、安装包和源文件。它不是 macOS 磁盘：不支持符号链接，不要把应用或 Xcode 工程放在里面。修改这个列表时，macOS 里的共享文件夹会短暂断开。</sys:String>
+<sys:String x:Key="G15">共享文件夹…</sys:String>
+<sys:String x:Key="G16">只读</sys:String>
+<sys:String x:Key="G17">停止共享</sys:String>
+<sys:String x:Key="G18">macOS 到 Windows 的上传限速（MiB/s）</sys:String>
+<sys:String x:Key="G19">macOS 每秒最多往共享文件夹写入的数据量；默认是 0，表示不限。如果 macOS 写大文件时虚拟机画面卡顿，可以设一个上限。从 Windows 读取始终不限速。</sys:String>
+<sys:String x:Key="G20">应用</sys:String>
 </ResourceDictionary>
