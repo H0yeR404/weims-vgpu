@@ -61,125 +61,31 @@ Guest Tools shares the text clipboard between Windows and macOS while the VM's w
 
 Copy on one side, paste on the other. Text up to 4 MiB is carried, and what a password manager marks as sensitive stays out of the clipboard history on the other side. A newer Manager updates Guest Tools in macOS by itself. To remove it, run **Uninstall Weims Guest Tools.command** from the install disk. The CLI has the same functions: `tools-enable`, `tools-install`, `tools-status`.
 
-### Option B: Build from Source (Advanced Users)
+## Build from source
 
-Use this method if you want to modify Weims, build the Windows graphics backend, or reproduce the project from source.
+The source tree builds its runtime from upstream [Reims vGPU](https://github.com/steelbrain/reims-vgpu), which supports Windows hosts itself, with one patch for the window. The releases above still use the earlier runtime; the one built here is not in a release yet.
 
-**Step 1 — Install prerequisites**
+What it changes for a VM:
 
-Install:
+- macOS's resolution follows the window: resize the window and the image fills it. The fixed and compatibility display modes are gone.
+- The guest has sound output.
+- Captured input is released with Ctrl+Alt+Win.
+- A VM made with an earlier version gets its OpenCore image made again at its first start, with the new runtime's drivers and the same Mac identity. The previous image stays beside it as `OpenCore.img.previous`.
+- The GPU needs Vulkan 1.3.
 
-- [Git for Windows](https://git-scm.com/downloads/win)
-- [PowerShell 7](https://github.com/PowerShell/PowerShell/releases)
-- [Rustup](https://rustup.rs/)
-- [MSYS2](https://www.msys2.org/)
-
-Install MSYS2 to `C:\msys64` or update the paths below accordingly.
-
-**Step 2 — Configure MSYS2**
-
-These commands run in **Windows MSYS2 UCRT64, not WSL2**. MSYS2 uses `pacman`, but its `mingw-w64-ucrt-x86_64-*` packages are Windows build tools, not Arch Linux packages. Debian/Ubuntu `apt`, Arch `pacman` and Fedora `dnf` cannot replace this step for the native Windows build.
-
-Open **Start → MSYS2 UCRT64**, or launch it from **Windows PowerShell**:
-
-```powershell
-& 'C:\msys64\msys2_shell.cmd' -defterm -here -no-start -ucrt64
-```
-
-In the newly opened shell, verify `echo "$MSYSTEM"` prints `UCRT64`. If it does not, stop and open the correct terminal. Run the following commands **inside that UCRT64 shell**, not directly in PowerShell, Command Prompt, Git Bash or a WSL terminal:
-
-```sh
-pacman -Syu
-```
-
-Restart the MSYS2 terminal if requested, then run the update again.
-
-Install the required build tools:
-
-```sh
-pacman -S --needed git make diffutils bison flex mtools \
-  mingw-w64-ucrt-x86_64-{clang,llvm,llvm-tools,lld,cmake,meson,ninja,python,glib2,pixman,pkgconf,libslirp,libusb,SDL2,vulkan-headers,vulkan-loader,vulkan-validation-layers,spirv-tools}
-```
-
-**Step 3 — Download and build Weims**
-
-Return to **PowerShell 7 on Windows** for the following commands. `scripts/build.ps1` invokes MSYS2 as needed and targets Windows executables; it is not a Linux build script:
+Install [Git for Windows](https://git-scm.com/downloads/win), [PowerShell 7](https://github.com/PowerShell/PowerShell/releases), [MSYS2](https://www.msys2.org/) in a path without spaces, and the [.NET 10 SDK](https://dotnet.microsoft.com/download). Then, in PowerShell 7:
 
 ```powershell
 git clone https://github.com/H0yeR404/weims-vgpu.git
 cd weims-vgpu
-
 $env:WEIMS_MSYS2 = "C:\msys64"
-
-rustup toolchain install nightly-2026-11-03-x86_64-pc-windows-gnu --profile minimal
-
 pwsh -File scripts/fetch.ps1
 pwsh -File scripts/build.ps1
-```
-
-The scripts will:
-
-- Download pinned Reims, QEMU, and metal2vulkan sources
-- Verify and apply the Windows compatibility patches
-- Build the native Windows QEMU/Reims components
-
-Build outputs:
-
-```text
-build/port-qemu/
-build/port-dist/
-```
-
-The corresponding graphics ROM is located at:
-
-```text
-sources/reims/firmware/prebuilt/ReimsGraphics.rom
-```
-
-
-Install the .NET 10 SDK before building the Manager/CLI. Then run:
-
-```powershell
-pwsh -File manager/build-display.ps1
-pwsh -File manager/build-setup.ps1
 pwsh -File manager/build.ps1 -SelfContained
+./manager/artifacts/Weims-Manager/Weims.Manager.exe
 ```
 
-### Optional: WSL2 tools for inspecting or preparing EFI files
-
-Skip this section for the Windows workflow above. WSL2 can provide Linux tools for inspecting files or preparing a copied raw FAT OpenCore image; the packages below are **not** a replacement build environment for Windows QEMU/Reims. They do not enable WHPX or supply the Windows Vulkan driver.
-
-If you already use WSL2, run the following in **Windows PowerShell** to list installed distributions and enter one. Replace `Ubuntu` with its exact installed name (for example `Debian`, `Arch`, or the Fedora name shown by the list):
-
-```powershell
-wsl --list --verbose
-wsl -d Ubuntu
-```
-
-Confirm the selected distribution uses WSL version `2` in the list. Inside the Linux shell, inspect `/etc/os-release` with `cat /etc/os-release`, then use **only the matching package commands** below. These commands assume a user with `sudo` access; a root shell can omit `sudo`.
-
-**Debian / Ubuntu — inside WSL2:**
-
-```sh
-sudo apt update
-sudo apt install git python3 mtools
-```
-
-**Arch Linux — inside WSL2:**
-
-```sh
-sudo pacman -Syu --needed git python mtools
-```
-
-**Fedora — inside WSL2:**
-
-```sh
-sudo dnf install git python3 mtools
-```
-
-The EFI helper requires **Python 3.11 or newer** for `tomllib`. Check `python3 --version` and `python3 -c 'import tomllib'`; if unavailable, use a distribution release providing Python 3.11+ or the MSYS2 preparation path above.
-
-Windows paths differ between shells: `C:\VM-inputs\OpenCore.img` is `/c/VM-inputs/OpenCore.img` in MSYS2 and `/mnt/c/VM-inputs/OpenCore.img` in WSL2. In WSL2, change to the actual repository path, such as `cd /mnt/d/Coding/weims-vgpu`, and run the EFI helper as `python3 scripts/prepare-opencore.py vm/boot-work/EFI` instead of `/ucrt64/bin/python.exe ...`. Use this only as an alternative for the copied-image EFI preparation step, with sources already fetched; do not run both preparation paths on the same copy. Run Windows `ocvalidate`, builds and VM startup back in Windows PowerShell. Type `exit` to leave WSL2.
+`fetch.ps1` fetches the pinned upstream sources and applies the patch. `build.ps1` runs upstream's own installer in MSYS2's CLANG64 environment, which installs the MSYS2 packages and the Rust toolchain it needs, and assembles `build/weims-runtime`. Manager started from the checkout uses that folder. A first build took about ten minutes on the tested host. [Building from source](docs/reproduce.md) has the details, the tests and release packaging.
 
 ## Tested environment
 
@@ -201,7 +107,9 @@ Windows paths differ between shells: `C:\VM-inputs\OpenCore.img` is `/c/VM-input
 
 This is the tested machine, not a minimum or recommended specification. Host display refresh rate is separate from guest rendering FPS. The host's existing PowerShell version is also separate from the pinned PowerShell 7.7.0 package used by automatic setup when needed.
 
-The implementation passed 22 C API tests. One 10-second drag test measured 54.17 unique FPS, with a maximum 211 ms frame gap. These are limited measurements, not universal performance or stability guarantees. Shared guest memory still involves host device caches and is not full zero-copy.
+The runtime of the releases above passed 22 C API tests. One 10-second drag test measured 54.17 unique FPS, with a maximum 211 ms frame gap. These are limited measurements, not universal performance or stability guarantees. Shared guest memory still involves host device caches and is not full zero-copy.
+
+The runtime built from source was run on this machine on 2026-11-24 with a macOS 26.7.2 guest: boot, graphics, free pointer, window resizing, Guest Tools clipboard, sound and shutdown worked. Its frame rate was not measured.
 
 ## Upstream and licensing
 

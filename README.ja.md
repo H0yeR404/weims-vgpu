@@ -61,117 +61,31 @@ VM のウィンドウが前面にある間、Guest Tools が Windows と macOS �
 
 片方でコピーし、もう片方で貼り付けます。テキストは 4 MiB までで、パスワードマネージャーが機密と示した内容は相手側のクリップボード履歴に残りません。新しい Manager を入れると macOS 側の Guest Tools は自動で更新されます。削除するには、インストールディスクの **Uninstall Weims Guest Tools.command** を実行します。CLI にも同じ機能があります：`tools-enable`、`tools-install`、`tools-status`。
 
-### 方法 B：ソースからビルド（上級者向け）
+## ソースからビルド
 
-Weims の変更、Windows グラフィックスバックエンドのビルド、ソースからの再現に使用します。
+ソースツリーのランタイムは、上流の [Reims vGPU](https://github.com/steelbrain/reims-vgpu) から直接ビルドします。上流が Windows ホストに対応したため、本プロジェクトが加えるのはウィンドウ用のパッチ 1 つだけです。上記のリリースは従来のランタイムを使っており、ここでビルドするランタイムはまだリリースに含まれていません。
 
-**手順 1 — 必要なツールをインストール**
+VM で変わる点：
 
-- [Git for Windows](https://git-scm.com/downloads/win)
-- [PowerShell 7](https://github.com/PowerShell/PowerShell/releases)
-- [Rustup](https://rustup.rs/)
-- [MSYS2](https://www.msys2.org/)
+- macOS の解像度はウィンドウに追従します。ウィンドウの大きさを変えると、画面がそれを埋めます。固定解像度モードと互換モードはなくなりました。
+- ゲストから音が出ます。
+- キャプチャした入力は Ctrl+Alt+Win で解放します。
+- 以前のバージョンで作成した VM は、最初の起動時に OpenCore イメージを作り直し、新しいランタイムのドライバーを入れます。Mac の識別情報は変わりません。元のイメージは `OpenCore.img.previous` として残ります。
+- GPU は Vulkan 1.3 に対応している必要があります。
 
-MSYS2 は `C:\msys64` にインストールするか、以下のパスを実際の場所に変更してください。
-
-**手順 2 — MSYS2 を設定**
-
-ここで使うのは **Windows の MSYS2 UCRT64 であり、WSL2 ではありません**。MSYS2 は `pacman` を使用しますが、`mingw-w64-ucrt-x86_64-*` は Windows ビルド用パッケージで、Arch Linux のパッケージではありません。Debian/Ubuntu の `apt`、Arch の `pacman`、Fedora の `dnf` で、この Windows ネイティブビルド環境を置き換えることはできません。
-
-**Windows のスタートメニュー → MSYS2 UCRT64** を開くか、**Windows PowerShell** から起動します。
-
-```powershell
-& 'C:\msys64\msys2_shell.cmd' -defterm -here -no-start -ucrt64
-```
-
-開いた端末で `echo "$MSYSTEM"` を実行し、`UCRT64` と表示されることを確認します。違う場合は正しい端末を開き直してください。以下は **UCRT64 端末内**で実行し、PowerShell、コマンドプロンプト、Git Bash、WSL の端末には直接貼り付けないでください。
-
-```sh
-pacman -Syu
-```
-
-端末の再起動を求められた場合は、再起動して更新を再実行します。その後、ビルドツールをインストールします。
-
-```sh
-pacman -S --needed git make diffutils bison flex mtools \
-  mingw-w64-ucrt-x86_64-{clang,llvm,llvm-tools,lld,cmake,meson,ninja,python,glib2,pixman,pkgconf,libslirp,libusb,SDL2,vulkan-headers,vulkan-loader,vulkan-validation-layers,spirv-tools}
-```
-
-**手順 3 — Weims を取得してビルド**
-
-**Windows の PowerShell 7** に戻って実行します。`scripts/build.ps1` は必要に応じて MSYS2 を呼び出し、Windows 実行ファイルを生成します。Linux 用のビルドスクリプトではありません。
+[Git for Windows](https://git-scm.com/downloads/win)、[PowerShell 7](https://github.com/PowerShell/PowerShell/releases)、[MSYS2](https://www.msys2.org/)（空白を含まないパス）、[.NET 10 SDK](https://dotnet.microsoft.com/download) をインストールし、PowerShell 7 で次を実行します。
 
 ```powershell
 git clone https://github.com/H0yeR404/weims-vgpu.git
 cd weims-vgpu
-
 $env:WEIMS_MSYS2 = "C:\msys64"
-
-rustup toolchain install nightly-2026-11-03-x86_64-pc-windows-gnu --profile minimal
-
 pwsh -File scripts/fetch.ps1
 pwsh -File scripts/build.ps1
-```
-
-スクリプトは固定した Reims、QEMU、metal2vulkan のソースを取得し、Windows 互換パッチを検証・適用して、Windows ネイティブの QEMU/Reims をビルドします。
-
-出力先：
-
-```text
-build/port-qemu/
-build/port-dist/
-```
-
-対応するグラフィックス ROM：
-
-```text
-sources/reims/firmware/prebuilt/ReimsGraphics.rom
-```
-
-
-Manager/CLI のビルドには .NET 10 SDK をインストールし、次を実行します：
-
-```powershell
-pwsh -File manager/build-display.ps1
-pwsh -File manager/build-setup.ps1
 pwsh -File manager/build.ps1 -SelfContained
+./manager/artifacts/Weims-Manager/Weims.Manager.exe
 ```
 
-### 任意：WSL2 のツールで EFI ファイルを確認・準備
-
-前述の Windows 手順では、この節は不要です。WSL2 の Linux ツールはファイルの確認や OpenCore raw FAT イメージのコピーの準備に使えますが、以下のパッケージは **Windows QEMU/Reims のビルド環境の代わりにはなりません**。WHPX の有効化や Windows Vulkan ドライバーの導入も行いません。
-
-WSL2 を既に利用している場合は、**Windows PowerShell** で導入済みディストリビューションを一覧表示して、そのうちの 1 つを開きます。`Ubuntu` は一覧の正確な名前（`Debian`、`Arch`、または表示された Fedora の名前など）に変更してください。
-
-```powershell
-wsl --list --verbose
-wsl -d Ubuntu
-```
-
-一覧で対象の WSL バージョンが `2` であることを確認します。Linux の端末内で `cat /etc/os-release` を使ってディストリビューションを確認し、**該当するコマンドだけ**を実行してください。以下は `sudo` 権限のあるユーザーを想定しています。root の場合は `sudo` を省略できます。
-
-**Debian / Ubuntu — WSL2 内で実行：**
-
-```sh
-sudo apt update
-sudo apt install git python3 mtools
-```
-
-**Arch Linux — WSL2 内で実行：**
-
-```sh
-sudo pacman -Syu --needed git python mtools
-```
-
-**Fedora — WSL2 内で実行：**
-
-```sh
-sudo dnf install git python3 mtools
-```
-
-EFI 補助スクリプトは `tomllib` を使うため **Python 3.11 以降**が必要です。`python3 --version` と `python3 -c 'import tomllib'` で確認してください。利用できない場合は Python 3.11 以降を提供するディストリビューションのバージョンか、前述の MSYS2 手順を使用します。
-
-パスも端末によって異なります。Windows の `C:\VM-inputs\OpenCore.img` は MSYS2 では `/c/VM-inputs/OpenCore.img`、WSL2 では `/mnt/c/VM-inputs/OpenCore.img` です。WSL2 では実際のリポジトリの場所（例：`cd /mnt/d/Coding/weims-vgpu`）に移動し、EFI 補助コマンドを `/ucrt64/bin/python.exe ...` ではなく `python3 scripts/prepare-opencore.py vm/boot-work/EFI` に変更します。これはソース取得済みの状態で、コピーしたイメージの EFI 準備だけを置き換える方法です。同じコピーに両方の準備手順を実行しないでください。Windows の `ocvalidate`、ビルド、VM 起動は Windows PowerShell に戻って実行します。`exit` で WSL2 を終了できます。
+`fetch.ps1` は固定した上流ソースを取得してパッチを適用します。`build.ps1` は MSYS2 の CLANG64 環境で上流自身のインストーラーを実行し（必要な MSYS2 パッケージと Rust ツールチェーンもそこで導入されます）、`build/weims-runtime` を組み立てます。チェックアウトから起動した Manager はこのフォルダーを使います。検証機での初回ビルドは約 10 分でした。詳細、テスト、リリース用パッケージ作成は[ソースからのビルド](docs/reproduce.md)にあります。
 
 ## 検証環境
 
@@ -193,7 +107,9 @@ EFI 補助スクリプトは `tomllib` を使うため **Python 3.11 以降**が
 
 これは検証済みの機器構成であり、最低要件や推奨構成ではありません。ホスト画面のリフレッシュレートはゲストの描画 FPS とは異なります。また、ホストの既存 PowerShell と、自動セットアップが必要に応じて取得する固定版 PowerShell 7.7.0 は別です。
 
-実装は C API テスト 22 件に合格しました。10 秒間のウィンドウ移動テストでは、異なる画面の更新頻度が 54.17 FPS、最大フレーム間隔が 211 ms でした。これは同一条件での旧経路との比較や長期安定性の保証ではありません。ホストの device cache と必要なコピーが残るため、完全なゼロコピーではありません。
+上記リリースのランタイムは C API テスト 22 件に合格しました。10 秒間のウィンドウ移動テストでは、異なる画面の更新頻度が 54.17 FPS、最大フレーム間隔が 211 ms でした。これは同一条件での旧経路との比較や長期安定性の保証ではありません。ホストの device cache と必要なコピーが残るため、完全なゼロコピーではありません。
+
+ソースからビルドしたランタイムは、2026-11-24 にこのマシンで macOS 26.7.2 ゲストを使って実行しました。起動、描画、自由なポインター移動、ウィンドウのサイズ変更、Guest Tools のクリップボード、音声出力、シャットダウンが動作しました。フレームレートは測定していません。
 
 ## 上流プロジェクトとライセンス
 

@@ -1,114 +1,97 @@
-# Reproducing the Windows build
+# Building the runtime and Manager from source
 
-This packages the source configuration of the working Windows/WHPX graphics lane. It is not a macOS installer or a disk image. Start with your own bootable x86-64 macOS VM and licensed materials. Source revisions are fixed in `sources.json`; upstream guest prebuilts and ROM are obtained from that same pinned source. Host binaries are built locally. Dependency versions observed on the tested host are recorded in `config/tested-msys2-packages.txt`; MSYS2 is rolling, so this is not a promise of byte-identical binaries.
+The runtime is upstream [Reims vGPU](https://github.com/steelbrain/reims-vgpu) at the commit `sources.json` names, with one patch, `manager/patches/window.patch`. The patch adds the free pointer and makes the window take a size the guest fills after you resize it. QEMU is that commit's `vendor/qemu` submodule and metal2vulkan one of its Cargo dependencies; the build fetches both at the revisions the commit names, and neither is patched.
 
-For a new empty VM installed from recovery, see the [First Installation Guide](first-install.md). It explains the separately supplied boot files and the current Manager limitations.
+Releases up to 1.2.0-pre.1 used a Windows port of an earlier Reims that this project carried as three large patches. Upstream has supported Windows hosts itself since 2026-11-15, so the port is gone from the tree. Its sources are in the tags of those releases.
+
+This document is about building. It is not a macOS installer or a disk image; Manager downloads Apple's recovery image when it creates a VM.
 
 ## Host and tools
 
-Use Windows x64 with Windows Hypervisor Platform available, a Vulkan-capable GPU/driver with `VK_EXT_external_memory_host`, PowerShell 7, Git, Rustup, and MSYS2 UCRT64. The tested host used an NVIDIA RTX 4090 Laptop GPU. The default VM uses 8 vCPUs, 32 GiB RAM and 1920×1080. Other hardware is not validated. Do not change VBS/HVCI or BIOS settings as part of these scripts.
+- Windows 10 2004 or later, or Windows 11, x64, with the **Windows Hypervisor Platform** turned on.
+- A GPU and driver with Vulkan 1.3. The runtime checks the features it needs as a VM starts and names what is missing in the VM's log.
+- [Git for Windows](https://git-scm.com/downloads/win) and [PowerShell 7](https://github.com/PowerShell/PowerShell/releases).
+- [MSYS2](https://www.msys2.org/), installed in a path without spaces. The build uses its CLANG64 environment.
+- The [.NET 10 SDK](https://dotnet.microsoft.com/download) for Manager, the CLI and the Guest Tools broker.
 
-Install MSYS2 from https://www.msys2.org/ and Rustup from https://rustup.rs/. In an MSYS2 UCRT64 terminal, update packages (`pacman -Syu`, restart the terminal if requested, then repeat). Install:
+The build installs the MSYS2 packages it lacks with `pacman`, and the Rust toolchain upstream pins with `rustup` (rustup itself from https://rustup.rs if the PC has none). The package versions on the tested host are in `config/tested-msys2-packages.txt`. MSYS2 is a rolling distribution, so byte-identical binaries are not promised.
 
-```sh
-pacman -S --needed git make diffutils bison flex mtools \
-  mingw-w64-ucrt-x86_64-{clang,llvm,llvm-tools,lld,cmake,meson,ninja,python,glib2,pixman,pkgconf,libslirp,libusb,SDL2,vulkan-headers,vulkan-loader,vulkan-validation-layers,spirv-tools}
-```
+## Fetch and build
 
-In PowerShell 7, use an ordinary checkout path without apostrophes (a short path without spaces is recommended):
+In PowerShell 7, in a checkout path without spaces or apostrophes:
 
 ```powershell
 git clone https://github.com/H0yeR404/weims-vgpu
 cd weims-vgpu
 $env:WEIMS_MSYS2 = 'C:\msys64' # your MSYS2 directory
-rustup toolchain install nightly-2026-11-03-x86_64-pc-windows-gnu --profile minimal
 pwsh -File scripts/fetch.ps1
 pwsh -File scripts/build.ps1
 ```
 
-`fetch.ps1` refuses existing source directories, verifies patch hashes and applies them to the pinned upstream commits. It produces sibling `sources/reims`, `sources/qemu` and `sources/metal2vulkan`. The Cargo path overrides intentionally depend on that layout. `build.ps1` builds the DLL, its import library and the QEMU executables. Outputs are `build/port-dist` and `build/port-qemu`; logs are under `logs/`. Keep MSYS2 available at runtime for dependency DLLs.
+`fetch.ps1` fetches `sources/reims-vgpu` and `sources/reims-util` at the pinned commits, checks the patch's SHA-256 and applies it. It refuses a source directory that already exists.
 
-Run the targeted C API tests in a fresh PowerShell process:
+`build.ps1` runs upstream's own installer, `sources/reims-vgpu/scripts/install-ctl.sh`, in the CLANG64 shell. That builds the graphics library, links QEMU with it, collects the DLLs QEMU loads, and installs `reims-util` at the commit upstream names. What the installer would put in your user profile goes under `build/upstream` instead, so a reims-ctl you installed for yourself is not touched. The log is `logs/upstream-build.log`. A first build took about ten minutes on the tested host; later ones rebuild only what changed.
 
-```powershell
-. ./scripts/environment.ps1
-Push-Location sources/reims
-cargo test --locked -p reims-vgpu-c --lib
-Pop-Location
-```
+The script then assembles `build/weims-runtime`, the folder Manager runs:
 
-## Prepare the guest boot environment
+| Path | Content |
+| --- | --- |
+| `qemu-system-x86_64.exe`, `qemu-img.exe` | QEMU 11 with the `reims-graphics-pci` device; the graphics library is linked in |
+| `reims-vgpu-compile.exe` | the library's helper process, which it starts from beside QEMU |
+| `*.dll` | the CLANG64 libraries those programs load |
+| `reims-util.exe` | makes OpenCore images and downloads Apple's recovery image |
+| `boot/` | the guest drivers (Graft, ReimsGraphics, RgfxGate), their `set.toml`, and the option ROM |
+| `pc-bios/` | the firmware files QEMU reads |
+| `weims-runtime.json` | says this is a build of this project, with the free pointer |
 
-Use your own working OpenCore 1.0.8 raw FAT image and matching OVMF CODE/VARS pair. OpenCore comes from https://github.com/acidanthera/OpenCorePkg; OVMF is the EDK II firmware at https://github.com/tianocore/edk2. Their source/build instructions and licenses apply. Retain the firmware pair and your own valid VM identity; do not borrow the screenshot owner's serial numbers. This guide migrates a working VM, not a fresh macOS installation.
+The folder runs with nothing but Windows around it. `pwsh -File scripts/build.ps1 -AssembleOnly` assembles it again without building.
 
-The old graphics lane's OpenCore alone is insufficient: inject the new lane's Graft, ReimsGraphics and RgfxGate set. Shut down the VM, then work on copies. In MSYS2, from the repository root, extract your boot image's EFI directory:
-
-```sh
-mkdir -p vm/boot-work
-cp /path/to/your/OpenCore.img vm/boot-work/OpenCore.img
-mcopy -s -i vm/boot-work/OpenCore.img ::/EFI vm/boot-work/
-/ucrt64/bin/python.exe scripts/prepare-opencore.py vm/boot-work/EFI
-```
-
-The helper copies the pinned kext set, preserves your other configuration, disables Apple Secure Boot as in the tested setup, and refuses unexpected enabled kexts rather than deleting their dependencies silently. Validate `vm/boot-work/EFI/OC/config.plist` with OpenCore 1.0.8's `ocvalidate` before copying the EFI tree back:
-
-```sh
-mcopy -o -s -i vm/boot-work/OpenCore.img vm/boot-work/EFI ::/
-```
-
-These mtools commands assume a raw FAT filesystem image as used by this project, not a partitioned disk or QCOW2 OpenCore image. For a QCOW2 boot image, convert a copy with `qemu-img convert -f qcow2 -O raw source.qcow2 OpenCore.img` first; partitioned EFI images require mounting/extracting the EFI partition instead. Keep your original boot files unchanged.
-
-## Configure and start
-
-With the source VM fully stopped, create an independent system-disk copy (merges its backing chain). A 200 GiB disk retains its logical size; no resize is needed:
+## Manager, CLI and broker
 
 ```powershell
-$env:PATH = "$env:WEIMS_MSYS2\ucrt64\bin;$env:PATH"
-New-Item -ItemType Directory -Force vm/disks
-./build/port-qemu/qemu-img.exe convert -p -f qcow2 -O qcow2 C:/VMs/original/current.qcow2 vm/disks/current.qcow2
-pwsh -File scripts/init-vm.ps1 -Disk ./vm/disks/current.qcow2 `
-  -OpenCore ./vm/boot-work/OpenCore.img `
-  -FirmwareCode C:/VMs/original/OVMF_CODE.fd `
-  -FirmwareVars C:/VMs/original/OVMF_VARS.fd
-$env:WEIMS_OSK = Read-Host 'SMC key from your own authorized installation' -MaskInput
-pwsh -File scripts/start.ps1 -DryRun
-pwsh -File scripts/start.ps1
-```
-
-Replace example input paths with your files. `init-vm.ps1` uses the selected system disk directly for writes; it copies boot firmware and generates a fresh network MAC. It refuses existing VM directories. The ignored local configuration lives in `vm/default/state/config.json`. Adjust resources there if needed. Never open the same writable disk concurrently. SSH forwarding (default 2222) binds to localhost; stop conflicting VMs first. QMP has no authentication, so it does not listen on TCP: the guest can reach the host's localhost ports through user-mode networking (`10.0.2.2`). It uses a Unix domain socket under `%USERPROFILE%\.weims\q` instead (see [QMP exposure fix](security-qmp-socket.md)). The `qmp_port` key in the configuration is kept only so older versions can read the file. The OSK is omitted from saved command logs but is necessarily passed to QEMU's process arguments.
-
-Release captured input with Ctrl+Alt+Win or Ctrl+Alt+Home. Shut down macOS normally first. If QEMU remains after shutdown, `pwsh -File scripts/start.ps1 -Exit` closes the emulator; do not use it as a normal guest shutdown.
-
-## What was validated
-
-The source implementation passed 22 C API tests (one manual measurement ignored), built the release DLL and QEMU, and booted macOS. The shared-memory version achieved 54.17 unique FPS in one 10-second, 60 Hz window-drag test at 1920×1080; maximum observed frame gap was 211 ms. This is not a same-scene comparison against the old lane or a long stability result. The screenshot's 180 Hz display mode is not a measured 180 FPS claim. Guest RAM section sharing bypasses the main read-back bottleneck, but device-cache downloads remain: this is not full zero-copy.
-
-This packaging separately checks source reconstruction and script syntax. See `validation.md` for the publication checks and any remaining limits. Full cross-platform `cargo xtask check` has not been run. Video acceleration, audio and broad GPU compatibility are not claimed.
-
-## Preview 1.1.0-pre.1 additions
-
-After the native build, install .NET 10 SDK and run in Windows PowerShell 7:
-
-```powershell
-pwsh -File manager/build-display.ps1
-pwsh -File manager/build-setup.ps1
 pwsh -File manager/build.ps1 -SelfContained
+./manager/artifacts/Weims-Manager/Weims.Manager.exe
 ```
 
-The setup helper is pinned to reims-util commit `84e5c98ae7fa6b0b68e7be690525dda29697ab34`. `build-setup.ps1` expects unchanged sources and fresh boot output; it refuses to overwrite an existing boot kext directory. Stop VMs before rebuilding their runtime. Use the packaged CLI documented in the main README for automatic recovery and boot preparation. This does not require the manual EFI procedure above. The helper generates a GPT-partitioned OpenCore image, so the raw-FAT mtools commands above do not apply to its output.
+Started from a checkout with no saved settings, Manager uses `build/weims-runtime`. Otherwise choose it on **Runtime → Advanced**: `qemu-system-x86_64.exe` in that folder, the folder itself as the dependency directory, and its `pc-bios` as the firmware directory. A profile of its own keeps a test build apart from an installed Manager: `--data-dir D:\some\folder`, for Manager and the CLI alike.
 
-Release packaging requires Python 3, Inno Setup 6 and the source dependencies. From `sources/reims`, vendor both Rust dependency sets with an absolute helper manifest path:
+Manager writes QEMU's command line itself (`manager/Weims.Core/LaunchPlan.cs`). It follows the one upstream's reims-ctl gives an x86-64 guest on Windows: guest RAM in QEMU's shared RAM backend, WHPX, a qemu-xhci controller for keyboard and tablet, and two virtio sound devices. The host's microphone is not given to the guest.
+
+## VMs made with an earlier version
+
+The guest drivers in a VM's OpenCore image and the option ROM belong to one build of the runtime. At the first start on another runtime, Manager makes the OpenCore image again with that runtime's drivers and the same Mac (model, serial number, board serial, UUID and ROM are read from the old image), and puts the ROM beside it. The previous image stays as `OpenCore.img.previous`. `reims-util` needs the network for this unless its cache already holds OpenCore. Boot files you supplied yourself in **Create VM → Advanced** are never replaced.
+
+## Tests
 
 ```powershell
-cargo vendor --locked --sync C:/src/weims-vgpu/sources/reims-util/Cargo.toml ../../build/release-sources/vendor
+dotnet run --project manager/Weims.Core.Tests -c Release
+dotnet run --project manager/Weims.UiTests -c Release -- <new output directory>
+dotnet run --project manager/Weims.UpdateTests -c Release
+dotnet build manager/Weims.Broker -c Release
+dotnet run --project manager/Weims.Broker.Tests -c Release -- <repository root>
+dotnet run --project manager/Weims.IntegrationTests -c Release -- <repository root>
 ```
 
-Then from the repository root:
+The last two run the built QEMU without a guest: QMP over a Unix socket, the Guest Tools install disk as a hot-plugged USB stick, shutdown keys, a clean quit. The patch's own tests are in upstream's window crate; in an MSYS2 CLANG64 shell with the build's environment, `cargo test -p reims-vgpu-window --lib` runs them.
+
+## Release packaging
+
+Packaging needs Python 3 and Inno Setup 6.
 
 ```powershell
-python manager/package-runtime.py --msys C:/msys64 --version 1.1.0-pre.1
-pwsh -File manager/build.ps1 -SelfContained -OutputDirectory manager/artifacts/Weims-Manager-1.1.0-pre.1
+python manager/package-runtime.py --msys C:/msys64 --version <version>
+pwsh -File manager/build.ps1 -SelfContained -OutputDirectory manager/artifacts/Weims-Manager-<version>
 ISCC.exe manager/installer.iss
 ```
 
-Packaging verifies dependency closure without MSYS2 on PATH and writes the pinned runtime catalog before building the GUI/CLI. Sources ZIP includes patched upstream trees, combined Cargo vendor sources, MSYS2 package sources and licenses. Manager/CLI sources are in tag `v1.1.0-pre.1`. Apple recovery and generated machine identities are not distributed. The runtime is uploaded under the exact catalog URL; SHA256SUMS accompanies the installer, portable app and runtime/source archives.
+`package-runtime.py` checks that `build/weims-runtime` is the build of the sources on disk, runs its programs with only Windows on `PATH`, and writes the runtime ZIP and the source archive to `manager/artifacts/release`. The source archive holds the patched upstream tree with QEMU, reims-util, the Cargo dependencies of both (metal2vulkan and SDL3 among them), the MSYS2 source packages of the DLLs shipped, and the SeaBIOS and iPXE sources of the firmware files. It then writes the runtime's URL, size and SHA-256 into `manager/runtime-catalog.json`, which Manager is built with. `--runtime-only` writes the runtime ZIP alone and leaves the catalog as it is.
+
+## What was run
+
+On 2026-11-24, on the host in the main README (RTX 4090 Laptop GPU, Windows 11), with a macOS 26.7.2 guest on a copy-on-write overlay of an existing VM:
+
+- The VM's boot image was made again at its first start and macOS booted to the desktop with the same Mac identity.
+- Graphics, the free pointer, resizing the window (the guest's mode equalled the window's pixels afterwards), Guest Tools with the clipboard both ways, the install disk hot-plugged into the running guest, sound output, and shutdown from the CLI, after which QEMU and the broker were gone within 15 seconds.
+- Automated: 115 core checks, 66 WPF checks, 22 update checks, 198 broker checks, 27 integration checks, and upstream's 117 window tests.
+
+Not run: Intel and AMD GPUs, creating a VM and installing macOS from recovery on this runtime, relative mouse motion for games, more than one display, long sessions, and the full release packaging.

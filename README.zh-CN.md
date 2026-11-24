@@ -61,117 +61,31 @@
 
 在一边复制，到另一边粘贴。文本上限 4 MiB；密码管理器标记为敏感的内容，到另一边后不会进入剪贴板历史。安装了更新的管理器后，macOS 里的 Guest Tools 会自动更新。要移除它，运行安装盘里的 **Uninstall Weims Guest Tools.command**。命令行有同样的功能：`tools-enable`、`tools-install`、`tools-status`。
 
-### 方案 B：从源码构建（进阶用户）
+## 从源码构建
 
-适合需要修改 Weims、编译 Windows 图形后端或从源码复现的用户。
+源码树的运行组件直接基于上游 [Reims vGPU](https://github.com/steelbrain/reims-vgpu) 构建。上游现在自己支持 Windows 主机，本项目只在其上加一个窗口补丁。上面的发布版仍使用早先的运行组件，这里构建出的运行组件还没有进入发布版。
 
-**步骤 1 — 安装前置工具**
+它给虚拟机带来的变化：
 
-- [Git for Windows](https://git-scm.com/downloads/win)
-- [PowerShell 7](https://github.com/PowerShell/PowerShell/releases)
-- [Rustup](https://rustup.rs/)
-- [MSYS2](https://www.msys2.org/)
+- macOS 的分辨率跟随窗口：调整窗口大小，画面随之填满。固定分辨率和兼容模式不再提供。
+- 客户机有声音输出。
+- 捕获输入后用 Ctrl+Alt+Win 释放。
+- 用早先版本创建的虚拟机，第一次启动时会重新制作 OpenCore 镜像，换上新运行组件的驱动，Mac 身份保持不变。原镜像保留在旁边，名为 `OpenCore.img.previous`。
+- 显卡需要支持 Vulkan 1.3。
 
-将 MSYS2 安装到 `C:\msys64`，或相应修改下文路径。
-
-**步骤 2 — 配置 MSYS2**
-
-这里使用的是 **Windows 上的 MSYS2 UCRT64，不是 WSL2**。MSYS2 虽然使用 `pacman`，但 `mingw-w64-ucrt-x86_64-*` 是 Windows 构建工具包，不是 Arch Linux 软件包。Debian/Ubuntu 的 `apt`、Arch 的 `pacman` 和 Fedora 的 `dnf` 均不能替代这一步的 Windows 原生构建环境。
-
-从 **Windows 开始菜单 → MSYS2 UCRT64** 打开终端，或在 **Windows PowerShell** 中运行：
-
-```powershell
-& 'C:\msys64\msys2_shell.cmd' -defterm -here -no-start -ucrt64
-```
-
-在新打开的终端中执行 `echo "$MSYSTEM"`，确认输出为 `UCRT64`；否则请先打开正确的终端。下面的命令必须在 **UCRT64 终端内**执行，不要直接粘贴到 PowerShell、命令提示符、Git Bash 或 WSL 终端：
-
-```sh
-pacman -Syu
-```
-
-若提示重启终端，重启后再次运行更新。然后安装构建工具：
-
-```sh
-pacman -S --needed git make diffutils bison flex mtools \
-  mingw-w64-ucrt-x86_64-{clang,llvm,llvm-tools,lld,cmake,meson,ninja,python,glib2,pixman,pkgconf,libslirp,libusb,SDL2,vulkan-headers,vulkan-loader,vulkan-validation-layers,spirv-tools}
-```
-
-**步骤 3 — 下载并构建 Weims**
-
-返回 **Windows PowerShell 7** 执行以下命令。`scripts/build.ps1` 会按需调用 MSYS2，目标是 Windows 可执行程序，并非 Linux 构建脚本：
+安装 [Git for Windows](https://git-scm.com/downloads/win)、[PowerShell 7](https://github.com/PowerShell/PowerShell/releases)、[MSYS2](https://www.msys2.org/)（路径不含空格）和 [.NET 10 SDK](https://dotnet.microsoft.com/download)，然后在 PowerShell 7 中执行：
 
 ```powershell
 git clone https://github.com/H0yeR404/weims-vgpu.git
 cd weims-vgpu
-
 $env:WEIMS_MSYS2 = "C:\msys64"
-
-rustup toolchain install nightly-2026-11-03-x86_64-pc-windows-gnu --profile minimal
-
 pwsh -File scripts/fetch.ps1
 pwsh -File scripts/build.ps1
-```
-
-脚本会下载固定版本的 Reims、QEMU 和 metal2vulkan，校验并应用 Windows 兼容补丁，构建原生 Windows QEMU/Reims 组件。
-
-构建输出：
-
-```text
-build/port-qemu/
-build/port-dist/
-```
-
-对应的图形 ROM：
-
-```text
-sources/reims/firmware/prebuilt/ReimsGraphics.rom
-```
-
-
-构建软件和 CLI 前请安装 .NET 10 SDK，然后运行：
-
-```powershell
-pwsh -File manager/build-display.ps1
-pwsh -File manager/build-setup.ps1
 pwsh -File manager/build.ps1 -SelfContained
+./manager/artifacts/Weims-Manager/Weims.Manager.exe
 ```
 
-### 可选：使用 WSL2 工具检查或准备 EFI 文件
-
-按前文 Windows 流程操作时可跳过本节。WSL2 可提供检查文件、处理 OpenCore raw FAT 镜像副本的 Linux 工具；下面的软件包**不能替代 Windows QEMU/Reims 构建环境**，也不会启用 WHPX 或安装 Windows Vulkan 驱动。
-
-如果已有 WSL2，在 **Windows PowerShell** 中列出已安装发行版并进入其中一个。将 `Ubuntu` 替换为列表中的准确名称，例如 `Debian`、`Arch` 或实际显示的 Fedora 名称：
-
-```powershell
-wsl --list --verbose
-wsl -d Ubuntu
-```
-
-确认列表中目标发行版的 WSL 版本为 `2`。进入 Linux 终端后，用 `cat /etc/os-release` 确认发行版，**仅执行与该发行版对应的一组命令**。以下假设用户具有 `sudo` 权限；若当前是 root，可省略 `sudo`。
-
-**Debian / Ubuntu — 在 WSL2 内执行：**
-
-```sh
-sudo apt update
-sudo apt install git python3 mtools
-```
-
-**Arch Linux — 在 WSL2 内执行：**
-
-```sh
-sudo pacman -Syu --needed git python mtools
-```
-
-**Fedora — 在 WSL2 内执行：**
-
-```sh
-sudo dnf install git python3 mtools
-```
-
-EFI 辅助脚本因使用 `tomllib` 而要求 **Python 3.11 或更新版本**。执行 `python3 --version` 和 `python3 -c 'import tomllib'` 检查；若不满足，使用提供 Python 3.11+ 的发行版版本，或改用前文 MSYS2 准备流程。
-
-不同终端中的路径也不同：Windows 的 `C:\VM-inputs\OpenCore.img` 在 MSYS2 中是 `/c/VM-inputs/OpenCore.img`，在 WSL2 中是 `/mnt/c/VM-inputs/OpenCore.img`。使用 WSL2 时先进入实际仓库路径，例如 `cd /mnt/d/Coding/weims-vgpu`，将 EFI 辅助命令改为 `python3 scripts/prepare-opencore.py vm/boot-work/EFI`，不要使用 `/ucrt64/bin/python.exe ...`。此方式仅用于替代镜像副本的 EFI 准备步骤，并要求源码已获取；不要对同一副本重复执行两套准备流程。Windows `ocvalidate`、构建及虚拟机启动仍在 Windows PowerShell 中执行。输入 `exit` 退出 WSL2。
+`fetch.ps1` 获取固定版本的上游源码并打上补丁。`build.ps1` 在 MSYS2 的 CLANG64 环境里运行上游自己的安装脚本（它会安装所需的 MSYS2 包和 Rust 工具链），然后组装出 `build/weims-runtime`。从源码目录启动的管理器会直接使用这个目录。在测试机上首次构建约需十分钟。详细说明、测试方法和发布打包见[从源码构建](docs/reproduce.md)。
 
 ## 本机测试环境
 
@@ -193,7 +107,9 @@ EFI 辅助脚本因使用 `tomllib` 而要求 **Python 3.11 或更新版本**。
 
 以上是已测试设备，并非最低或推荐配置。宿主显示器刷新率不等于客户机渲染帧率。宿主已有的 PowerShell 版本也不同于自动准备功能在需要时下载的固定 PowerShell 7.7.0 版本。
 
-实现通过 22 项 C API 测试；一次 10 秒拖窗测试记录 54.17 个不同画面/秒，最大帧间隔 211 ms。这不是严格同场景的新旧对照，也不代表长期稳定性或所有显卡表现。共享内存仍包含宿主 device cache 和必要复制，并非全程零拷贝。
+上述发布版的运行组件通过 22 项 C API 测试；一次 10 秒拖窗测试记录 54.17 个不同画面/秒，最大帧间隔 211 ms。这不是严格同场景的新旧对照，也不代表长期稳定性或所有显卡表现。共享内存仍包含宿主 device cache 和必要复制，并非全程零拷贝。
+
+从源码构建的运行组件于 2026-11-24 在本机用 macOS 26.7.2 客户机运行过：启动、图形、自由鼠标、窗口缩放、Guest Tools 剪贴板、声音和关机均正常。没有测量它的帧率。
 
 ## 上游与许可证
 

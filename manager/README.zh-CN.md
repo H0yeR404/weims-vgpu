@@ -4,7 +4,7 @@
 
 > **已知问题：虚拟机可能卡死，包括调整分辨率时。这是已知问题，将在后续更新中解决。请备份重要数据。** 交互软件仍在开发中。本机已验证自动准备并进入 Tahoe 恢复界面，尚未验证从全新安装到桌面的完整流程。
 
-要求：Windows 10 2004+/11 x64、BIOS/UEFI 开启虚拟化、开启 **Windows 虚拟机监控程序平台（WHPX）** 并重启，以及支持 `VK_EXT_external_memory_host` 的 Vulkan 显卡与驱动。在“启用或关闭 Windows 功能”中启用 WHPX。软件不会自动修改 BIOS 或启用 Windows 功能。使用安装包**无需 WSL2、MSYS2、Rust 或 .NET SDK**。需要访问 GitHub、Apple 和上游下载服务器。
+要求：Windows 10 2004+/11 x64、BIOS/UEFI 开启虚拟化、开启 **Windows 虚拟机监控程序平台（WHPX）** 并重启，以及支持 Vulkan 1.3 的显卡与驱动。在“启用或关闭 Windows 功能”中启用 WHPX。软件不会自动修改 BIOS 或启用 Windows 功能。使用安装包**无需 WSL2、MSYS2、Rust 或 .NET SDK**。需要访问 GitHub、Apple 和上游下载服务器。
 
 ### 安装并创建虚拟机
 
@@ -14,7 +14,7 @@
 4. 启动虚拟机，在 OpenCore 中选择恢复项（隐藏时按**空格**）。进入**磁盘工具 → 显示所有设备**，按容量辨认并仅抹掉**新建的空白系统磁盘**，格式选择 **GUID 分区图 / APFS**。不要抹掉恢复盘或 OpenCore 盘。
 5. 退出磁盘工具，选择**重新安装 macOS Tahoe**和新卷，等待下载和多次重启，按安装进度进入安装器或系统。进入桌面后正常关机（虚拟机窗口会自动关闭），在软件中取消挂载恢复镜像，保存后再次启动。
 
-新建虚拟机默认开启**拖拽自适应分辨率**和自由鼠标。登录后拖动独立 Reims 窗口即可。已有虚拟机需先关机，在**显示与输入**选择自动适配客户机分辨率，关闭无边框模式并保存。启动分辨率范围 **800–4096 × 600–2160**；**2560×1440 仅在本机验证通过**。固定模式缩放完整画面，兼容模式保留旧行为。若调整失去响应，请保留日志，并尽可能正常重启。剪贴板共享需要 Guest Tools（见下文）；不含文件共享。
+macOS 的分辨率跟随虚拟机窗口：拖动窗口边缘，画面随之填满新的大小。窗口按**显示与输入**里设置的启动分辨率打开（**800–4096 × 600–2160**）。新建虚拟机默认开启自由鼠标：鼠标可直接移进移出窗口，Windows 快捷键照常可用。关闭后，点击窗口会捕获键盘和鼠标，按 **Ctrl+Alt+Win** 释放；需要相对鼠标的游戏使用这种模式。macOS 有声音输出。剪贴板共享需要 Guest Tools（见下文）；不含文件共享。
 
 ### 命令行（安装包和便携版均包含）
 
@@ -22,12 +22,12 @@
 
 ```powershell
 .\Weims.Cli.exe create --destination D:\VMs\macOS-Tahoe --disk-gib 200
-.\Weims.Cli.exe start --config D:\VMs\macOS-Tahoe\state\config.json --display-mode auto
+.\Weims.Cli.exe start --config D:\VMs\macOS-Tahoe\state\config.json
 .\Weims.Cli.exe status --config D:\VMs\macOS-Tahoe\state\config.json
 .\Weims.Cli.exe shutdown --config D:\VMs\macOS-Tahoe\state\config.json
 ```
 
-已有 200 GiB 虚拟机直接将其实际 `state/config.json` 传给 `start`，不要重新创建磁盘。当前设置尚无运行环境时先执行 `setup`。GUI 与 CLI 共用设置目录：优先使用更新器保留的自定义目录；否则复用已有的 `%LOCALAPPDATA%\Weims\Manager-Preview`，全新正式版使用 `%LOCALAPPDATA%\Weims\Manager`。可通过 `--data-dir` 指定其他目录。不要重复启动同一磁盘。`shutdown` 请求 macOS 退出所有应用并关机，有未保存的文档时 macOS 会先询问；客户机关机后 QEMU 自动退出。`stop` 只用于 1.1.0 及更早版本启动、关机后仍残留的 QEMU。
+已有 200 GiB 虚拟机直接将其实际 `state/config.json` 传给 `start`，不要重新创建磁盘。用早先版本创建的虚拟机，第一次启动时会重新制作引导镜像，换上当前运行组件的图形驱动，Mac 身份保持不变；原镜像保留在旁边，名为 `OpenCore.img.previous`。当前设置尚无运行环境时先执行 `setup`。GUI 与 CLI 共用设置目录：优先使用更新器保留的自定义目录；否则复用已有的 `%LOCALAPPDATA%\Weims\Manager-Preview`，全新正式版使用 `%LOCALAPPDATA%\Weims\Manager`。可通过 `--data-dir` 指定其他目录。不要重复启动同一磁盘。`shutdown` 请求 macOS 退出所有应用并关机，有未保存的文档时 macOS 会先询问；客户机关机后 QEMU 自动退出。`stop` 只用于 1.1.0 及更早版本启动、关机后仍残留的 QEMU。
 
 [1.2.0-pre.1 发布说明](https://github.com/H0yeR404/weims-vgpu/blob/v1.2.0-pre.1/docs/prerelease-1.2.0-pre.1.zh-CN.md)。本版配套运行组件 1.2.0-pre.1，虚拟机关闭后 QEMU 立即退出。
 

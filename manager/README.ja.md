@@ -4,7 +4,7 @@
 
 > **既知の問題：解像度変更時などに VM がフリーズする可能性があります。既知の問題として今後の更新で修正予定です。重要なデータをバックアップしてください。** 管理アプリは開発中です。自動準備から Tahoe 復旧画面までを本機で確認しましたが、新規インストールからデスクトップまでの全工程は未検証です。
 
-必要環境：Windows 10 2004+/11 x64、BIOS/UEFI の仮想化、**Windows ハイパーバイザー プラットフォーム（WHPX）**、`VK_EXT_external_memory_host` 対応の Vulkan GPU とドライバー。「Windows の機能の有効化または無効化」で WHPX を有効にして再起動してください。アプリは BIOS や Windows 機能を自動変更しません。配布版には **WSL2、MSYS2、Rust、.NET SDK は不要**です。GitHub、Apple、上流のダウンロードサーバーへの接続が必要です。
+必要環境：Windows 10 2004+/11 x64、BIOS/UEFI の仮想化、**Windows ハイパーバイザー プラットフォーム（WHPX）**、Vulkan 1.3 対応の GPU とドライバー。「Windows の機能の有効化または無効化」で WHPX を有効にして再起動してください。アプリは BIOS や Windows 機能を自動変更しません。配布版には **WSL2、MSYS2、Rust、.NET SDK は不要**です。GitHub、Apple、上流のダウンロードサーバーへの接続が必要です。
 
 ### インストールと VM 作成
 
@@ -14,7 +14,7 @@
 4. 起動し、OpenCore で復旧項目を選びます（非表示の場合は **Space**）。**ディスクユーティリティ → すべてのデバイスを表示**で容量を確認し、**新規の空システムディスクだけ**を **GUID パーティションマップ / APFS** で消去します。復旧ディスクや OpenCore ディスクを消去しないでください。
 5. ディスクユーティリティを閉じ、**macOS Tahoe を再インストール**で新しいボリュームを選びます。ダウンロードと再起動を待ち、進行に応じてインストーラー／システムを選択します。デスクトップに到達したら正常終了し（VM ウィンドウは自動的に閉じます）、復旧イメージの接続を解除し、保存後に再起動します。
 
-新規 VM は**ウィンドウサイズに合わせたゲスト解像度変更**と自由なポインター移動が既定です。ログイン後に独立した Reims ウィンドウをドラッグします。既存 VM は停止後、**Display & Input → Auto fit guest resolution** を選択し、枠なし表示を無効にして保存します。起動解像度は **800–4096 × 600–2160**、**2560×1440 は本機のみで検証済み**です。Fixed は全画面を拡縮し、Compatibility は従来の動作を維持します。応答しなくなった場合はログを保存し、可能なら正常終了してください。クリップボード共有には Guest Tools（後述）が必要です。ファイル共有は含まれません。
+macOS の解像度は VM のウィンドウに追従します。ウィンドウの端をドラッグすると、画面が新しい大きさを埋めます。ウィンドウは **Display & Input** で設定した起動解像度（**800–4096 × 600–2160**）で開きます。新規 VM は自由なポインター移動が既定で、ポインターはウィンドウを自由に出入りし、Windows のショートカットもそのまま使えます。オフにすると、ウィンドウ内のクリックでキーボードとポインターがキャプチャされ、**Ctrl+Alt+Win** で解放します。相対的なマウス移動が必要なゲームはこのモードを使います。macOS から音が出ます。クリップボード共有には Guest Tools（後述）が必要です。ファイル共有は含まれません。
 
 ### コマンドライン（インストーラー・ポータブル版に同梱）
 
@@ -22,12 +22,12 @@
 
 ```powershell
 .\Weims.Cli.exe create --destination D:\VMs\macOS-Tahoe --disk-gib 200
-.\Weims.Cli.exe start --config D:\VMs\macOS-Tahoe\state\config.json --display-mode auto
+.\Weims.Cli.exe start --config D:\VMs\macOS-Tahoe\state\config.json
 .\Weims.Cli.exe status --config D:\VMs\macOS-Tahoe\state\config.json
 .\Weims.Cli.exe shutdown --config D:\VMs\macOS-Tahoe\state\config.json
 ```
 
-既存 200 GiB VM は実際の `state/config.json` を `start` に渡します。ディスクを作り直さないでください。実行環境がない場合は先に `setup` を実行します。GUI と CLI は同じ設定を使用します。更新時に保持したカスタムフォルダーを優先し、それがなければ既存の `%LOCALAPPDATA%\Weims\Manager-Preview` を再利用します。新規インストールは `%LOCALAPPDATA%\Weims\Manager` を使用します。`--data-dir` で別の設定フォルダーを指定できます。同じディスクを二重起動しないでください。`shutdown` は macOS にすべてのアプリを終了してシステムを終了するよう要求します。未保存の書類がある場合は macOS が先に確認し、ゲストの電源が切れると QEMU は終了します。`stop` は 1.1.0 以前で起動し、終了後も QEMU が残った VM にのみ必要です。
+既存 200 GiB VM は実際の `state/config.json` を `start` に渡します。ディスクを作り直さないでください。以前のバージョンで作成した VM は、最初の起動時にブートイメージを作り直し、現在のランタイムのグラフィックスドライバーを入れます。Mac の識別情報は変わらず、元のイメージは `OpenCore.img.previous` として残ります。実行環境がない場合は先に `setup` を実行します。GUI と CLI は同じ設定を使用します。更新時に保持したカスタムフォルダーを優先し、それがなければ既存の `%LOCALAPPDATA%\Weims\Manager-Preview` を再利用します。新規インストールは `%LOCALAPPDATA%\Weims\Manager` を使用します。`--data-dir` で別の設定フォルダーを指定できます。同じディスクを二重起動しないでください。`shutdown` は macOS にすべてのアプリを終了してシステムを終了するよう要求します。未保存の書類がある場合は macOS が先に確認し、ゲストの電源が切れると QEMU は終了します。`stop` は 1.1.0 以前で起動し、終了後も QEMU が残った VM にのみ必要です。
 
 [1.2.0-pre.1 リリースノート](https://github.com/H0yeR404/weims-vgpu/blob/v1.2.0-pre.1/docs/prerelease-1.2.0-pre.1.ja.md)。このバージョンにはランタイム 1.2.0-pre.1 が付属し、VM を閉じると QEMU がすぐに終了します。
 
