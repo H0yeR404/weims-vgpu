@@ -51,7 +51,7 @@ public static class RecoveryService
             var c = new VmConfig(Path.Combine(r.Destination, "state", "config.json"), new JsonObject());
             c.Data["schema"] = 1; c.Data["lane"] = "reims-graphics-pci"; c.Data["display_name"] = r.Name; c.Data["disk_gib"] = r.DiskGiB;
             c.Cpus = 8; c.MemoryMiB = 8192; c.Resolution = "1920x1080";
-            c.DisplayMode = engine.SupportsDisplayPolicy ? "auto" : "legacy";
+            c.DisplayMode = "auto";
             c.Mac = "52:54:00:" + string.Join(":", RandomNumberGenerator.GetBytes(3).Select(b => b.ToString("x2")));
             c.Disk = disk; c.Rom = Copy(r.Rom, "ReimsGraphics.rom"); c.QmpPort = r.QmpPort; c.SshPort = r.SshPort;
             c.OpenCore = Copy(r.OpenCore, "OpenCore.img"); c.FirmwareCode = Copy(r.Code, "OVMF_CODE.fd"); c.FirmwareVars = Copy(r.Vars, "OVMF_VARS.fd");

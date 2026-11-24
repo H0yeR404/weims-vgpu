@@ -49,12 +49,12 @@
 <sys:String x:Key="S48">启动分辨率</sys:String>
 <sys:String x:Key="S49">参考机器已验证 2560 × 1440。自定义范围：800–4096 × 600–2160；更高分辨率需在你的设备上测试。</sys:String>
 <sys:String x:Key="S50">以无边框全屏启动</sys:String>
-<sys:String x:Key="S51">关闭后可拖动窗口边缘。自动模式在首次拖动后跟随窗口像素尺寸；固定模式保持启动分辨率并缩放画面。</sys:String>
+<sys:String x:Key="S51">关闭后是普通窗口，可拖动边缘调整大小，macOS 的分辨率随之改变。</sys:String>
 <sys:String x:Key="S52">鼠标与键盘</sys:String>
 <sys:String x:Key="S53">允许鼠标自由移出虚拟机窗口</sys:String>
-<sys:String x:Key="S54">需要带输入扩展的显示后端；运行环境检查会验证支持情况。</sys:String>
+<sys:String x:Key="S54">需要本项目构建的运行组件；上游原版没有自由鼠标。</sys:String>
 <sys:String x:Key="S55">捕获模式释放快捷键</sys:String>
-<sys:String x:Key="S56">Ctrl + Alt + Win  或  Ctrl + Alt + Home</sys:String>
+<sys:String x:Key="S56">Ctrl + Alt + Win</sys:String>
 <sys:String x:Key="S57">自由鼠标模式保留宿主系统快捷键。鼠标移出不等于剪贴板共享或文件拖放。</sys:String>
 <sys:String x:Key="S58">保存显示设置</sys:String>
 <sys:String x:Key="S59">从你的恢复镜像开始，逐步准备 macOS。</sys:String>
@@ -84,7 +84,7 @@
 <sys:String x:Key="S81">运行依赖目录 / MSYS2 bin</sys:String>
 <sys:String x:Key="S82">QEMU pc-bios 目录</sys:String>
 <sys:String x:Key="S83">PowerShell 7 可执行文件</sys:String>
-<sys:String x:Key="S84">qemu-img.exe 和 reims_vgpu_c.dll 应与 QEMU 放在同一目录。默认使用共享内存新通道。</sys:String>
+<sys:String x:Key="S84">qemu-img.exe、reims-vgpu-compile.exe 及它们加载的 DLL 应与 QEMU 放在同一目录。</sys:String>
 <sys:String x:Key="S85">检查并保存环境</sys:String>
 <sys:String x:Key="S86">Weims 自动准备软件组件；BIOS 虚拟化、Windows 虚拟机监控程序平台和显卡驱动可能仍需你按提示处理。</sys:String>
 <sys:String x:Key="S87">检查启动参数，查看最近一次运行记录。</sys:String>
@@ -161,7 +161,7 @@
 <sys:String x:Key="S159">缺少文件：</sys:String>
 <sys:String x:Key="S160">CPU 配置无效。</sys:String>
 <sys:String x:Key="S161">缺少运行组件：</sys:String>
-<sys:String x:Key="S162">请选择 MSYS2 UCRT64 bin 和 QEMU pc-bios 目录。</sys:String>
+<sys:String x:Key="S162">请选择运行库目录和 QEMU 固件目录。</sys:String>
 <sys:String x:Key="S163">WEIMS_OSK 覆盖值应为 64 个 ASCII 字符，不能包含空格或换行。移除该环境变量即可使用内置默认值。</sys:String>
 <sys:String x:Key="S164">当前显示后端不支持自由鼠标。请安装输入扩展版或关闭此选项。</sys:String>
 <sys:String x:Key="S165">无效的 QMP 握手。</sys:String>
@@ -193,10 +193,8 @@
 <sys:String x:Key="S191">本机端口 {port} 已被占用，请修改网络设置。</sys:String>
 <sys:String x:Key="S192">无法运行：</sys:String>
 <sys:String x:Key="S193">{Path.GetFileName(exe)} 退出码 {process.ExitCode}\n</sys:String>
-<sys:String x:Key="S194">窗口调整方式</sys:String>
-<sys:String x:Key="S195">兼容模式（保留原有行为）</sys:String>
-<sys:String x:Key="S196">自动适应窗口分辨率</sys:String>
-<sys:String x:Key="S197">固定客户机分辨率</sys:String>
+<sys:String x:Key="S194">窗口大小</sys:String>
+<sys:String x:Key="S195">macOS 跟随窗口：调整窗口大小，macOS 的分辨率随之改变。上面的分辨率是窗口打开时的大小。</sys:String>
 <sys:String x:Key="S198">从 Apple 自动下载 macOS Tahoe 恢复镜像</sys:String>
 <sys:String x:Key="S199">自动准备运行环境、OpenCore、固件与图形驱动，无需安装 Python、MSYS2 或 WSL。此过程需要联网。</sys:String>
 <sys:String x:Key="S200">高级选项 · 自备引导文件</sys:String>

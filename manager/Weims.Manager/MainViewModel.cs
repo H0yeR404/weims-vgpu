@@ -54,14 +54,9 @@ public sealed class MainViewModel : Observable
         Engine = File.Exists(engineFile) ? JsonSerializer.Deserialize<EngineSettings>(File.ReadAllText(engineFile)) ?? new() : new();
         if (repo != null && string.IsNullOrEmpty(Engine.Qemu))
         {
-            var inputRuntime = Path.Combine(repo, "build", "manager-runtime", "qemu-system-x86_64.exe");
-            var displayRuntime = Path.Combine(repo, "build", "manager-display-runtime", "qemu-system-x86_64.exe");
-            if (File.Exists(displayRuntime)) inputRuntime = displayRuntime;
-            Engine.Qemu = File.Exists(inputRuntime) ? inputRuntime : Path.Combine(repo, "build", "port-qemu", "qemu-system-x86_64.exe");
-            Engine.Bios = Path.Combine(repo, "sources", "qemu", "pc-bios");
-            var msys = Environment.GetEnvironmentVariable("WEIMS_MSYS2");
-            var adjacent = Path.GetFullPath(Path.Combine(repo, "..", "..", "tools", "msys64", "ucrt64", "bin"));
-            Engine.RuntimeBin = msys != null ? Path.Combine(msys, "ucrt64", "bin") : Directory.Exists(adjacent) ? adjacent : @"C:\msys64\ucrt64\bin";
+            // In a source checkout with no saved settings, the runtime scripts/build.ps1 assembled.
+            var built = Path.Combine(repo, "build", "weims-runtime");
+            Engine.Qemu = Path.Combine(built, "qemu-system-x86_64.exe"); Engine.RuntimeBin = built; Engine.Bios = Path.Combine(built, "pc-bios");
         }
         var library = Path.Combine(data, "library.json");
         if (File.Exists(library)) foreach (var path in JsonSerializer.Deserialize<string[]>(File.ReadAllText(library)) ?? [])

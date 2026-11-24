@@ -10,7 +10,7 @@ public static class GuidedSetup
 {
     public static string Helper(EngineSettings engine) => Path.Combine(Path.GetDirectoryName(engine.Qemu) ?? "", "reims-util.exe");
     public static string BootFiles(EngineSettings engine) => Path.Combine(Path.GetDirectoryName(engine.Qemu) ?? "", "boot");
-    public static bool Available(EngineSettings engine) => engine.SupportsDisplayPolicy && File.Exists(Helper(engine)) && File.Exists(Path.Combine(BootFiles(engine), "ReimsGraphics.rom"));
+    public static bool Available(EngineSettings engine) => File.Exists(Helper(engine)) && File.Exists(Path.Combine(BootFiles(engine), "ReimsGraphics.rom"));
 
     public static async Task EnsureRuntime(EngineSettings engine, string data, IProgress<string> progress, CancellationToken token)
     {
@@ -43,9 +43,7 @@ public static class GuidedSetup
         // One helper uses the shared download cache at a time, including across CLI/GUI processes.
         using var preparationLock = new FileStream(Path.Combine(data, "preparation.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         string boot = BootFiles(engine);
-        var args = new List<string> { "--json", "opencore", "-o", Path.Combine(work, "OpenCore.img"), "--show-picker", "--text-picker", "--disable-sip" };
-        foreach (string kext in new[] { "Graft.kext", "ReimsGraphics.kext", "RgfxGate.kext" })
-        { args.Add("--add-kext"); args.Add(Path.Combine(boot, kext) + ",20.0.0"); }
+        var args = BootImage.HelperArguments(engine, Path.Combine(work, "OpenCore.img"));
         progress.Report(Text.Get("生成独立 OpenCore 并准备固件…", "Generating independent OpenCore and preparing firmware…"));
         await RunHelper(engine, args, data, progress, token);
         if (string.IsNullOrWhiteSpace(image))
@@ -60,7 +58,7 @@ public static class GuidedSetup
         var request = new RecoveryRequest(name, destination, image!, diskGiB, Path.Combine(work, "OpenCore.img"),
             Path.Combine(work, "OVMF_CODE.fd"), Path.Combine(work, "OVMF_VARS.fd"), Path.Combine(boot, "ReimsGraphics.rom"), ports.Qmp, ports.Ssh);
         var config = await RecoveryService.Create(request, engine, progress, token);
-        config.FreePointer = true; config.DisplayMode = "auto"; config.Save();
+        config.FreePointer = engine.SupportsFreePointer; config.DisplayMode = "auto"; config.BootSet = BootImage.SetId(engine) ?? ""; config.Save();
         foreach (var license in Directory.EnumerateFiles(work, "*License*")) File.Copy(license, Path.Combine(config.DirectoryPath, "firmware", Path.GetFileName(license)));
         return config;
     }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Broker tests. The guest helper is played by a loopback client; the Windows clipboard is never read
 // or written here (the clipboard rules are tested against a stand-in), and no macOS guest is involved.
-// With two arguments (repository-root msys2-ucrt64-bin) the real Weims.Broker.exe is also run against
+// With one argument (repository-root, with build/weims-runtime) the real Weims.Broker.exe is also run against
 // a diskless test QEMU.
 using System.Buffers.Binary;
 using System.Diagnostics;
@@ -597,8 +597,8 @@ try
     }
 
     // ---- The real broker process against a diskless test QEMU ----
-    if (args.Length == 2) await ProcessChecks(Path.GetFullPath(args[0]), Path.GetFullPath(args[1]));
-    else Console.WriteLine("INFO process checks skipped: pass repository-root and msys2-ucrt64-bin to run them");
+    if (args.Length == 1) await ProcessChecks(Path.GetFullPath(args[0]));
+    else Console.WriteLine("INFO process checks skipped: pass repository-root to run them");
 
     Console.WriteLine($"{passed} broker checks passed.");
     return 0;
@@ -607,9 +607,10 @@ finally { try { Directory.Delete(temp, true); } catch (IOException) { } }
 
 VmConfig NewVmWithRuntime(string name) { var c = NewVm(name); c.IntegrationEnabled = true; JsonFiles.Write(c.RuntimePath, new JsonObject { ["pid"] = Environment.ProcessId, ["qmp_socket"] = @"C:\x\y.sock" }); return c; }
 
-async Task ProcessChecks(string repo, string runtimeBin)
+async Task ProcessChecks(string repo)
 {
-    var engine = new EngineSettings { Qemu = Path.Combine(repo, "build", "manager-runtime", "qemu-system-x86_64.exe"), RuntimeBin = runtimeBin, Bios = Path.Combine(repo, "sources", "qemu", "pc-bios") };
+    string runtimeBin = Path.Combine(repo, "build", "weims-runtime");
+    var engine = new EngineSettings { Qemu = Path.Combine(runtimeBin, "qemu-system-x86_64.exe"), RuntimeBin = runtimeBin, Bios = Path.Combine(runtimeBin, "pc-bios") };
     engine.Validate();
     var broker = Path.Combine(repo, "manager", "Weims.Broker", "bin", "Release", "net10.0-windows", "Weims.Broker.exe");
     if (!File.Exists(broker)) throw new FileNotFoundException("Build Weims.Broker in Release first: " + broker);

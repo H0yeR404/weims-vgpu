@@ -13,7 +13,7 @@ internal static class VulkanProbe
     [DllImport("vulkan-1.dll")] static extern int vkCreateInstance(ref InstanceInfo info, IntPtr allocator, out IntPtr instance);
     [DllImport("vulkan-1.dll")] static extern void vkDestroyInstance(IntPtr instance, IntPtr allocator);
     [DllImport("vulkan-1.dll")] static extern int vkEnumeratePhysicalDevices(IntPtr instance, ref uint count, IntPtr devices);
-    [DllImport("vulkan-1.dll")] static extern int vkEnumerateDeviceExtensionProperties(IntPtr device, IntPtr layer, ref uint count, IntPtr properties);
+    [DllImport("vulkan-1.dll")] static extern void vkGetPhysicalDeviceProperties(IntPtr device, IntPtr properties);
     public static bool Check(out string detail)
     {
         var info = new InstanceInfo { Type = 1 };
@@ -26,20 +26,21 @@ internal static class VulkanProbe
             try
             {
                 if (vkEnumeratePhysicalDevices(instance, ref count, devices) != 0) throw new IOException("Cannot enumerate Vulkan devices.");
-                for (int i = 0; i < count; i++)
+                // The runtime needs Vulkan 1.3 and checks the features it uses itself as a VM starts, naming what a
+                // GPU lacks in the VM's log. VkPhysicalDeviceProperties begins with apiVersion and is under 1 KiB.
+                IntPtr properties = Marshal.AllocHGlobal(1024);
+                try
                 {
-                    IntPtr device = Marshal.ReadIntPtr(devices, i * IntPtr.Size); uint n = 0;
-                    if (vkEnumerateDeviceExtensionProperties(device, IntPtr.Zero, ref n, IntPtr.Zero) != 0 || n > 4096) continue;
-                    IntPtr extensions = Marshal.AllocHGlobal(checked((int)n * 260));
-                    try
+                    for (int i = 0; i < count; i++)
                     {
-                        if (vkEnumerateDeviceExtensionProperties(device, IntPtr.Zero, ref n, extensions) != 0) continue;
-                        for (int j = 0; j < n; j++) if (Marshal.PtrToStringAnsi(extensions + j * 260) == "VK_EXT_external_memory_host")
-                        { detail = Text.Get("已检测到 GPU 与共享内存扩展；最终兼容性以启动为准。", "GPU and shared-memory extension found; final compatibility is checked at VM startup."); return true; }
+                        vkGetPhysicalDeviceProperties(Marshal.ReadIntPtr(devices, i * IntPtr.Size), properties);
+                        uint version = (uint)Marshal.ReadInt32(properties);
+                        if (version >> 22 > 1 || (version >> 22 == 1 && ((version >> 12) & 0x3ff) >= 3))
+                        { detail = Text.Get("已检测到支持 Vulkan 1.3 的 GPU；最终兼容性以启动为准。", "A GPU with Vulkan 1.3 was found; final compatibility is checked at VM startup."); return true; }
                     }
-                    finally { Marshal.FreeHGlobal(extensions); }
                 }
-                detail = Text.Get("GPU 缺少 VK_EXT_external_memory_host；请更新显卡驱动。", "GPU lacks VK_EXT_external_memory_host; update your GPU driver."); return false;
+                finally { Marshal.FreeHGlobal(properties); }
+                detail = Text.Get("没有支持 Vulkan 1.3 的 GPU；请更新显卡驱动。", "No GPU supports Vulkan 1.3; update your GPU driver."); return false;
             }
             finally { Marshal.FreeHGlobal(devices); }
         }

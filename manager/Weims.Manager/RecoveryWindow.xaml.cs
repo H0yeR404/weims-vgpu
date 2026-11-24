@@ -48,6 +48,8 @@ public partial class RecoveryWindow : Window
                 var spare = GuidedSetup.FreePorts(); int legacyQmp = spare.Qmp != ssh ? spare.Qmp : spare.Ssh;
                 var request = new RecoveryRequest(name, destination, ImagePath.Text, size, OpenCorePath.Text, CodePath.Text, VarsPath.Text, RomPath.Text, legacyQmp, ssh);
                 Created = await RecoveryService.Create(request, engine, progress, cancellation.Token);
+                // Boot files of the user's own are theirs to keep current; a start never replaces them.
+                Created.BootSet = VmConfig.OwnBootFiles; Created.Save();
             }
             cancellation.Dispose(); cancellation = null; DialogResult = true;
         }

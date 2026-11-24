@@ -6,7 +6,7 @@ try
 {
     if (args.Length == 0 || args[0] is "--help" or "help")
     {
-        Console.WriteLine("Weims 1.2.0-pre.1 — Windows x64\nKnown issue: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH [--display-mode auto|fixed|legacy]\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only for a VM started by 1.1.0 or older, after guest shutdown)\nWeims.Cli tools-enable|tools-disable --config PATH (Guest Tools: clipboard sharing with macOS; off by default)\nWeims.Cli tools-status --config PATH\nWeims.Cli tools-install --config PATH (puts the Guest Tools install disk into the running VM; installing from it pairs without input)\nWeims.Cli tools-pair --config PATH (pairs with Weims Guest Tools in macOS: both show a four-digit number to compare)\nWeims.Cli tools-reset-pairing --config PATH\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown asks macOS to quit all apps and shut down; it asks about unsaved documents first. QEMU exits when the guest has powered off.");
+        Console.WriteLine("Weims 1.2.0-pre.1 — Windows x64\nKnown issue: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only for a VM started by 1.1.0 or older, after guest shutdown)\nWeims.Cli tools-enable|tools-disable --config PATH (Guest Tools: clipboard sharing with macOS; off by default)\nWeims.Cli tools-status --config PATH\nWeims.Cli tools-install --config PATH (puts the Guest Tools install disk into the running VM; installing from it pairs without input)\nWeims.Cli tools-pair --config PATH (pairs with Weims Guest Tools in macOS: both show a four-digit number to compare)\nWeims.Cli tools-reset-pairing --config PATH\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown asks macOS to quit all apps and shut down; it asks about unsaved documents first. QEMU exits when the guest has powered off.");
         return 0;
     }
     string command = args[0];
@@ -44,7 +44,10 @@ try
         if (command == "start" && EnvironmentSetup.RuntimeOutdated(engine, data)) Console.Error.WriteLine("This version comes with a newer runtime than the installed one. Run: Weims.Cli setup");
         if (command == "start")
         {
+            // --display-mode is accepted for command lines written for earlier versions; it no longer changes anything.
             if (options.TryGetValue("--display-mode", out var mode)) c.DisplayMode = mode;
+            await VmService.RequireStopped(c);
+            await BootImage.EnsureCurrent(c, engine, data, progress, cancel.Token);
             Console.WriteLine("Logs: " + await VmService.Start(c, engine, "", Path.Combine(AppContext.BaseDirectory, "launch-vm.ps1")));
         }
         else if (command == "status")

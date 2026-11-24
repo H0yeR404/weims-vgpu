@@ -27,7 +27,7 @@ internal static class Program
             config.Cpus=8; config.MemoryMiB=32768; config.Resolution="1920x1080"; config.Mac="52:54:00:12:34:56";
             config.Disk=Touch("current.qcow2"); config.OpenCore=Touch("OpenCore.img"); config.FirmwareCode=Touch("CODE.fd"); config.FirmwareVars=Touch("VARS.fd"); config.Rom=Touch("Graphics.rom"); config.Save();
             var model = new MainViewModel(Path.Combine(fixture,"preferences"), null);
-            model.Engine.Qemu=Touch("qemu-system-x86_64.exe"); Touch("qemu-img.exe"); Touch("reims_vgpu_c.dll"); model.Engine.RuntimeBin=fixture; model.Engine.Bios=fixture;
+            model.Engine.Qemu=Touch("qemu-system-x86_64.exe"); Touch("qemu-img.exe"); Touch("reims-vgpu-compile.exe"); model.Engine.RuntimeBin=fixture; model.Engine.Bios=fixture;
             model.Add(config.ConfigPath); model.CanEdit=true; model.Status="已停止";
             var w = new MainWindow(model, detectOnLoad: false); w.Show(); Pump();
             int checks=0;
@@ -42,12 +42,9 @@ internal static class Program
             Check(rejected,"invalid field on inactive page blocks model validation");
             model.Page=1; Pump(); ssh.SetCurrentValue(TextBox.TextProperty,"2233"); ssh.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
             model.Page=2; Pump(); var resolution=(ComboBox)w.FindName("Resolution"); resolution.SetCurrentValue(ComboBox.TextProperty,"2560x1440"); resolution.GetBindingExpression(ComboBox.TextProperty)!.UpdateSource();
-            string displayHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(fixture,"reims_vgpu_c.dll"))));
-            JsonFiles.Write(Path.Combine(fixture,"weims-display-v1.json"),new { capability="adaptive-display-v1", dll_sha256=displayHash });
-            var displayMode=(ComboBox)w.FindName("DisplayMode"); displayMode.SelectedValue="auto"; Pump();
+            Check(w.FindName("DisplayMode")==null,"display mode is no longer a user setting");
             var save=Descendants(w).OfType<Button>().Single(b=>Equals(b.Content,"保存显示设置")); save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
             Check(VmConfig.Load(config.ConfigPath).Resolution=="2560x1440","display save accepts tested 1440p through actual button handler");
-            Check(VmConfig.Load(config.ConfigPath).DisplayMode=="auto","display policy saved through actual control");
             Check(!((CheckBox)w.FindName("FreePointer")).IsEnabled,"unsupported free pointer disabled");
             model.CanEdit=false; Pump(); Check(!save.IsEnabled,"running-state configuration disabled");
             // Guest Tools: its own section on this page, usable while the VM runs, stored without touching other fields.
@@ -90,7 +87,7 @@ internal static class Program
             Check(Until(()=>integrationStatus.Text=="集成：关闭" && !VmConfig.Load(config.ConfigPath).IntegrationEnabled && !model.Busy), "switching Guest Tools off is stored and shown");
             w.Width=960; w.Height=660; Pump(); Shot(w,Path.Combine(output,"display-minimum.png"));
             model.Page=5; Pump(); var preview=Descendants(w).OfType<Button>().Single(b=>Equals(b.Content,"预览启动参数")); preview.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
-            Check(model.Details.Contains("resolution=2560x1440")&&model.Details.Contains("WEIMS_DISPLAY_MODE=auto")&&model.Details.Contains("<redacted>"),"UI preview uses edited display policy and redacts key");
+            Check(model.Details.Contains("resolution=2560x1440")&&model.Details.Contains("memory-backend-ram,id=ram,size=32768M,share=on")&&model.Details.Contains("<redacted>"),"UI preview shows the edited resolution and the shared RAM backend, and redacts the key");
             var wizard = new RecoveryWindow(model.Engine,null) { Owner=w }; wizard.Show(); Pump(); Shot(wizard,Path.Combine(output,"recovery-wizard.png")); wizard.Close();
             w.Close();
             Text.Chinese = false;

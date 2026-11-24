@@ -48,11 +48,8 @@ public partial class MainWindow : Window
     void EnsureValidFields() { if (HasErrors(this)) throw new InvalidDataException(Text.Get("请修正红框中的输入；端口必须是整数。", "Correct the highlighted fields; ports must be integers.")); }
     void UpdateCapability()
     {
-        DisplayHint.Text = vm.Engine.SupportsDisplayPolicy
-            ? Text.Get("显示扩展已验证。自动模式在拖动停稳约 200 ms 后调整 macOS 分辨率；固定模式只缩放画面。保存后下次启动生效。", "Display extension verified. Auto fit adjusts macOS resolution about 200 ms after resizing settles. Fixed mode scales the picture. Saved changes apply at the next start.")
-            : Text.Get("当前运行包不支持新的显示策略，请使用兼容模式。自动适应与固定模式需要显示扩展运行包。", "Use Compatibility with this runtime. Auto fit and fixed resolution require the display extension runtime.");
         FreePointer.IsEnabled = vm.Engine.SupportsFreePointer;
-        PointerHint.Text = FreePointer.IsEnabled ? Text.Get("输入扩展已验证。开启后鼠标可直接移出窗口；关闭后点击捕获，使用快捷键释放。", "Input extension verified. Enable to move the pointer freely; otherwise click to capture and use the shortcut to release.") : Text.Get("当前后端没有经校验的输入扩展，暂不可开启。请按 manager 文档构建输入扩展版。", "No verified input extension found. Build the extended backend using the manager guide, or use automatic setup.");
+        PointerHint.Text = FreePointer.IsEnabled ? Text.Get("开启后鼠标可直接移出窗口，Windows 快捷键照常可用；关闭后点击窗口捕获键盘和鼠标，按 Ctrl+Alt+Win 释放。游戏需要关闭此项才能使用相对鼠标。", "When on, the pointer moves freely in and out of the window and Windows keeps its shortcuts. When off, a click captures keyboard and pointer and Ctrl+Alt+Win releases them. Games need it off to get relative mouse motion.") : Text.Get("当前运行组件是上游原版，没有自由鼠标。点击窗口捕获键盘和鼠标，按 Ctrl+Alt+Win 释放。用“一键准备运行环境”可安装带自由鼠标的运行组件。", "This runtime is upstream's own and has no free pointer. A click captures keyboard and pointer; Ctrl+Alt+Win releases them. One-click setup installs the runtime that has it.");
     }
     void CloseWindow(object sender, RoutedEventArgs e) => Close();
     void MinimizeWindow(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
@@ -67,8 +64,7 @@ public partial class MainWindow : Window
     async void SaveVm(object sender, RoutedEventArgs e) => await Work(async () =>
     {
         EnsureValidFields(); var c = Current(); await VmService.RequireStopped(c);
-        vm.Engine.ValidateDisplay(c);
-        if (c.FreePointer && !vm.Engine.SupportsFreePointer) throw new InvalidOperationException(Text.Get("自由鼠标需要输入扩展版后端。", "Free pointer requires the extended input backend."));
+        if (c.FreePointer && !vm.Engine.SupportsFreePointer) throw new InvalidOperationException(Text.Get("当前运行组件不支持自由鼠标。", "This runtime does not support free pointer."));
         c.Save(); vm.Message = Text.Get("配置已保存，下次启动生效。", "Settings saved. Changes apply at the next start.");
     });
     async void StartVm(object sender, RoutedEventArgs e) => await Work(async () =>
@@ -78,6 +74,7 @@ public partial class MainWindow : Window
         Current().Validate();
         try { await EnsureRuntime(); }
         catch (OperationCanceledException) { vm.Message = Text.Get("已取消环境准备，虚拟机未启动。", "Setup cancelled. The VM was not started."); return; }
+        await BootImage.EnsureCurrent(Current(), vm.Engine, vm.DataDirectory, new Progress<string>(s => vm.Message = s), CancellationToken.None);
         string key = LaunchPlan.ResolveOsk(Environment.GetEnvironmentVariable("WEIMS_OSK"));
         var run = await VmService.Start(Current(), vm.Engine, key, Path.Combine(AppContext.BaseDirectory, "launch-vm.ps1"));
         vm.Message = Text.Get("已启动独立显示窗口。日志：", "Separate display started. Logs: ") + run;
@@ -102,7 +99,7 @@ public partial class MainWindow : Window
         var env = new Dictionary<string,string> { ["PATH"] = vm.Engine.RuntimeBin + ";" + Environment.GetEnvironmentVariable("PATH") };
         var version = await ProcessRunner.Run(vm.Engine.Qemu, new[] { "--version" }, env, limit.Token);
         var device = await ProcessRunner.Run(vm.Engine.Qemu, new[] { "-device", "reims-graphics-pci,help" }, env, limit.Token);
-        if (!device.Contains("guest-memory")) throw new InvalidOperationException(Text.Get("此 QEMU 不支持共享内存新通道。", "This QEMU does not support the shared-memory graphics path."));
+        if (device.Contains("guest-memory")) throw new InvalidOperationException(Text.Get("此 QEMU 属于 1.2 及更早版本，与当前版本不兼容。", "This QEMU belongs to version 1.2 or earlier and does not work with this version."));
         var accel = await ProcessRunner.Run(vm.Engine.Qemu, new[] { "-accel", "help" }, env, limit.Token);
         if (!accel.Contains("whpx")) throw new InvalidOperationException(Text.Get("此 QEMU 未编译 WHPX。", "This QEMU was built without WHPX."));
         await ProcessRunner.Run(vm.Engine.PowerShell, new[] { "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major" }, null, limit.Token);

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Package an already built Windows runtime, its dependency closure and source material.
+"""Package the runtime scripts/build.ps1 assembled (build/weims-runtime) with its licenses, and the
+source material that corresponds to it.
 
-Run cargo vendor --locked build/release-sources/vendor from sources/reims first.
-The output is local until all source downloads and executable checks have passed.
+--runtime-only writes the runtime ZIP alone, for local tests: no source archive, no download, and
+manager/runtime-catalog.json is left as it is.
 """
 import argparse
 import concurrent.futures
@@ -14,13 +15,14 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 import urllib.request
 import zipfile
-import tempfile
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--msys', required=True, type=Path)
-parser.add_argument('--version', default='1.1.0-pre.1')
+parser.add_argument('--msys', required=True, type=Path, help='the MSYS2 installation the runtime was built in')
+parser.add_argument('--version', required=True)
+parser.add_argument('--runtime-only', action='store_true')
 args = parser.parse_args()
 if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.]+)?', args.version):
     raise ValueError('Invalid release version')
@@ -28,123 +30,141 @@ version = args.version
 root = Path(__file__).resolve().parent.parent
 out = root / 'manager/artifacts/release'
 out.mkdir(parents=True, exist_ok=True)
-stage = Path(tempfile.mkdtemp(prefix='runtime-' + version + '-', dir=root / 'build'))
 msys = args.msys.resolve()
+runtime = root / 'build/weims-runtime'
+reims = root / 'sources/reims-vgpu'
+qemu = reims / 'vendor/qemu'
+util = root / 'sources/reims-util'
 
-def run(*cmd):
-    return subprocess.check_output(cmd, text=True, encoding='utf-8', errors='replace').strip()
 
-runtime = root / 'build/manager-display-runtime'
-for required in ['qemu-system-x86_64.exe','qemu-img.exe','reims_vgpu_c.dll','reims-util.exe','weims-input-v1.json','weims-display-v1.json','boot/ReimsGraphics.rom']:
-    if not (runtime / required).is_file(): raise RuntimeError('Missing runtime input: ' + required)
-queue = list(runtime.glob('*.exe')) + list(runtime.glob('*.dll'))
-files = {}
-while queue:
-    path = queue.pop()
-    if path.name.lower() in files:
-        continue
-    files[path.name.lower()] = path
-    for name in re.findall(r'DLL Name:\s*(\S+)', run(str(msys / 'ucrt64/bin/objdump.exe'), '-p', str(path))):
-        if (path.parent / name).exists():
-            queue.append(path.parent / name)
-        elif (msys / 'ucrt64/bin' / name).exists():
-            queue.append(msys / 'ucrt64/bin' / name)
-        elif not name.lower().startswith(('api-ms-', 'ext-ms-')) and not (Path(os.environ['SystemRoot']) / 'System32' / name).exists():
-            raise RuntimeError('Missing dependency ' + name)
+def run(*cmd, **kwargs):
+    return subprocess.check_output([str(c) for c in cmd], text=True, encoding='utf-8', errors='replace', **kwargs).strip()
 
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as stream:
+        for block in iter(lambda: stream.read(1 << 20), b''):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+# The runtime must be the one the sources on disk build: its record names the commit and QEMU's hash.
+record = json.loads((runtime / 'weims-runtime.json').read_text(encoding='utf-8-sig'))
+head = run('git', '-C', reims, 'rev-parse', 'HEAD')
+if record['source'] != 'reims-vgpu ' + head:
+    raise RuntimeError('build/weims-runtime was built from another commit than sources/reims-vgpu: run scripts/build.ps1')
+if record['qemu_sha256'] != sha256(runtime / 'qemu-system-x86_64.exe'):
+    raise RuntimeError('weims-runtime.json does not match qemu-system-x86_64.exe: run scripts/build.ps1')
+for required in ['qemu-img.exe', 'reims-vgpu-compile.exe', 'reims-util.exe', 'boot/ReimsGraphics.rom', 'boot/set.toml', 'pc-bios/bios-256k.bin']:
+    if not (runtime / required).is_file():
+        raise RuntimeError('Missing runtime input: ' + required)
+for source in json.loads((root / 'sources.json').read_text(encoding='utf-8')):
+    patch = source.get('patch')
+    if patch and run('git', '-C', root / 'sources' / source['name'], 'apply', '--reverse', '--check', root / patch, stderr=subprocess.STDOUT):
+        raise RuntimeError('Patch is not applied to its source: ' + patch)
+# reims-util is the one upstream's reims-ctl names; the build installed it at that commit.
+util_rev = re.search(r'pub const REV: &str\s*=\s*"([0-9a-f]{40})"', (reims / 'crates/reims-ctl/src/reims_util.rs').read_text(encoding='utf-8')).group(1)
+
+stage = Path(tempfile.mkdtemp(prefix='runtime-' + version + '-', dir=root / 'build'))
+shutil.copytree(runtime, stage, dirs_exist_ok=True)
+# Each DLL is a CLANG64 package's file, copied beside QEMU by upstream's installer.
 packages = {}
-for path in files.values():
-    shutil.copy2(path, stage / path.name)
-    if msys in path.parents:
-        owner = run(str(msys / 'usr/bin/pacman.exe'), '-Qoq', '/ucrt64/bin/' + path.name)
-        package_version = run(str(msys / 'usr/bin/pacman.exe'), '-Q', owner).split()[1]
-        desc = (msys / 'var/lib/pacman/local' / (owner + '-' + package_version) / 'desc').read_text(encoding='utf-8')
-        base = re.search(r'%BASE%\n([^\n]+)', desc).group(1)
-        packages[base] = package_version
-
-for marker in ['weims-input-v1.json', 'weims-display-v1.json']:
-    record = json.loads((runtime / marker).read_text(encoding='utf-8-sig'))
-    if record['dll_sha256'].lower() != hashlib.sha256((runtime / 'reims_vgpu_c.dll').read_bytes()).hexdigest():
-        raise RuntimeError('Stale capability marker: ' + marker)
-    shutil.copy2(runtime / marker, stage)
-shutil.copytree(runtime / 'boot', stage / 'boot')
-shutil.copytree(root / 'sources/reims-util/LICENSES', stage / 'licenses/reims-util')
-shutil.copy2(root / 'sources/reims-util/LICENSE', stage / 'licenses/reims-util/LICENSE')
-shutil.copytree(root / 'sources/reims/guest/graft/LICENSES', stage / 'licenses/Graft/LICENSES')
-shutil.copy2(root / 'sources/reims/guest/graft/LICENSE', stage / 'licenses/Graft/LICENSE')
-# Retain the original DLL, so the capability marker remains valid.
-bios = stage / 'pc-bios'
-bios.mkdir()
-for name in ['bios-256k.bin', 'kvmvapic.bin', 'efi-virtio.rom', 'pxe-virtio.rom', 'README']:
-    shutil.copy2(root / 'sources/qemu/pc-bios' / name, bios)
-shutil.copytree(msys / 'ucrt64/share/licenses', stage / 'licenses/MSYS2')
+for dll in sorted(runtime.glob('*.dll')):
+    if not (msys / 'clang64/bin' / dll.name).is_file():
+        raise RuntimeError('DLL is not from ' + str(msys) + ': ' + dll.name)
+    owner = run(msys / 'usr/bin/pacman.exe', '-Qoq', '/clang64/bin/' + dll.name)
+    package_version = run(msys / 'usr/bin/pacman.exe', '-Q', owner).split()[1]
+    desc = (msys / 'var/lib/pacman/local' / (owner + '-' + package_version) / 'desc').read_text(encoding='utf-8')
+    packages[re.search(r'%BASE%\n([^\n]+)', desc).group(1)] = package_version
+shutil.copytree(msys / 'clang64/share/licenses', stage / 'licenses/MSYS2')
 shutil.copytree(root / 'licenses', stage / 'licenses/upstream')
+shutil.copytree(reims / 'LICENSES', stage / 'licenses/reims-vgpu/LICENSES')
+shutil.copy2(reims / 'LICENSE', stage / 'licenses/reims-vgpu/LICENSE')
+shutil.copytree(reims / 'guest/graft/LICENSES', stage / 'licenses/Graft/LICENSES')
+shutil.copy2(reims / 'guest/graft/LICENSE', stage / 'licenses/Graft/LICENSE')
 shutil.copy2(root / 'LICENSE', stage)
 shutil.copy2(root / 'NOTICE.md', stage)
-source_dir = root / 'build/release-sources'
-source_dir.mkdir(exist_ok=True)
+
 manifest = []
+if not args.runtime_only:
+    if run('git', '-C', util, 'rev-parse', 'HEAD') != util_rev:
+        raise RuntimeError('sources/reims-util is not at the commit reims-ctl names (' + util_rev + '): update sources.json and fetch it')
+    shutil.copytree(util / 'LICENSES', stage / 'licenses/reims-util/LICENSES')
+    shutil.copy2(util / 'LICENSE', stage / 'licenses/reims-util/LICENSE')
+    source_dir = root / 'build/release-sources' / head[:12]
+    source_dir.mkdir(parents=True, exist_ok=True)
+    # The crates the library, the helper and reims-util are built from, metal2vulkan and SDL3 among them.
+    vendor = source_dir / 'vendor'
+    if not vendor.exists():
+        channel = re.search(r'^channel\s*=\s*"([^"]+)"', (reims / 'rust-toolchain.toml').read_text(encoding='utf-8'), re.M).group(1)
+        environment = dict(os.environ, RUSTUP_TOOLCHAIN=channel + '-x86_64-pc-windows-gnullvm')
+        subprocess.check_call(['cargo', 'vendor', '--locked', '--versioned-dirs', '--sync', str(util / 'Cargo.toml'), str(vendor) + '.partial'], cwd=reims, env=environment, stdout=subprocess.DEVNULL)
+        Path(str(vendor) + '.partial').rename(vendor)
 
-def download(item):
-    name, url = item
-    target = source_dir / name
-    if not target.exists():
-        with urllib.request.urlopen(url, timeout=90) as response, target.with_suffix('.partial').open('wb') as output:
-            shutil.copyfileobj(response, output)
-        target.with_suffix('.partial').replace(target)
-    digest = hashlib.sha256(target.read_bytes()).hexdigest()
-    print('Source:', name, flush=True)
-    return dict(file=name, url=url, sha256=digest)
+    def download(item):
+        name, url = item
+        target = source_dir / name
+        if not target.exists():
+            with urllib.request.urlopen(url, timeout=90) as response, target.with_suffix('.partial').open('wb') as output:
+                shutil.copyfileobj(response, output)
+            target.with_suffix('.partial').replace(target)
+        print('Source:', name, flush=True)
+        return dict(file=name, url=url, sha256=sha256(target))
 
-downloads = [(base + '-' + version + '.src.tar.zst', 'https://repo.msys2.org/mingw/sources/' + base + '-' + version + '.src.tar.zst') for base, version in packages.items()]
-downloads += [
-    ('seabios-b52ca86e.tar.gz', 'https://api.github.com/repos/coreboot/seabios/tarball/b52ca86e094d19b58e2304417787e96b940e39c6'),
-    ('ipxe-4bd064de.tar.gz', 'https://api.github.com/repos/ipxe/ipxe/tarball/4bd064de239dab2426b31c9789a1f4d78087dc63')]
-with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-    manifest = list(pool.map(download, downloads))
-(stage / 'dependency-sources.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
-vendor = source_dir / 'vendor'
-if not vendor.exists():
-    raise RuntimeError('Run cargo vendor first')
-for path in vendor.rglob('*'):
-    if path.is_file() and path.name.upper().startswith(('LICENSE', 'COPYING', 'NOTICE', 'AUTHORS', 'COPYRIGHT')):
-        dest = stage / 'licenses/Cargo' / path.relative_to(vendor)
-        dest.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(path, dest)
-with zipfile.ZipFile(out / f'weims-runtime-{version}-sources.zip', 'w', zipfile.ZIP_DEFLATED, compresslevel=6, strict_timestamps=False) as archive:
-    for path in sorted(source_dir.rglob('*')):
-        if path.is_file() and '.partial' not in path.name:
-            archive.write(path, str(Path('dependencies') / path.relative_to(source_dir)))
-    for name in ['reims', 'qemu', 'metal2vulkan', 'reims-util']:
-        source = root / 'sources' / name
-        paths = run('git', '-C', str(source), 'ls-files', '--cached', '--others', '--exclude-standard').splitlines()
-        for relative in sorted(set(paths)):
-            path = source / relative
-            if path.is_file():
-                archive.write(path, str(Path('sources') / name / relative))
-    for name in ['dtc', 'keycodemapdb']:
-        source = root / 'sources/qemu/subprojects' / name
-        for path in sorted(source.rglob('*')):
-            if path.is_file() and '.git' not in path.relative_to(source).parts:
-                archive.write(path, str(Path('sources/qemu/subprojects') / name / path.relative_to(source)))
-    for folder in ['scripts', 'patches', 'licenses']:
-        for path in (root / folder).rglob('*'):
-            if path.is_file(): archive.write(path, str(path.relative_to(root)))
-    for relative in ['sources.json', 'NOTICE.md', 'LICENSE', 'docs/reproduce.md', 'manager/build-input.ps1', 'manager/build-display.ps1', 'manager/build-setup.ps1', 'manager/patches/free-pointer.patch', 'manager/patches/adaptive-display.patch', 'manager/package-runtime.py']:
-        archive.write(root / relative, relative)
-    archive.writestr('dependency-sources.json', json.dumps(manifest, indent=2))
-    archive.writestr('BUILD-SOURCES.txt', f'Sources under sources/ already include the downstream, input and adaptive-display patches. Do not apply them twice. Build with scripts/build.ps1 using the toolchain and MSYS2 requirements in docs/reproduce.md. Build reims-util with cargo build --manifest-path sources/reims-util/Cargo.toml --locked --release (pin84e5c98ae7fa6b0b68e7be690525dda29697ab34). dependencies/vendor contains combined Cargo dependencies and licenses; configure source replacement for offline access. dependencies/*.src.tar.zst contain exact MSYS2 source packages and PKGBUILDs. Firmware sources are the SeaBIOS/iPXE archives at the QEMU-pinned revisions. Manager and CLI sources are in repository tag v{version}. No macOS recovery image is distributed.\n')
+    downloads = [(base + '-' + v + '.src.tar.zst', 'https://repo.msys2.org/mingw/sources/' + base + '-' + v + '.src.tar.zst') for base, v in packages.items()]
+    # The firmware files under pc-bios are built from these submodules of QEMU, at the commits QEMU names.
+    for name, repository in [('seabios', 'coreboot/seabios'), ('ipxe', 'ipxe/ipxe')]:
+        commit = run('git', '-C', qemu, 'ls-tree', 'HEAD', 'roms/' + name).split()[2]
+        downloads.append((f'{name}-{commit[:8]}.tar.gz', f'https://api.github.com/repos/{repository}/tarball/{commit}'))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        manifest = list(pool.map(download, downloads))
+    for path in vendor.rglob('*'):
+        if path.is_file() and path.name.upper().startswith(('LICENSE', 'COPYING', 'NOTICE', 'AUTHORS', 'COPYRIGHT')):
+            dest = stage / 'licenses/Cargo' / path.relative_to(vendor)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, dest)
+    (stage / 'dependency-sources.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
+    with zipfile.ZipFile(out / f'weims-runtime-{version}-sources.zip', 'w', zipfile.ZIP_DEFLATED, compresslevel=6, strict_timestamps=False) as archive:
+        for path in sorted(source_dir.rglob('*')):
+            if path.is_file() and '.partial' not in path.name:
+                archive.write(path, str(Path('dependencies') / path.relative_to(source_dir)))
+        for name, source in [('reims-vgpu', reims), ('reims-vgpu/vendor/qemu', qemu), ('reims-util', util)]:
+            for relative in sorted(set(run('git', '-C', source, 'ls-files', '--cached', '--others', '--exclude-standard').splitlines())):
+                if (source / relative).is_file():
+                    archive.write(source / relative, str(Path('sources') / name / relative))
+        # What QEMU's build fetched into its own tree.
+        for subproject in sorted((qemu / 'subprojects').iterdir()):
+            if subproject.is_dir() and (subproject / '.git').exists():
+                for path in sorted(subproject.rglob('*')):
+                    if path.is_file() and '.git' not in path.relative_to(subproject).parts:
+                        archive.write(path, str(Path('sources/reims-vgpu/vendor/qemu/subprojects') / subproject.name / path.relative_to(subproject)))
+        for folder in ['scripts', 'licenses', 'manager/patches']:
+            for path in sorted((root / folder).rglob('*')):
+                if path.is_file():
+                    archive.write(path, str(path.relative_to(root)))
+        for relative in ['sources.json', 'NOTICE.md', 'LICENSE', 'docs/reproduce.md', 'manager/package-runtime.py']:
+            archive.write(root / relative, relative)
+        archive.writestr('dependency-sources.json', json.dumps(manifest, indent=2))
+        archive.writestr('BUILD-SOURCES.txt', f'sources/reims-vgpu is upstream reims-vgpu at {head} with the patches sources.json lists already applied; do not apply them twice. vendor/qemu inside it is the QEMU it builds. Build with scripts/build.ps1, which runs upstream\'s scripts/install-ctl.sh in an MSYS2 CLANG64 shell and assembles the runtime folder. sources/reims-util is the helper at {util_rev}, which that build installs. dependencies/vendor holds the Cargo dependencies of both, metal2vulkan and SDL3 among them; configure source replacement for offline builds. dependencies/*.src.tar.zst are the MSYS2 source packages of the DLLs shipped. The SeaBIOS and iPXE archives are the firmware sources at the commits QEMU names. Manager and CLI sources are in repository tag v{version}. No macOS image is distributed.\n')
 
-# Verify the collected DLLs without access to the development MSYS2 installation.
-env = os.environ.copy()
-env['PATH'] = str(stage) + ';' + os.environ['SystemRoot'] + '\\System32;' + os.environ['SystemRoot']
-for exe, arguments in [('qemu-system-x86_64.exe', ['--version']), ('qemu-img.exe', ['--version']), ('reims-util.exe', ['--version']), ('qemu-system-x86_64.exe', ['-device', 'reims-graphics-pci,help'])]:
-    result = subprocess.run([str(stage / exe), *arguments], env=env, capture_output=True, text=True, timeout=30)
-    if result.returncode: raise RuntimeError(result.stderr + result.stdout)
+# The folder must run with nothing but Windows around it.
+env = dict(os.environ, PATH=str(stage) + ';' + os.environ['SystemRoot'] + '\\System32;' + os.environ['SystemRoot'])
+for exe, arguments in [('qemu-system-x86_64.exe', ['--version']), ('qemu-img.exe', ['--version']), ('reims-util.exe', ['--version']), ('qemu-system-x86_64.exe', ['-L', str(stage / 'pc-bios'), '-device', 'reims-graphics-pci,help'])]:
+    result = subprocess.run([str(stage / exe), *arguments], env=env, capture_output=True, text=True, timeout=60)
+    if result.returncode:
+        raise RuntimeError(result.stderr + result.stdout)
     print(result.stdout[:180], flush=True)
-with zipfile.ZipFile(out / f'weims-runtime-{version}-win-x64.zip', 'w', zipfile.ZIP_DEFLATED, compresslevel=6, strict_timestamps=False) as archive:
-    for path in sorted(stage.rglob('*')):
-        if path.is_file(): archive.write(path, path.relative_to(stage))
 runtime_zip = out / f'weims-runtime-{version}-win-x64.zip'
-catalog = dict(Runtime=dict(Version=f'weims-runtime-{version}', Url=f'https://github.com/H0yeR404/weims-vgpu/releases/download/v{version}/' + runtime_zip.name, Sha256=hashlib.sha256(runtime_zip.read_bytes()).hexdigest(), MaxBytes=runtime_zip.stat().st_size), PowerShell=dict(Version='powershell-7.7.0', Url='https://github.com/PowerShell/PowerShell/releases/download/v7.7.0/PowerShell-7.7.0-win-x64.zip', Sha256='7c74e03b20a75b59715847439d046a6214b1863ee79b187872980f139bb4a05f', MaxBytes=115330228))
-(root / 'manager/runtime-catalog.json').write_text(json.dumps(catalog, indent=2), encoding='utf-8')
-print('Runtime, sources and pinned catalog prepared:', out, flush=True)
+with zipfile.ZipFile(runtime_zip, 'w', zipfile.ZIP_DEFLATED, compresslevel=6, strict_timestamps=False) as archive:
+    for path in sorted(stage.rglob('*')):
+        if path.is_file():
+            archive.write(path, path.relative_to(stage))
+shutil.rmtree(stage)
+if args.runtime_only:
+    print('Runtime ZIP for local tests (catalog unchanged):', runtime_zip, runtime_zip.stat().st_size, flush=True)
+else:
+    catalog = json.loads((root / 'manager/runtime-catalog.json').read_text(encoding='utf-8'))
+    catalog['Runtime'] = dict(Version=f'weims-runtime-{version}', Url=f'https://github.com/H0yeR404/weims-vgpu/releases/download/v{version}/' + runtime_zip.name, Sha256=sha256(runtime_zip), MaxBytes=runtime_zip.stat().st_size)
+    (root / 'manager/runtime-catalog.json').write_text(json.dumps(catalog, indent=2), encoding='utf-8')
+    print('Runtime, sources and pinned catalog prepared:', out, flush=True)

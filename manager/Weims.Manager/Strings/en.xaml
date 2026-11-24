@@ -49,12 +49,12 @@
 <sys:String x:Key="S48">Startup resolution</sys:String>
 <sys:String x:Key="S49">2560 × 1440 has been tested on the reference machine. Custom sizes: 800–4096 × 600–2160; higher modes need testing on your device.</sys:String>
 <sys:String x:Key="S50">Start in borderless fullscreen</sys:String>
-<sys:String x:Key="S51">Turn off to drag the window edges. Auto fit follows drawable pixels after the first resize; fixed mode keeps the startup resolution and scales the image.</sys:String>
+<sys:String x:Key="S51">Turn off to get a window whose edges you can drag; macOS takes the new size as its resolution.</sys:String>
 <sys:String x:Key="S52">MOUSE &amp; KEYBOARD</sys:String>
 <sys:String x:Key="S53">Allow the pointer to leave the VM window freely</sys:String>
-<sys:String x:Key="S54">Requires the input extension. Runtime checks verify support.</sys:String>
+<sys:String x:Key="S54">Needs the runtime this project builds; upstream's own has no free pointer.</sys:String>
 <sys:String x:Key="S55">Release captured input</sys:String>
-<sys:String x:Key="S56">Ctrl + Alt + Win  or  Ctrl + Alt + Home</sys:String>
+<sys:String x:Key="S56">Ctrl + Alt + Win</sys:String>
 <sys:String x:Key="S57">Free-pointer mode preserves host shortcuts. It does not enable clipboard sharing or file drag-and-drop.</sys:String>
 <sys:String x:Key="S58">Save display settings</sys:String>
 <sys:String x:Key="S59">Prepare macOS step by step using your recovery image.</sys:String>
@@ -84,7 +84,7 @@
 <sys:String x:Key="S81">Runtime dependencies / MSYS2 bin</sys:String>
 <sys:String x:Key="S82">QEMU pc-bios directory</sys:String>
 <sys:String x:Key="S83">PowerShell 7 executable</sys:String>
-<sys:String x:Key="S84">Keep qemu-img.exe and reims_vgpu_c.dll beside QEMU. The shared-memory graphics path is used by default.</sys:String>
+<sys:String x:Key="S84">Keep qemu-img.exe and reims-vgpu-compile.exe beside QEMU, with the DLLs they load.</sys:String>
 <sys:String x:Key="S85">Check &amp; save runtime</sys:String>
 <sys:String x:Key="S86">Weims prepares the software components. BIOS virtualization, Windows Hypervisor Platform and GPU drivers may still need your attention.</sys:String>
 <sys:String x:Key="S87">Inspect launch arguments and the most recent run.</sys:String>
@@ -193,10 +193,8 @@
 <sys:String x:Key="S191">Local port {port} is in use. Change the network settings.</sys:String>
 <sys:String x:Key="S192">Cannot run: </sys:String>
 <sys:String x:Key="S193">{Path.GetFileName(exe)} exited with code {process.ExitCode}\n</sys:String>
-<sys:String x:Key="S194">Window resizing</sys:String>
-<sys:String x:Key="S195">Compatibility (existing behavior)</sys:String>
-<sys:String x:Key="S196">Auto fit guest resolution</sys:String>
-<sys:String x:Key="S197">Fixed guest resolution</sys:String>
+<sys:String x:Key="S194">Window size</sys:String>
+<sys:String x:Key="S195">macOS follows the window: resize the window and macOS takes its size as its resolution. The resolution above is the size the window opens at.</sys:String>
 <sys:String x:Key="S198">Download macOS Tahoe recovery from Apple</sys:String>
 <sys:String x:Key="S199">We will prepare the runtime, OpenCore, firmware and graphics drivers automatically. No Python, MSYS2 or WSL setup is needed. Internet access is required.</sys:String>
 <sys:String x:Key="S200">Advanced · bring your own boot files</sys:String>

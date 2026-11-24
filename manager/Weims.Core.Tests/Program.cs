@@ -31,7 +31,7 @@ try
     Check(ProfileDirectory.Resolve(null, application, profiles) == preview, "relative marker is not adopted");
     string FileAt(string name) { var p = Path.Combine(temp, name); File.WriteAllText(p, "test"); return p; }
     var engine = new EngineSettings { Qemu = FileAt("qemu-system-x86_64.exe"), RuntimeBin = temp, Bios = temp };
-    FileAt("qemu-img.exe"); FileAt("reims_vgpu_c.dll");
+    FileAt("qemu-img.exe"); FileAt("reims-vgpu-compile.exe");
     var c = new VmConfig(Path.Combine(temp,"vm","state","config.json"), new JsonObject { ["future_field"] = "preserve me" });
     c.Cpus = 8; c.MemoryMiB = 8192; c.Resolution = "1920x1080"; c.Mac = "52:54:00:12:34:56";
     c.QmpPort = 4550; c.SshPort = 2330; c.Disk = FileAt("disk , 测试.qcow2"); c.OpenCore = FileAt("OpenCore.img"); c.FirmwareCode = FileAt("CODE.fd"); c.FirmwareVars = FileAt("VARS.fd"); c.Rom = FileAt("Graphics.rom");
@@ -51,7 +51,15 @@ try
     c.IntegrationPort = Integration.PortBase + 64; Reject(() => c.Validate(false), "integration port outside its range rejected");
     c.IntegrationPort = Integration.PortBase; c.ClipboardMode = "everything"; Reject(() => c.Validate(false), "unknown clipboard mode rejected");
     foreach (var key in new[] { "integration_enabled", "clipboard_mode", "integration_port" }) c.Data.Remove(key);
-    Check(plan.Arguments.Any(a => a.Contains("guest-memory=on")), "shared-memory graphics enabled");
+    Check(plan.Arguments.Contains("q35,memory-backend=ram,max-ram-below-4g=1G") && plan.Arguments.Contains("memory-backend-ram,id=ram,size=8192M,share=on"), "guest RAM is the shared backend the library maps");
+    Check(plan.Arguments[plan.Arguments.IndexOf("-accel") + 1] == "whpx" && !plan.Arguments.Any(a => a.Contains("guest-memory") || a.Contains("x-speed") || a.Contains("usb-audio")), "no option of the earlier QEMU remains");
+    Check(plan.Arguments[plan.Arguments.IndexOf("-cpu") + 1] == VmConfig.DefaultCpu, "upstream CPU model by default");
+    c.Data["cpu"] = "Haswell-noTSX,stepping=3,vendor=GenuineIntel,+ssse3,+sse4.2,+popcnt,+avx,+avx2,+aes,+xsave,+xsaveopt,-arat,enforce";
+    Check(c.Cpu == VmConfig.DefaultCpu, "CPU line written for the earlier QEMU is read as the default");
+    c.Data["cpu"] = "Skylake-Client,check"; Check(c.Cpu == "Skylake-Client,check", "CPU line of the user's own retained"); c.Data.Remove("cpu");
+    var withSound = LaunchPlan.Build(c, engine, temp, new string('s',64), "test-vm", true).Arguments; var silent = LaunchPlan.Build(c, engine, temp, new string('s',64), "test-vm", false).Arguments;
+    Check(withSound.Contains("dsound,id=snd0") && silent.Contains("none,id=snd0") && !silent.Any(a => a.StartsWith("dsound")), "sound goes to DirectSound only where Windows has an output device");
+    Check(withSound.Contains("virtio-sound-pci,id=audioin,audiodev=sndin,addr=0x8,streams=1,input-streams=1") && withSound.Contains("none,id=sndin"), "the host microphone is not given to the guest");
     // The guest reaches host loopback TCP through user-mode networking, so QMP must never listen on TCP.
     Check(!plan.Arguments.Contains("-no-shutdown"), "QEMU exits when the guest powers off instead of staying behind");
     int qmpAt = plan.Arguments.IndexOf("-qmp");
@@ -78,18 +86,48 @@ try
     foreach (var size in new[] { "2560x1440", "3440x1440", "3840x2160", "4096x2160" }) { c.Resolution=size; c.Validate(); Check(true, "larger startup mode accepted: " + size); }
     foreach (var size in new[] { "0x0", "799x600", "800x599", "4097x2160", "3840x2161", "2560x1440,guest-memory=off" }) { c.Resolution=size; Reject(()=>c.Validate(), "invalid mode rejected: " + size); }
     c.Resolution="1920x1080";
-    Check(c.DisplayMode=="legacy" && plan.Environment["WEIMS_DISPLAY_MODE"]=="legacy", "existing configuration preserves display behavior and overrides inherited policy");
-    c.DisplayMode="auto"; Reject(()=>LaunchPlan.Build(c,engine,temp,"","test"), "auto fit requires verified runtime");
-    c.DisplayMode="fixed"; Reject(()=>LaunchPlan.Build(c,engine,temp,"","test"), "fixed mode cannot silently use old runtime");
-    var displayMarker = Path.Combine(temp,"weims-display-v1.json");
-    string dllHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(Path.Combine(temp,"reims_vgpu_c.dll"))));
-    JsonFiles.Write(displayMarker, new { capability="adaptive-display-v1", dll_sha256=dllHash });
-    Check(engine.SupportsDisplayPolicy, "display marker validates DLL hash and capability");
-    Check(LaunchPlan.Build(c,engine,temp,"","test").Environment["WEIMS_DISPLAY_MODE"]=="fixed", "fixed display policy passed to backend");
-    c.DisplayMode="auto"; c.Save(); Check(VmConfig.Load(c.ConfigPath).DisplayMode=="auto", "display policy persists");
-    Check(LaunchPlan.Build(c,engine,temp,"","test").Environment["WEIMS_DISPLAY_MODE"]=="auto", "adaptive display policy passed to backend");
-    File.AppendAllText(Path.Combine(temp,"reims_vgpu_c.dll"),"changed");
-    Check(!engine.SupportsDisplayPolicy, "stale display marker rejected");
+    Check(!plan.Environment.ContainsKey("WEIMS_DISPLAY_MODE"), "no display policy is passed: the window's size is the guest's mode");
+    c.DisplayMode="fixed"; LaunchPlan.Build(c,engine,temp,"","test"); Check(true, "a display mode stored by an earlier version does not block a start");
+    c.DisplayMode="auto"; c.Save(); Check(VmConfig.Load(c.ConfigPath).DisplayMode=="auto", "display mode key persists for earlier versions");
+    var record = Path.Combine(temp,"weims-runtime.json");
+    JsonFiles.Write(record, new { format=1, capabilities=new[] { "free-pointer" }, qemu_bytes=new FileInfo(engine.Qemu).Length });
+    c.FreePointer=true; Check(engine.SupportsFreePointer && LaunchPlan.Build(c,engine,temp,"","test").Environment["REIMS_VGPU_WINDOW_FREE_POINTER"]=="1", "runtime record enables free pointer");
+    JsonFiles.Write(record, new { format=1, capabilities=Array.Empty<string>(), qemu_bytes=new FileInfo(engine.Qemu).Length }); Check(!engine.SupportsFreePointer, "record without the capability does not enable it");
+    JsonFiles.Write(record, new { format=1, capabilities=new[] { "free-pointer" }, qemu_bytes=new FileInfo(engine.Qemu).Length + 1 }); Check(!engine.SupportsFreePointer, "record beside another QEMU counts for nothing");
+    File.Delete(record); c.FreePointer=false;
+    // Boot files: a made-up Mac in a config.plist as reims-util writes it, inside a raw image with other bytes around it.
+    string Plist(string serial, string picker = "<true/>") => $"""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0"><dict>
+        <key>Misc</key><dict><key>Boot</key><dict><key>PickerMode</key><string>Builtin</string><key>ShowPicker</key>{picker}</dict></dict>
+        <key>NVRAM</key><dict><key>Add</key><dict><key>7C436110-AB2A-4BBB-A880-FE41995C9F82</key><dict><key>csr-active-config</key><data>/w8AAA==</data></dict></dict></dict>
+        <key>PlatformInfo</key><dict><key>Generic</key><dict>
+        <key>MLB</key><string>TESTMLB0000000001</string><key>ROM</key><data>ESIzRFVm</data>
+        <key>SystemProductName</key><string>iMac20,1</string><key>SystemSerialNumber</key><string>{serial}</string>
+        <key>SystemUUID</key><string>00000000-1111-2222-3333-444444444444</string></dict></dict>
+        </dict></plist>
+        """;
+    string Image(string name, params string[] plists) { var p = Path.Combine(temp, name); using var f = File.Create(p); f.Write(new byte[70000]); foreach (var text in plists) { f.Write(Encoding.UTF8.GetBytes(text)); f.Write(new byte[4096]); } return p; }
+    var mac = BootImage.Read(Image("boot-a.img", Plist("TESTSERIAL01")));
+    Check(mac == new BootSettings("iMac20,1", "TESTSERIAL01", "TESTMLB0000000001", "00000000-1111-2222-3333-444444444444", "112233445566", true, true, true), "Mac identity and boot settings read out of a raw boot image");
+    Check(!BootImage.Read(Image("boot-b.img", Plist("TESTSERIAL01", "<false/>"))).ShowPicker, "hidden boot picker is kept hidden");
+    Reject(() => BootImage.Read(Image("boot-c.img", Plist("TESTSERIAL01"), Plist("TESTSERIAL02"))), "image holding two configurations refused");
+    Check(BootImage.Read(Image("boot-f.img", Plist("TESTSERIAL01") + Plist("TESTSERIAL02")[300..], Plist("TESTSERIAL03")[300..])) == mac, "leftover tail of an earlier configuration is passed over, as in images of 1.2's helper");
+    Check(BootImage.Read(Image("boot-g.img", Plist("TESTSERIAL01"), Plist("TESTSERIAL01"))) == mac, "two copies of one configuration present one Mac");
+    Reject(() => BootImage.Read(Image("boot-d.img")), "image without a configuration refused");
+    Reject(() => BootImage.Read(Image("boot-e.img", Plist("TESTSERIAL01")[..600])), "image with a cut-off configuration refused");
+    var renewArgs = BootImage.HelperArguments(engine, "out.img", mac);
+    Check(renewArgs.Contains("--no-ovmf") && renewArgs[renewArgs.IndexOf("--serial") + 1] == "TESTSERIAL01" && renewArgs[renewArgs.IndexOf("--rom") + 1] == "112233445566" && renewArgs.Count(a => a == "--add-kext") == 3 && renewArgs.Contains("--disable-sip"), "renewal keeps the Mac, its settings and the firmware, with this runtime's drivers");
+    Check(!BootImage.HelperArguments(engine, "out.img").Contains("--serial"), "a new VM gets a Mac of its own");
+    Check(BootImage.SetId(engine) == null && !BootImage.Outdated(c, engine), "runtime without guest drivers never calls a VM's boot files outdated");
+    Directory.CreateDirectory(Path.Combine(temp, "boot")); File.WriteAllText(Path.Combine(temp, "boot", "set.toml"), "format = 1"); File.WriteAllText(Path.Combine(temp, "boot", "ReimsGraphics.rom"), "rom"); FileAt("reims-util.exe");
+    string setId = BootImage.SetId(engine)!;
+    Check(c.BootSet == "" && BootImage.Outdated(c, engine), "VM of an earlier version has outdated boot files");
+    c.BootSet = setId; Check(!BootImage.Outdated(c, engine), "boot files made for this runtime are current");
+    File.WriteAllText(Path.Combine(temp, "boot", "ReimsGraphics.rom"), "rom2"); Check(BootImage.SetId(engine) != setId && BootImage.Outdated(c, engine), "another runtime's drivers or ROM make them outdated");
+    c.BootSet = VmConfig.OwnBootFiles; Check(!BootImage.Outdated(c, engine), "boot files of the user's own are never replaced");
+    c.Data.Remove("boot_set"); Directory.Delete(Path.Combine(temp, "boot"), true); File.Delete(Path.Combine(temp, "reims-util.exe"));
     c.DisplayMode="invalid"; Reject(()=>c.Validate(), "invalid display policy rejected"); c.DisplayMode="legacy";
     c.QmpPort=c.SshPort; c.Validate(); Check(true, "legacy QMP port value no longer blocks validation"); c.QmpPort=4550;
     c.SshPort=80; Reject(()=>c.Validate(), "privileged SSH port rejected"); c.SshPort=2330;

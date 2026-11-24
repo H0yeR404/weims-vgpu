@@ -73,8 +73,10 @@ public static class EnvironmentSetup
         await ProcessRunner.Run(engine.ImageTool, ["--version"], env, timeout.Token);
         var device = await ProcessRunner.Run(engine.Qemu, ["-device", "reims-graphics-pci,help"], env, timeout.Token);
         var accel = await ProcessRunner.Run(engine.Qemu, ["-accel", "help"], env, timeout.Token);
-        if (!device.Contains("guest-memory") || !accel.Contains("whpx") || !engine.SupportsFreePointer)
-            throw new IOException(Text.Get("运行包缺少共享内存、WHPX 或输入扩展。", "Runtime lacks shared memory, WHPX or the input extension."));
+        // The QEMU of 1.2 and before had a guest-memory switch on the device and took another command line.
+        if (device.Contains("guest-memory"))
+            throw new IOException(Text.Get("此运行组件属于 1.2 及更早版本，与当前版本不兼容。", "This runtime belongs to version 1.2 or earlier and does not work with this version."));
+        if (!accel.Contains("whpx")) throw new IOException(Text.Get("运行组件缺少 WHPX。", "Runtime lacks WHPX."));
     }
 
     // Reuse a verified custom or managed runtime; never download again just because the user clicks setup.

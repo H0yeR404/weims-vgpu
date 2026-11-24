@@ -5,9 +5,10 @@ using System.Net.Sockets;
 using System.Text.Json.Nodes;
 using Weims.Core;
 
-if(args.Length!=2) throw new ArgumentException("Arguments: repository-root msys2-ucrt64-bin");
+if(args.Length!=1) throw new ArgumentException("Argument: repository-root (with build/weims-runtime from scripts/build.ps1)");
 string repo=Path.GetFullPath(args[0]);
-var engine=new EngineSettings { Qemu=Path.Combine(repo,"build","manager-runtime","qemu-system-x86_64.exe"), RuntimeBin=Path.GetFullPath(args[1]), Bios=Path.Combine(repo,"sources","qemu","pc-bios") };
+string runtime=Path.Combine(repo,"build","weims-runtime");
+var engine=new EngineSettings { Qemu=Path.Combine(runtime,"qemu-system-x86_64.exe"), RuntimeBin=runtime, Bios=Path.Combine(runtime,"pc-bios") };
 engine.Validate();
 var root=Path.Combine(repo,"logs","manager-integration-"+Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);
 int checks=0; void Check(bool ok,string name) { if(!ok)throw new Exception("FAIL "+name); Console.WriteLine("PASS "+name); checks++; }
@@ -24,7 +25,7 @@ Check(info["virtual-size"]!.GetValue<long>()==64L*1024*1024*1024,"recovery prepa
 Check(c.RecoveryAttached&&File.Exists(c.Recovery)&&c.DirectoryPath==request.Destination,"staged recovery published with final paths");
 Check(c.Rom == Path.Combine(c.DirectoryPath,"firmware","ReimsGraphics.rom") && File.ReadAllBytes(c.Rom).SequenceEqual(File.ReadAllBytes(request.Rom)), "ROM copied into independent VM directory");
 Check(new FileInfo(image).Length==128L*1024*1024&&File.Exists(request.Vars),"source image and firmware retained");
-Check(engine.SupportsFreePointer,"input capability marker matches built DLL");
+Check(engine.SupportsFreePointer,"runtime record names free pointer for the built QEMU");
 var launcher=Path.Combine(repo,"manager","launch-vm.ps1");
 using(var locked=new FileStream(Path.Combine(Path.GetDirectoryName(c.ConfigPath)!,"manager-launch.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None))
 {

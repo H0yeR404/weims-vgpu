@@ -33,6 +33,8 @@ public sealed class VmConfig : Observable, IDataErrorInfo
     public int Cpus { get => Number("cpus", 8); set => Write("cpus", value); }
     public int MemoryMiB { get => Number("memory_mib", 8192); set => Write("memory_mib", value); }
     public string Resolution { get => ReadText("resolution", "1920x1080"); set => Write("resolution", value); }
+    // No longer acted on: the window's size is the guest's mode, which upstream's window does by itself.
+    // New VMs still get "auto" written, the name earlier versions know this behavior by.
     public string DisplayMode { get => ReadText("display_mode", "legacy"); set => Write("display_mode", value); }
     public string Disk { get => ReadText("active_disk"); set => Write("active_disk", value); }
     public string OpenCore { get => ReadText("opencore"); set => Write("opencore", value); }
@@ -40,7 +42,11 @@ public sealed class VmConfig : Observable, IDataErrorInfo
     public string FirmwareVars { get => ReadText("firmware_vars"); set => Write("firmware_vars", value); }
     public string Rom { get => ReadText("rom"); set => Write("rom", value); }
     public string Mac { get => ReadText("mac"); set => Write("mac", value); }
-    public string Cpu => ReadText("cpu", "Haswell-noTSX,stepping=3,vendor=GenuineIntel,+ssse3,+sse4.2,+popcnt,+avx,+avx2,+aes,+xsave,+xsaveopt,-arat,enforce");
+    // Upstream's model and flags for an x86-64 macOS guest (reims-ctl's vm.rs and qemu.rs). EarlierCpu is what
+    // the scripts of 1.2 and before wrote into configurations for their QEMU; it is read as the default.
+    public const string DefaultCpu = "Skylake-Client-noTSX-IBRS,kvm=on,vendor=GenuineIntel,+invtsc,vmware-cpuid-freq=on,+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt,check";
+    const string EarlierCpu = "Haswell-noTSX,stepping=3,vendor=GenuineIntel,+ssse3,+sse4.2,+popcnt,+avx,+avx2,+aes,+xsave,+xsaveopt,-arat,enforce";
+    public string Cpu => ReadText("cpu", DefaultCpu) is var cpu && cpu == EarlierCpu ? DefaultCpu : cpu;
     // Legacy key. QMP now uses a Unix domain socket (see QmpEndpoint); the value is only written so that
     // older versions, which validate it, can still open this configuration. It is never listened on.
     public int QmpPort { get => Number("qmp_port", 4444); set => Write("qmp_port", value); }
@@ -58,6 +64,10 @@ public sealed class VmConfig : Observable, IDataErrorInfo
     public bool IntegrationEnabled { get => Data["integration_enabled"]?.GetValue<bool>() ?? false; set => Write("integration_enabled", value); }
     public int IntegrationPort { get => Number("integration_port", Integration.DefaultPort(this)); set => Write("integration_port", value); }
     public string ClipboardMode { get => ReadText("clipboard_mode", "text"); set => Write("clipboard_mode", value); }
+    // Which runtime's guest drivers and option ROM the VM's boot files hold (BootImage.SetId), or OwnBootFiles for
+    // files the user supplied, which are never replaced. Absent in a VM made by a version before the upstream engine.
+    public const string OwnBootFiles = "own";
+    public string BootSet { get => ReadText("boot_set"); set => Write("boot_set", value); }
 
     public void Validate(bool files = true)
     {
@@ -106,39 +116,28 @@ public sealed class EngineSettings : Observable
     public string RuntimeBin { get => runtimeBin; set => Set(ref runtimeBin, value); }
     public string Bios { get => bios; set => Set(ref bios, value); }
     public string ImageTool => Path.Combine(Path.GetDirectoryName(Qemu) ?? "", "qemu-img.exe");
-    public bool SupportsFreePointer => File.Exists(Path.Combine(Path.GetDirectoryName(Qemu) ?? "", "weims-input-v1.json")) &&
-        InputMarkerValid();
-    public bool SupportsDisplayPolicy => MarkerValid("weims-display-v1.json", "adaptive-display-v1");
-    public void ValidateDisplay(VmConfig c)
-    {
-        if (c.DisplayMode != "legacy" && !SupportsDisplayPolicy)
-            throw new InvalidOperationException(Text.Get("自动适应与固定分辨率需要显示扩展运行包。请选用该运行包，或切回兼容模式。", "Auto fit and fixed resolution require the display extension runtime. Select that runtime or use Compatibility mode."));
-    }
-    bool MarkerValid(string file, string capability)
-    {
-        try
-        {
-            var directory = Path.GetDirectoryName(Qemu)!;
-            var marker = JsonNode.Parse(File.ReadAllText(Path.Combine(directory, file)))!;
-            using var dll = File.OpenRead(Path.Combine(directory, "reims_vgpu_c.dll"));
-            return marker["capability"]?.GetValue<string>() == capability &&
-                Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(dll)).Equals(marker["dll_sha256"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
-        } catch { return false; }
-    }
-    bool InputMarkerValid()
+    public bool SupportsFreePointer => Has("free-pointer");
+    /// <summary>
+    /// Whether weims-runtime.json beside QEMU, the record of a runtime this project built (scripts/build.ps1),
+    /// names the capability: something the build adds to upstream's. The library is linked into QEMU, so the
+    /// record names QEMU's size, and one beside another QEMU counts for nothing. An upstream build of the
+    /// user's own has no record; it runs VMs with upstream's behavior alone.
+    /// </summary>
+    bool Has(string capability)
     {
         try
         {
-            var marker = JsonNode.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(Qemu)!, "weims-input-v1.json")))!;
-            using var dll = File.OpenRead(Path.Combine(Path.GetDirectoryName(Qemu)!, "reims_vgpu_c.dll"));
-            return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(dll)).Equals(marker["dll_sha256"]?.GetValue<string>(), StringComparison.OrdinalIgnoreCase);
+            var record = JsonNode.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(Qemu)!, "weims-runtime.json")))!;
+            return record["format"]?.GetValue<int>() == 1 && record["qemu_bytes"]?.GetValue<long>() == new FileInfo(Qemu).Length &&
+                record["capabilities"] is JsonArray list && list.Any(item => item?.GetValue<string>() == capability);
         } catch { return false; }
     }
     public void Validate()
     {
-        foreach (var p in new[] { Qemu, ImageTool, Path.Combine(Path.GetDirectoryName(Qemu) ?? "", "reims_vgpu_c.dll") })
+        // reims-vgpu-compile.exe is the library's helper process; the library starts it from beside QEMU.
+        foreach (var p in new[] { Qemu, ImageTool, Path.Combine(Path.GetDirectoryName(Qemu) ?? "", "reims-vgpu-compile.exe") })
             if (!File.Exists(p)) throw new FileNotFoundException(Text.Get("缺少运行组件：", "Missing runtime component: ") + p);
-        if (!Directory.Exists(RuntimeBin) || !Directory.Exists(Bios)) throw new InvalidDataException(Text.Get("请选择 MSYS2 UCRT64 bin 和 QEMU pc-bios 目录。", "Select the runtime dependency directory and QEMU pc-bios directory."));
+        if (!Directory.Exists(RuntimeBin) || !Directory.Exists(Bios)) throw new InvalidDataException(Text.Get("请选择运行库目录和 QEMU 固件目录。", "Select the runtime dependency directory and QEMU firmware directory."));
     }
 }
 

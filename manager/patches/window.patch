@@ -1,0 +1,239 @@
+diff --git a/crates/reims-vgpu-window/src/env.rs b/crates/reims-vgpu-window/src/env.rs
+index 0380618f5..cea0541f1 100644
+--- a/crates/reims-vgpu-window/src/env.rs
++++ b/crates/reims-vgpu-window/src/env.rs
+@@ -10,6 +10,9 @@
+ //!   place of AppKit's, in a build with the `macos-sdl` feature, on by default (one without it
+ //!   logs that, and opens AppKit's). Default: AppKit's. Linux has SDL3's alone, and reads no
+ //!   value.
++//! - `REIMS_VGPU_WINDOW_FREE_POINTER`: `1`, `true`, `yes` or `on`, in any case, keeps a click in
++//!   the image from capturing input: the pointer is never held over the image, and the host keeps
++//!   its own shortcuts. Default: a click captures.
+ 
+ use std::sync::OnceLock;
+ 
+@@ -19,6 +22,8 @@ pub const BORDERLESS_VAR: &str = "REIMS_VGPU_WINDOW_BORDERLESS";
+ pub const SCREENS_VAR: &str = "REIMS_VGPU_WINDOW_SCREENS";
+ /// The window implementation's variable (macOS).
+ pub const IMPL_VAR: &str = "REIMS_VGPU_WINDOW_IMPL";
++/// The free pointer switch's variable.
++pub const FREE_POINTER_VAR: &str = "REIMS_VGPU_WINDOW_FREE_POINTER";
+ 
+ /// What the variables say.
+ #[derive(Clone, Debug, Default, PartialEq)]
+@@ -29,6 +34,8 @@ pub struct Settings {
+     pub screens: Vec<usize>,
+     /// Which window a display opens on macOS.
+     pub window_impl: WindowImpl,
++    /// A click in the image does not capture input.
++    pub free_pointer: bool,
+ }
+ 
+ /// Which window a display opens on macOS (`REIMS_VGPU_WINDOW_IMPL`). Linux has SDL3's alone.
+@@ -56,6 +63,7 @@ pub fn parse(borderless: Option<&str>, screens: Option<&str>) -> Settings {
+         borderless: borderless.is_some_and(parse_switch),
+         screens: screens.and_then(parse_screens).unwrap_or_default(),
+         window_impl: WindowImpl::AppKit,
++        free_pointer: false,
+     }
+ }
+ 
+@@ -84,6 +92,7 @@ pub fn settings() -> &'static Settings {
+         let (borderless, screens) = (var(BORDERLESS_VAR), var(SCREENS_VAR));
+         Settings {
+             window_impl: parse_impl(var(IMPL_VAR).as_deref()),
++            free_pointer: var(FREE_POINTER_VAR).as_deref().is_some_and(parse_switch),
+             ..parse(borderless.as_deref(), screens.as_deref())
+         }
+     })
+diff --git a/crates/reims-vgpu-window/src/native/sdl_thread/input.rs b/crates/reims-vgpu-window/src/native/sdl_thread/input.rs
+index 619ad1fb2..0a6d666b9 100644
+--- a/crates/reims-vgpu-window/src/native/sdl_thread/input.rs
++++ b/crates/reims-vgpu-window/src/native/sdl_thread/input.rs
+@@ -70,6 +70,8 @@ pub(crate) const FOCUS_CLICK_NS: u64 = 100_000_000;
+ 
+ /// What the title ends with while captured: what capture is on and how to release it.
+ const CAPTURED_SUFFIX: &str = " \u{2014} input captured (press Ctrl+Alt+Super to release)";
++/// What the title ends with where a click does not capture.
++const FREE_POINTER_SUFFIX: &str = " \u{2014} free pointer (host shortcuts enabled)";
+ 
+ /// What the window knows when an event reaches it.
+ #[derive(Clone, Copy, Debug, Default, PartialEq)]
+@@ -170,6 +172,10 @@ pub(crate) struct Input {
+     keys: KeyState,
+     /// Who gets the keyboard.
+     capture: Capture,
++    /// A click in the image does not capture (`REIMS_VGPU_WINDOW_FREE_POINTER`): the pointer is
++    /// never held over the image, never leaves it for another display and never drives the
++    /// guest's own mouse, all of which need capture.
++    free_pointer: bool,
+     /// The `BUTTON_*` bits of the buttons the guest was told are down.
+     buttons: u32,
+     /// The pointer event last sent.
+@@ -220,6 +226,7 @@ impl Input {
+         Input {
+             beyond,
+             motion,
++            free_pointer: crate::env::settings().free_pointer,
+             ..Input::default()
+         }
+     }
+@@ -287,7 +294,9 @@ impl Input {
+ 
+     /// What the title ends with: the release chord while captured, that a click captures while not.
+     pub(crate) fn title_suffix(&self) -> &'static str {
+-        if self.is_captured() {
++        if self.free_pointer {
++            FREE_POINTER_SUFFIX
++        } else if self.is_captured() {
+             CAPTURED_SUFFIX
+         } else {
+             UNCAPTURED_SUFFIX
+@@ -418,7 +427,10 @@ impl Input {
+                 .focused_at
+                 .is_some_and(|t| timestamp.saturating_sub(t) < FOCUS_CLICK_NS);
+         let was_captured = self.is_captured();
+-        let forward = if was_captured {
++        let forward = if self.free_pointer {
++            // Sent like a captured click, but the one that focuses the window; nothing is captured.
++            !focusing
++        } else if was_captured {
+             true
+         } else {
+             self.capture.click_in_image(!focusing).forward
+@@ -698,6 +710,40 @@ mod tests {
+         assert_eq!(input.take(), vec![pointer(20, 20, BUTTON_LEFT)]);
+     }
+ 
++    /// With the free pointer, a click and a drag are sent and nothing is captured or held
++    #[test]
++    fn a_free_pointer_s_click_and_drag_do_not_capture() {
++        let mut input = focused();
++        input.free_pointer = true;
++        let r = input.button_down(BUTTON_LEFT, 1_000_000_000, &at((10.0, 10.0)));
++        assert!(!r.capture_changed && !input.is_captured());
++        assert_eq!(input.pointer_confinement(at((10.0, 10.0)).image), None);
++        input.moved(&at((150.0, 10.0)));
++        input.button_up(BUTTON_LEFT, &at((150.0, 10.0)));
++        assert_eq!(
++            input.take(),
++            vec![
++                pointer(20, 20, BUTTON_LEFT),
++                pointer(199, 20, BUTTON_LEFT),
++                pointer(199, 20, 0)
++            ]
++        );
++        assert_eq!(input.title_suffix(), FREE_POINTER_SUFFIX);
++    }
++
++    /// With the free pointer, the click that focuses the window is not sent; the next one is
++    #[test]
++    fn a_free_pointer_s_focusing_click_is_not_sent() {
++        let mut input = Input::new();
++        input.free_pointer = true;
++        input.focus_gained(1_000_000_000);
++        input.button_down(BUTTON_LEFT, 1_010_000_000, &at((10.0, 10.0)));
++        assert!(!input.is_captured());
++        assert_eq!(input.take(), vec![]);
++        input.button_down(BUTTON_LEFT, 2_000_000_000, &at((10.0, 10.0)));
++        assert_eq!(input.take(), vec![pointer(20, 20, BUTTON_LEFT)]);
++    }
++
+     /// A click in the image captures and is sent; one outside starts nothing
+     #[test]
+     fn a_click_in_the_image_captures_and_is_sent() {
+diff --git a/crates/reims-vgpu-window/src/native/sdl_thread/sdl.rs b/crates/reims-vgpu-window/src/native/sdl_thread/sdl.rs
+index 41fdfa289..372636a80 100644
+--- a/crates/reims-vgpu-window/src/native/sdl_thread/sdl.rs
++++ b/crates/reims-vgpu-window/src/native/sdl_thread/sdl.rs
+@@ -212,6 +212,34 @@ pub(crate) fn follow(shell: &mut Shell, mode: (u16, u16), _taken: &[Frame]) {
+     }
+ }
+ 
++/// After the person's resize to `size`, makes the window the next smaller size whose pixels the
++/// guest is offered whole (`units::offered_size`): the image then fills the window, where a size
++/// between two leaves up to 15 columns and a row of black beside it. A maximized, full-screen or
++/// borderless window keeps the size the system gave it. On Windows alone: the person's drag runs
++/// in a loop of Windows' own, and its size events reach the UI thread once it is over, so the
++/// size set here follows the drag and never fights it.
++#[cfg(windows)]
++pub(crate) fn fit_offered(shell: &Shell, size: (i32, i32)) {
++    // SAFETY: the window is SDL's, on this thread.
++    let (flags, display) = unsafe {
++        (
++            SDL_GetWindowFlags(shell.sdl),
++            SDL_GetDisplayForWindow(shell.sdl),
++        )
++    };
++    if (flags & SDL_WINDOW_MAXIMIZED).0 != 0
++        || (flags & SDL_WINDOW_FULLSCREEN).0 != 0
++        || (flags & SDL_WINDOW_BORDERLESS).0 != 0
++    {
++        return;
++    }
++    let fitted = units::offered_size(size, units_of(display));
++    if fitted != size {
++        // SAFETY: as above.
++        unsafe { SDL_SetWindowSize(shell.sdl, fitted.0, fitted.1) };
++    }
++}
++
+ /// The window's size in points and its pixels per point: SDL's sizes of it in points and in
+ /// pixels, whose ratio is the scale, fractional ones included. `None` before it has a size.
+ pub(crate) fn metrics(shell: &Shell) -> Option<((f64, f64), f64)> {
+diff --git a/crates/reims-vgpu-window/src/sdl/shell.rs b/crates/reims-vgpu-window/src/sdl/shell.rs
+index 17b13dc31..e00614d4c 100644
+--- a/crates/reims-vgpu-window/src/sdl/shell.rs
++++ b/crates/reims-vgpu-window/src/sdl/shell.rs
+@@ -334,6 +334,11 @@ impl Shell {
+                     );
+                 }
+                 self.relayout();
++                // A size of the person's becomes the next the guest is offered whole.
++                #[cfg(windows)]
++                if !self.follows_guest {
++                    os::fit_offered(self, size);
++                }
+                 false
+             }
+             k if k == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED.0
+diff --git a/crates/reims-vgpu-window/src/sdl/units.rs b/crates/reims-vgpu-window/src/sdl/units.rs
+index 2877be39a..4fa38bbca 100644
+--- a/crates/reims-vgpu-window/src/sdl/units.rs
++++ b/crates/reims-vgpu-window/src/sdl/units.rs
+@@ -137,10 +137,35 @@ pub(crate) fn windowed_size(
+     )
+ }
+ 
++/// `size`, a content size in `units` the person gave a window, made the largest up to it whose
++/// pixels are a multiple of [`geometry::MODE_WIDTH_STEP`] wide and of
++/// [`geometry::MODE_HEIGHT_STEP`] high, and at least [`MIN_CONTENT`] points: the size whose
++/// pixels the guest is offered whole ([`geometry::offered_mode`]), so the image fills the window
++/// with no black beside it.
++#[cfg_attr(not(any(windows, test)), allow(dead_code))]
++pub(crate) fn offered_size(size: (i32, i32), units: Units) -> (i32, i32) {
++    let min = units.min_content();
++    (
++        units.aligned(size.0, min.0, geometry::MODE_WIDTH_STEP),
++        units.aligned(size.1, min.1, geometry::MODE_HEIGHT_STEP),
++    )
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+ 
++    /// A size the person gave is made the next smaller the guest is offered whole
++    #[test]
++    fn a_person_s_size_is_made_the_next_the_guest_is_offered_whole() {
++        let pixels = Units::new(1.0, 1.0);
++        assert_eq!(offered_size((1645, 1090), pixels), (1632, 1090));
++        assert_eq!(offered_size((2000, 1143), pixels), (2000, 1142));
++        assert_eq!(offered_size((1920, 1080), pixels), (1920, 1080));
++        // SDL's sizes are pixels at a content scale too (Windows, X11).
++        assert_eq!(offered_size((2575, 1401), Units::new(1.0, 1.5)), (2560, 1400));
++    }
++
+     /// A screen's scale is its mode's density above 1, else its content scale
+     #[test]
+     fn a_screen_s_scale_is_its_density_else_its_content_scale() {
