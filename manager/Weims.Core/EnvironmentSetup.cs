@@ -8,6 +8,8 @@ namespace Weims.Core;
 
 /// <summary>Required: VMs cannot start on a managed runtime of another version (this Manager's command line does not fit it).</summary>
 public sealed record SetupPackage(string Version, string Url, string Sha256, long MaxBytes, bool Required = false);
+/// <summary>The runtime runs, but is one of 1.2.0-pre.1 or earlier, which this version's command line does not fit.</summary>
+public sealed class RuntimeIncompatibleException(string message) : IOException(message);
 public sealed record SetupCatalog(SetupPackage Runtime, SetupPackage PowerShell);
 public sealed record EnvironmentReport(bool SupportedHost, bool HypervisorReady, bool VulkanReady, bool RuntimeReady, bool PowerShellReady, string Details, bool RuntimeOutdated = false, bool RuntimeUpdateRequired = false);
 
@@ -47,6 +49,13 @@ public static class EnvironmentSetup
     }
     public static bool RuntimeUpdateRequired(EngineSettings engine, string dataDirectory, SetupPackage catalogRuntime) =>
         catalogRuntime.Required && RuntimeOutdated(engine, dataDirectory, catalogRuntime.Version);
+    /// <summary>Whether the runtime in use is one this version cannot start VMs with, wherever it is installed.</summary>
+    public static async Task<bool> RuntimeIncompatible(EngineSettings engine, CancellationToken token)
+    {
+        try { await ValidateRuntime(engine, token); return false; }
+        catch (RuntimeIncompatibleException) { return true; }
+        catch (Exception e) when (e is not OperationCanceledException) { return false; } // missing or broken: setup's usual path
+    }
     public static string RuntimeUpdateRequiredText() => Text.Get(
         "这个版本的管理器必须使用新的运行组件，现在安装的是旧的，虚拟机无法启动。请先更新运行组件。",
         "This version of Manager needs its newer runtime. The installed one is older and VMs cannot start on it. Update the runtime first.");
@@ -55,7 +64,7 @@ public static class EnvironmentSetup
     {
         bool host = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) && RuntimeInformation.OSArchitecture == Architecture.X64;
         var lines = new List<string> { $"Windows: {Environment.OSVersion.Version}; {RuntimeInformation.OSArchitecture}" };
-        bool whpx = false, vulkan = false, runtime = false, ps = false, outdated = false, required = false;
+        bool whpx = false, vulkan = false, runtime = false, ps = false, outdated = false, required = false, incompatible = false;
         try { whpx = WHvGetCapability(0, out int present, 4, out _) == 0 && present != 0; }
         catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException) { }
         lines.Add(Text.Get("固件虚拟化：", "Firmware virtualization: ") + (IsProcessorFeaturePresent(21) || whpx ? "OK" : Text.Get("请在 BIOS/UEFI 启用，或检查嵌套虚拟化。", "Enable in BIOS/UEFI, or check nested virtualization.")));
@@ -63,9 +72,12 @@ public static class EnvironmentSetup
         try { vulkan = VulkanProbe.Check(out string detail); lines.Add("Vulkan: " + detail); }
         catch (Exception e) { lines.Add("Vulkan: " + e.Message); }
         try { await ValidateRuntime(engine, token); runtime = true; lines.Add("QEMU / Reims: OK"); }
-        catch (Exception e) when (e is not OperationCanceledException) { lines.Add("QEMU / Reims: " + e.Message); }
+        catch (Exception e) when (e is not OperationCanceledException) { lines.Add("QEMU / Reims: " + e.Message); incompatible = e is RuntimeIncompatibleException; }
         // Asked whether the runtime passed or not: the one of 1.2.0-pre.1 and earlier does not pass, and is the one to replace.
-        if (dataDirectory != null && (outdated = RuntimeOutdated(engine, dataDirectory)) && (required = RuntimeUpdateRequired(engine, dataDirectory)))
+        if (dataDirectory != null) { outdated = RuntimeOutdated(engine, dataDirectory); required = RuntimeUpdateRequired(engine, dataDirectory); }
+        // A runtime the user chose is never called outdated, but one that cannot work has to go all the same.
+        if (incompatible) outdated = required = true;
+        if (required)
             lines.Add(Text.Get("运行组件：", "Runtime: ") + RuntimeUpdateRequiredText());
         else if (outdated)
             lines.Add(Text.Get("运行组件：此版本配套的运行组件比已安装的新，点击“一键准备运行环境”即可更换。", "Runtime: this version comes with a newer runtime than the installed one. Click One-click setup to switch to it."));
@@ -83,8 +95,14 @@ public static class EnvironmentSetup
         if (!int.TryParse(result.Trim(), out int major) || major < 7) throw new IOException("PowerShell 7+ required.");
     }
 
+    static string IncompatibleText() => Text.Get("此运行组件属于 1.2.0-pre.1 及更早版本，与当前版本不兼容。", "This runtime belongs to version 1.2.0-pre.1 or earlier and does not work with this version.");
     public static async Task ValidateRuntime(EngineSettings engine, CancellationToken token)
     {
+        // The runtime of 1.2.0-pre.1 and earlier: its graphics library is a DLL beside QEMU, and it has no helper process.
+        // Named for what it is, before the check for the helper calls it incomplete.
+        string? beside = string.IsNullOrWhiteSpace(engine.Qemu) ? null : Path.GetDirectoryName(engine.Qemu);
+        if (beside != null && File.Exists(engine.Qemu) && File.Exists(Path.Combine(beside, "reims_vgpu_c.dll")) && !File.Exists(Path.Combine(beside, "reims-vgpu-compile.exe")))
+            throw new RuntimeIncompatibleException(IncompatibleText());
         engine.Validate();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(20));
         var env = new Dictionary<string, string> { ["PATH"] = Path.GetDirectoryName(engine.Qemu) + ";" + engine.RuntimeBin + ";" + Environment.GetEnvironmentVariable("PATH") };
@@ -94,7 +112,7 @@ public static class EnvironmentSetup
         var accel = await ProcessRunner.Run(engine.Qemu, ["-accel", "help"], env, timeout.Token);
         // The QEMU of 1.2 and before had a guest-memory switch on the device and took another command line.
         if (device.Contains("guest-memory"))
-            throw new IOException(Text.Get("此运行组件属于 1.2.0-pre.1 及更早版本，与当前版本不兼容。", "This runtime belongs to version 1.2.0-pre.1 or earlier and does not work with this version."));
+            throw new RuntimeIncompatibleException(IncompatibleText());
         if (!accel.Contains("whpx")) throw new IOException(Text.Get("运行组件缺少 WHPX。", "Runtime lacks WHPX."));
     }
 
@@ -142,6 +160,10 @@ public static class EnvironmentSetup
         return engine;
     }
 
+    static string DownloadFailed(SetupPackage package, string reason) => Text.Get(
+        $"无法下载 {package.Version}：{reason}。原有设置没有改动。请检查网络后重试；下载地址：{package.Url}",
+        $"Could not download {package.Version}: {reason}. Your settings are unchanged. Check the connection and try again. Download address: {package.Url}");
+
     public static async Task<string> InstallPackage(SetupPackage package, string root, IProgress<string> progress, CancellationToken token, HttpClient? transport = null)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromMinutes(20)); token = deadline.Token;
@@ -156,7 +178,14 @@ public static class EnvironmentSetup
         {
             string zip = Path.Combine(stage, "download.zip"), unpack = Path.Combine(stage, "content");
             progress.Report(Text.Get("下载 ", "Downloading ") + package.Version);
-            using var response = await (transport ?? Http).GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, token); response.EnsureSuccessStatusCode();
+            HttpResponseMessage response;
+            try { response = await (transport ?? Http).GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, token); }
+            catch (HttpRequestException e) { throw new IOException(DownloadFailed(package, e.Message), e); }
+            using var _ = response;
+            if (!response.IsSuccessStatusCode)
+                throw new IOException(DownloadFailed(package, response.StatusCode == System.Net.HttpStatusCode.NotFound
+                    ? Text.Get("发布页上没有这个文件（404）。这个版本可能还没有发布，或文件已被移走", "the file is not on the release page (404). This version may not be published yet, or the file was moved")
+                    : Text.Get("服务器返回 ", "the server answered ") + (int)response.StatusCode));
             if (response.Content.Headers.ContentLength > package.MaxBytes) throw new IOException("Package exceeds download limit.");
             await using (var input = await response.Content.ReadAsStreamAsync(token))
             await using (var output = new FileStream(zip, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))

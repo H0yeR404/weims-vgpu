@@ -8,6 +8,8 @@ Tested with the 1.2.0 Manager build and the packaged runtime ZIP, on one Windows
 - A settings folder holding the real 1.2.0-pre.1 runtime as a Manager-installed runtime: `Weims.Cli start` refuses with the notice that the runtime must be updated, and starts nothing; `status` still works.
 - The 1.2.0 runtime unpacked beside it under the catalog's name, after its checksum was compared with the catalog: the VM starts from it, the desktop shows, Guest Tools connects 39 s after the start command and both shared folders are mounted.
 - The banner and the texts of a required update, in the UI tests.
+- A runtime of 1.1.0-pre.1 in a folder of the user's own choosing: recognised as one that cannot be used and reported as a required update (the setup test program with `--old-runtime`; nothing was started). Before this was fixed, such a runtime was taken for an incomplete one, Manager went straight to the download, and no notice showed.
+- A download answered with 404: the message names the package and its address, and nothing is left behind.
 
 Not tested: the download of the runtime from the release page (it does not exist before the release), the banner's button and the dialog before a start clicked in a real Manager window, the updater taking a 1.1.1 installation to 1.2.0, and a fresh installation from recovery to the desktop on this runtime. A VM of an earlier version getting new boot files at its first start was tested on 2026-11-24 (below), not again with the packaged runtime.
 

@@ -74,7 +74,7 @@ public partial class MainWindow : Window
         await VmService.RequireStopped(Current());
         Current().Validate();
         // A runtime this Manager's command line does not fit is replaced first, with the user's say.
-        bool replace = EnvironmentSetup.RuntimeUpdateRequired(vm.Engine, vm.DataDirectory);
+        bool replace = EnvironmentSetup.RuntimeUpdateRequired(vm.Engine, vm.DataDirectory) || await EnvironmentSetup.RuntimeIncompatible(vm.Engine, CancellationToken.None);
         if (replace && MessageBox.Show(this, EnvironmentSetup.RuntimeUpdateRequiredText() + Text.Get("\n\n现在下载并更新吗？更新后虚拟机会接着启动。虚拟机和磁盘不受影响。", "\n\nDownload and update it now? The VM starts afterwards. VMs and disks are not affected."),
                 Text.Get("Weims · 需要更新运行组件", "Weims · The runtime must be updated"), MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.Yes) != MessageBoxResult.Yes)
         {

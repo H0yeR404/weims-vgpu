@@ -29,7 +29,8 @@ Console.WriteLine("PASS cancelled automatic setup leaves paths untouched");
 // A runtime that Manager installed is replaced once the catalog names another version; the tested runtime is moved, not copied.
 string data = Path.Combine(test, "managed"), installId = Guid.NewGuid().ToString("N");
 string current = Path.Combine(data, "runtimes", catalog.Runtime.Version + "-" + installId), old = Path.Combine(data, "runtimes", "weims-runtime-0.0.0-" + installId);
-Directory.CreateDirectory(Path.GetDirectoryName(current)!); Directory.Move(dir, current);
+Directory.CreateDirectory(Path.GetDirectoryName(current)!);
+for (int attempt = 0; ; attempt++) { try { Directory.Move(dir, current); break; } catch (IOException) when (attempt < 20) { await Task.Delay(500); } }
 EngineSettings At(string folder) => new() { Qemu = Path.Combine(folder,"qemu-system-x86_64.exe"), RuntimeBin = folder, Bios = Path.Combine(folder,"pc-bios") };
 var managed = At(current);
 if (!ReferenceEquals(managed, await EnvironmentSetup.Ensure(managed, data, new Progress<string>(Console.WriteLine), timeout.Token)) || (await EnvironmentSetup.Detect(managed, timeout.Token, data)).RuntimeOutdated)
@@ -48,6 +49,27 @@ try { await EnvironmentSetup.Ensure(outdated, data, steps, stop.Token, replaceOu
 if (replaced || !steps.Reached || Directory.GetDirectories(Path.Combine(data, "runtimes")).Length != 1 || !File.Exists(outdated.Qemu))
     throw new Exception("An outdated managed runtime should go on to the catalog's download, and stay in place when that is cancelled.");
 Console.WriteLine("PASS outdated managed runtime is reported, goes on to the catalog's download, and stays when that is cancelled");
+// --old-runtime FOLDER: a runtime of 1.2.0-pre.1 or earlier in a place of the user's own choosing must be reported as
+// one that has to be replaced, although such a place is never called outdated.
+int oldAt = Array.IndexOf(args, "--old-runtime");
+if (oldAt >= 0)
+{
+    var chosen = At(Path.GetFullPath(args[oldAt + 1]));
+    if (!await EnvironmentSetup.RuntimeIncompatible(chosen, timeout.Token)) throw new Exception("The old runtime should be recognised as incompatible.");
+    var found = await EnvironmentSetup.Detect(chosen, timeout.Token, data);
+    if (found.RuntimeReady || !found.RuntimeUpdateRequired || EnvironmentSetup.RuntimeOutdated(chosen, data)) throw new Exception("An incompatible runtime of the user's own must be reported as a required update.");
+    if (await EnvironmentSetup.RuntimeIncompatible(outdated, timeout.Token)) throw new Exception("The current runtime must not be called incompatible.");
+    Console.WriteLine("PASS a runtime of 1.2.0-pre.1 or earlier in a folder of the user's own is reported as a required update");
+}
+// A download that fails says which package and from where.
+try
+{
+    using var missing = new HttpClient(new Answer(System.Net.HttpStatusCode.NotFound));
+    await EnvironmentSetup.InstallPackage(catalog.Runtime, Path.Combine(test, "missing"), new Progress<string>(), timeout.Token, missing);
+    throw new Exception("A missing package must not install.");
+}
+catch (IOException e) when (e.Message.Contains(catalog.Runtime.Version) && e.Message.Contains("404") && e.Message.Contains(catalog.Runtime.Url)) { Console.WriteLine("PASS a package missing from the release page is reported with its name and address"); }
+if (Directory.Exists(Path.Combine(test, "missing")) && Directory.GetFileSystemEntries(Path.Combine(test, "missing")).Length != 0) throw new Exception("A failed download must leave nothing behind.");
 if (args.Contains("--powershell"))
 {
     string psDir = await EnvironmentSetup.InstallPackage(catalog.PowerShell, test, new Progress<string>(Console.WriteLine), timeout.Token);
@@ -64,6 +86,10 @@ if (args.Contains("--download"))
     Console.WriteLine("PASS clean-PATH automatic runtime and PowerShell installation");
 }
 
+sealed class Answer(System.Net.HttpStatusCode status) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) => Task.FromResult(new HttpResponseMessage(status));
+}
 // Cancels at the step that would download the runtime, before any request is sent.
 sealed class StopAtDownload(CancellationTokenSource stop, string version) : IProgress<string>
 {

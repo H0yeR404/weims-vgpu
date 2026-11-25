@@ -41,7 +41,7 @@ try
     else
     {
         var c = VmConfig.Load(Required("--config"));
-        if (command == "start" && EnvironmentSetup.RuntimeUpdateRequired(engine, data)) throw new InvalidOperationException(EnvironmentSetup.RuntimeUpdateRequiredText() + " Run: Weims.Cli setup");
+        if (command == "start" && (EnvironmentSetup.RuntimeUpdateRequired(engine, data) || await EnvironmentSetup.RuntimeIncompatible(engine, cancel.Token))) throw new InvalidOperationException(EnvironmentSetup.RuntimeUpdateRequiredText() + " Run: Weims.Cli setup");
         if (command == "start" && EnvironmentSetup.RuntimeOutdated(engine, data)) Console.Error.WriteLine("This version comes with a newer runtime than the installed one. Run: Weims.Cli setup");
         if (command == "start")
         {
