@@ -199,8 +199,8 @@
 <sys:String x:Key="S199">We will prepare the runtime, OpenCore, firmware and graphics drivers automatically. No Python, MSYS2 or WSL setup is needed. Internet access is required.</sys:String>
 <sys:String x:Key="S200">Advanced · bring your own boot files</sys:String>
 <sys:String x:Key="S201">Use my boot files and ports instead of automatic preparation</sys:String>
-<sys:String x:Key="S202">Known issues · The VM may freeze, including during resolution changes. This is a known issue planned for correction. Back up important data. After preparation, start recovery and install macOS in its own window.</sys:String>
-<sys:String x:Key="S203">1.2.0 · VM freezes are possible. A fix is planned. Keep backups and use a test VM.</sys:String>
+<sys:String x:Key="S202">After preparation, start recovery and install macOS in its own window.</sys:String>
+<sys:String x:Key="S203">1.2.0 · Keep backups of important data.</sys:String>
  <sys:String x:Key="UpdateTitle">Software updates</sys:String>
  <sys:String x:Key="UpdateCheck">Check for updates</sys:String>
  <sys:String x:Key="RuntimeBannerAction">Update runtime now</sys:String>
@@ -215,9 +215,7 @@
 • Guest Tools: share the clipboard between Windows and macOS (text and files) and mount folders of this computer in macOS.
 • Runtime 1.2.0, built directly from upstream Reims vGPU: macOS has sound, its resolution follows the window, and QEMU exits at once when a VM is closed or shut down.
 • The runtime must be updated. After upgrading, click Update runtime now; VMs cannot start before that. A VM made with an earlier version gets new boot files at its first start and keeps its Mac identity.
-• Update channel: choose stable releases, or preview and stable releases.
-
-VM freezes during use remain under investigation.</sys:String>
+• Update channel: choose stable releases, or preview and stable releases.</sys:String>
  <sys:String x:Key="RuntimeWelcome">Let Weims handle the setup</sys:String>
  <sys:String x:Key="RuntimeAutomatic">Weims downloads the required components, verifies them, and saves every path for you. No manual file selection is needed.</sys:String>
  <sys:String x:Key="RuntimeComponents">Virtual machine components</sys:String>

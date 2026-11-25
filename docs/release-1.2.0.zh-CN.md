@@ -27,8 +27,6 @@ Guest Tools 的安装和各项功能的细节见 [Manager 说明](../manager/REA
 
 ## 已知问题
 
-- 使用中虚拟机可能卡死，仍在排查。
-- Intel 显卡（[Issue #2](https://github.com/H0yeR404/weims-vgpu/issues/2)）没有在新运行组件上验证过。
 - 不支持把文件拖进或拖出虚拟机窗口，不支持 USB 设备直通。
 
 ## 验证

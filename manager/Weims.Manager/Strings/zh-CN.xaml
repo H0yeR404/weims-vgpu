@@ -199,8 +199,8 @@
 <sys:String x:Key="S199">自动准备运行环境、OpenCore、固件与图形驱动，无需安装 Python、MSYS2 或 WSL。此过程需要联网。</sys:String>
 <sys:String x:Key="S200">高级选项 · 自备引导文件</sys:String>
 <sys:String x:Key="S201">使用自备引导文件与端口，替代自动准备</sys:String>
-<sys:String x:Key="S202">已知问题 · 虚拟机可能卡死。此问题已知，后续将修复。请备份重要数据。准备完成后，在独立恢复窗口中安装 macOS。</sys:String>
-<sys:String x:Key="S203">1.2.0 · 虚拟机可能卡死。后续将修复，请保留备份并使用测试虚拟机。</sys:String>
+<sys:String x:Key="S202">准备完成后，在独立恢复窗口中安装 macOS。</sys:String>
+<sys:String x:Key="S203">1.2.0 · 请为重要数据保留备份。</sys:String>
  <sys:String x:Key="UpdateTitle">软件更新</sys:String>
  <sys:String x:Key="UpdateCheck">检查更新</sys:String>
  <sys:String x:Key="RuntimeBannerAction">立即更新运行组件</sys:String>
@@ -215,9 +215,7 @@
 • Guest Tools：在 Windows 和 macOS 之间共享剪贴板（文本和文件），并把这台电脑上的文件夹挂载到 macOS 里。
 • 运行组件 1.2.0，直接基于上游 Reims vGPU 构建：macOS 有声音，分辨率跟随窗口，关闭虚拟机或关机后 QEMU 立即退出。
 • 必须更新运行组件。升级后请点击“立即更新运行组件”，更新之前虚拟机无法启动。用早先版本创建的虚拟机在第一次启动时会换上新的引导文件，Mac 身份保持不变。
-• 更新频道：可以选择正式版，或预览版和正式版。
-
-使用中虚拟机卡死的问题仍在排查。</sys:String>
+• 更新频道：可以选择正式版，或预览版和正式版。</sys:String>
  <sys:String x:Key="RuntimeWelcome">把环境准备交给 Weims</sys:String>
  <sys:String x:Key="RuntimeAutomatic">自动下载所需组件、校验并保存全部路径，无需查找文件或手动填写。</sys:String>
  <sys:String x:Key="RuntimeComponents">虚拟机运行组件</sys:String>

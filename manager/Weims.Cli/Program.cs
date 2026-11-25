@@ -24,7 +24,6 @@ try
     var engine = File.Exists(engineFile) ? JsonSerializer.Deserialize<EngineSettings>(File.ReadAllText(engineFile))! : new EngineSettings();
     using var cancel = new CancellationTokenSource(); Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
     var progress = new ConsoleProgress();
-    Console.Error.WriteLine("Known issue: VM freezes are possible. A fix is planned; back up important data.");
     if (command == "setup")
     {
         var prepared = await EnvironmentSetup.Prepare(data, progress, cancel.Token);

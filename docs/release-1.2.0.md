@@ -27,8 +27,6 @@ Where Guest Tools is already installed, it updates itself in macOS once it conne
 
 ## Known issues
 
-- A VM may freeze during use. This is still being looked into.
-- Intel GPUs ([Issue #2](https://github.com/H0yeR404/weims-vgpu/issues/2)) have not been checked with the new runtime.
 - Files cannot be dragged into or out of the VM's window, and USB devices cannot be passed through.
 
 ## Validation
