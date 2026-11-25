@@ -244,6 +244,12 @@ try
     Check(!EnvironmentSetup.RuntimeOutdated(RuntimeAt(Path.Combine(managed, "my-own-build")), profile, "weims-runtime-1.1.2"), "folder without an install id is not a managed runtime");
     Check(!EnvironmentSetup.RuntimeOutdated(RuntimeAt(Path.Combine(managed, "weims-runtime-1.0-" + installId, "bin")), profile, "weims-runtime-1.1.2"), "runtime nested deeper in the managed folder is not a managed runtime");
     Check(!EnvironmentSetup.RuntimeOutdated(new EngineSettings(), profile, "weims-runtime-1.1.2"), "empty runtime settings are not outdated");
+    var must = new SetupPackage("weims-runtime-1.1.2", "https://example.invalid/r.zip", new string('0', 64), 1, Required: true);
+    Check(EnvironmentSetup.RuntimeUpdateRequired(RuntimeAt(Path.Combine(managed, "weims-runtime-1.1.0-pre.1-" + installId)), profile, must), "an older managed runtime must be replaced when the catalog requires its own");
+    Check(!EnvironmentSetup.RuntimeUpdateRequired(RuntimeAt(Path.Combine(managed, "weims-runtime-1.1.0-pre.1-" + installId)), profile, must with { Required = false }), "an older managed runtime may stay when the catalog does not require its own");
+    Check(!EnvironmentSetup.RuntimeUpdateRequired(RuntimeAt(Path.Combine(managed, "weims-runtime-1.1.2-" + installId)), profile, must), "the catalog's own runtime needs no replacement");
+    Check(!EnvironmentSetup.RuntimeUpdateRequired(RuntimeAt(Path.Combine(temp, "custom", "weims-runtime-1.0-" + installId)), profile, must), "a runtime the user chose is never required to change");
+    Check(System.Text.Json.JsonSerializer.Deserialize<SetupPackage>("{\"Version\":\"v\",\"Url\":\"u\",\"Sha256\":\"s\",\"MaxBytes\":1}")!.Required == false, "a catalog entry without the flag is not required");
     Console.WriteLine($"{passed} contract checks passed.");
 }
 finally { Directory.Delete(temp,true); }

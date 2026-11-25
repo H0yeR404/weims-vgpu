@@ -108,6 +108,16 @@ public static class Integration
     /// configuration is written, so this is safe while the VM runs and beside unsaved edits. Without a broker
     /// there is nobody to tell: it reads the configuration when it starts.
     /// </summary>
+    /// <summary>Stores whether files cross with the clipboard and has a running broker take that up, as <see cref="ApplyShares"/> does for the folders.</summary>
+    public static async Task ApplyClipboardFiles(VmConfig c, bool on, CancellationToken token = default)
+    {
+        bool before = c.ClipboardFiles;
+        c.ClipboardFiles = on;
+        try { c.SaveOnly("clipboard_files"); } catch { c.ClipboardFiles = before; throw; }
+        if (!BrokerState.Read(c).Online) return;
+        try { await Command(c, "reload", token); } catch (IOException) { }
+    }
+
     public static async Task ApplyShares(VmConfig c, IReadOnlyList<ShareConfig> shares, int uploadLimitMiB, CancellationToken token = default)
     {
         var (before, limit) = (c.Shares, c.UploadLimitMiB);
@@ -125,6 +135,8 @@ public static class Integration
 public sealed record ShareConfig(string Name, string Path, bool ReadOnly)
 {
     public const int NameLimit = 32, CountLimit = 16;
+    /// <summary>The share Guest Tools serves for itself, for the files that cross with the clipboard. No folder of the user's can have this name.</summary>
+    public const string TransferName = "Weims Transfer";
 
     public static ShareConfig? Read(JsonNode? node)
     {
@@ -153,6 +165,7 @@ public sealed record ShareConfig(string Name, string Path, bool ReadOnly)
         foreach (var share in shares)
         {
             if ((NameProblem(share.Name) ?? PathProblem(share.Path)) is { } problem) return problem;
+            if (share.Name.Equals(TransferName, StringComparison.OrdinalIgnoreCase)) return Text.Get($"共享名称“{share.Name}”由 Guest Tools 自己使用，请换一个。", $"The share name \"{share.Name}\" is used by Guest Tools itself. Choose another.");
             if (!names.Add(share.Name)) return Text.Get($"共享名称“{share.Name}”重复。", $"The share name \"{share.Name}\" is used twice.");
         }
         return null;
@@ -165,7 +178,7 @@ public sealed record ShareConfig(string Name, string Path, bool ReadOnly)
         if (leaf.Length == 0) leaf = path.Length > 0 && char.IsAsciiLetter(path[0]) ? path[..1].ToUpperInvariant() : "";
         var cleaned = new string(leaf.Select(c => char.IsLetterOrDigit(c) || " -_.()".Contains(c) ? c : '-').ToArray()).Trim(' ', '.');
         if (cleaned.Length == 0) cleaned = "Shared";
-        var used = new HashSet<string>(taken, StringComparer.OrdinalIgnoreCase);
+        var used = new HashSet<string>(taken, StringComparer.OrdinalIgnoreCase) { TransferName };
         for (int n = 1; ; n++)
         {
             var suffix = n == 1 ? "" : " " + n;
@@ -199,6 +212,8 @@ public sealed record BrokerState(bool Online, int Port, string? Fingerprint, str
     public IReadOnlyList<ShareState> Shares { get; init; } = [];
     /// <summary>The connected helper can mount shared folders. False for a helper from before they existed.</summary>
     public bool HelperMounts { get; init; }
+    /// <summary>What the broker has to say about the clipboard right now: something that did not cross and why, or how far a transfer of files is.</summary>
+    public string? Note { get; init; }
     public string Label => !Online ? Text.Get("集成：离线", "Integration: offline") + (Error is null ? "" : " · " + Error)
         : Connected ? Text.Get($"集成：已连接（{HelperUser}）", $"Integration: connected ({HelperUser})")
         : PairedUsers.Count == 0 ? Text.Get("集成：等待配对", "Integration: waiting for pairing")
@@ -222,7 +237,7 @@ public sealed record BrokerState(bool Online, int Port, string? Fingerprint, str
             {
                 PairingOpen = pairingOpen || Str("pairing_digits") != null, PairingDigits = Str("pairing_digits"), PairingUser = Str("pairing_user"),
                 InstallOpen = Future("install_until_utc"), InstallMediaEjected = j["install_media_ejected"] is JsonValue e && e.TryGetValue<bool>(out var ejected) && ejected,
-                HelperMounts = j["helper_mounts"] is JsonValue m && m.TryGetValue<bool>(out var mounts) && mounts,
+                HelperMounts = j["helper_mounts"] is JsonValue m && m.TryGetValue<bool>(out var mounts) && mounts, Note = Str("note"),
                 Shares = j["shares"] is JsonArray shares
                     ? [.. shares.OfType<JsonObject>().Select(s => new ShareState(s["name"]!.GetValue<string>(), s["read_only"]!.GetValue<bool>(), s["state"]!.GetValue<string>(), s["error"]?.GetValue<string>()))] : []
             };

@@ -289,7 +289,19 @@ namespace SMBLibrary.Server
                 state.UpdateLastReceiveDT();
                 NBTConnectionReceiveBuffer receiveBuffer = state.ReceiveBuffer;
                 receiveBuffer.SetNumberOfBytesReceived(numberOfBytesReceived);
-                ProcessConnectionBuffer(ref state);
+                // Changed by Weims on 2026-11-25: an exception out of the handling of a request is thrown on a thread
+                // pool thread, where nothing catches it, and ends the process. What the requests are is the client's
+                // choice. The connection it came over is closed instead.
+                try
+                {
+                    ProcessConnectionBuffer(ref state);
+                }
+                catch (Exception ex)
+                {
+                    state.LogToServer(Severity.Warning, "A request could not be handled and its connection is closed. {0}: {1}", ex.GetType().Name, ex.Message);
+                    m_connectionManager.ReleaseConnection(state);
+                    return;
+                }
 
                 if (clientSocket.Connected)
                 {

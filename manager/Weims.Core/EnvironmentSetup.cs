@@ -6,9 +6,10 @@ using System.Text.Json;
 
 namespace Weims.Core;
 
-public sealed record SetupPackage(string Version, string Url, string Sha256, long MaxBytes);
+/// <summary>Required: VMs cannot start on a managed runtime of another version (this Manager's command line does not fit it).</summary>
+public sealed record SetupPackage(string Version, string Url, string Sha256, long MaxBytes, bool Required = false);
 public sealed record SetupCatalog(SetupPackage Runtime, SetupPackage PowerShell);
-public sealed record EnvironmentReport(bool SupportedHost, bool HypervisorReady, bool VulkanReady, bool RuntimeReady, bool PowerShellReady, string Details, bool RuntimeOutdated = false);
+public sealed record EnvironmentReport(bool SupportedHost, bool HypervisorReady, bool VulkanReady, bool RuntimeReady, bool PowerShellReady, string Details, bool RuntimeOutdated = false, bool RuntimeUpdateRequired = false);
 
 public static class EnvironmentSetup
 {
@@ -35,11 +36,26 @@ public static class EnvironmentSetup
         catch (Exception e) when (e is IOException or JsonException or InvalidDataException) { return false; } // a build from source may carry no catalog
     }
 
+    /// <summary>
+    /// Whether VMs must not be started before the runtime is replaced: the installed one is a managed runtime of
+    /// another version, and the catalog says its own is required.
+    /// </summary>
+    public static bool RuntimeUpdateRequired(EngineSettings engine, string dataDirectory)
+    {
+        try { return RuntimeUpdateRequired(engine, dataDirectory, Catalog().Runtime); }
+        catch (Exception e) when (e is IOException or JsonException or InvalidDataException) { return false; }
+    }
+    public static bool RuntimeUpdateRequired(EngineSettings engine, string dataDirectory, SetupPackage catalogRuntime) =>
+        catalogRuntime.Required && RuntimeOutdated(engine, dataDirectory, catalogRuntime.Version);
+    public static string RuntimeUpdateRequiredText() => Text.Get(
+        "这个版本的管理器必须使用新的运行组件，现在安装的是旧的，虚拟机无法启动。请先更新运行组件。",
+        "This version of Manager needs its newer runtime. The installed one is older and VMs cannot start on it. Update the runtime first.");
+
     public static async Task<EnvironmentReport> Detect(EngineSettings engine, CancellationToken token, string? dataDirectory = null)
     {
         bool host = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041) && RuntimeInformation.OSArchitecture == Architecture.X64;
         var lines = new List<string> { $"Windows: {Environment.OSVersion.Version}; {RuntimeInformation.OSArchitecture}" };
-        bool whpx = false, vulkan = false, runtime = false, ps = false, outdated = false;
+        bool whpx = false, vulkan = false, runtime = false, ps = false, outdated = false, required = false;
         try { whpx = WHvGetCapability(0, out int present, 4, out _) == 0 && present != 0; }
         catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException) { }
         lines.Add(Text.Get("固件虚拟化：", "Firmware virtualization: ") + (IsProcessorFeaturePresent(21) || whpx ? "OK" : Text.Get("请在 BIOS/UEFI 启用，或检查嵌套虚拟化。", "Enable in BIOS/UEFI, or check nested virtualization.")));
@@ -48,13 +64,16 @@ public static class EnvironmentSetup
         catch (Exception e) { lines.Add("Vulkan: " + e.Message); }
         try { await ValidateRuntime(engine, token); runtime = true; lines.Add("QEMU / Reims: OK"); }
         catch (Exception e) when (e is not OperationCanceledException) { lines.Add("QEMU / Reims: " + e.Message); }
-        if (runtime && dataDirectory != null && (outdated = RuntimeOutdated(engine, dataDirectory)))
+        // Asked whether the runtime passed or not: the one of 1.2.0-pre.1 and earlier does not pass, and is the one to replace.
+        if (dataDirectory != null && (outdated = RuntimeOutdated(engine, dataDirectory)) && (required = RuntimeUpdateRequired(engine, dataDirectory)))
+            lines.Add(Text.Get("运行组件：", "Runtime: ") + RuntimeUpdateRequiredText());
+        else if (outdated)
             lines.Add(Text.Get("运行组件：此版本配套的运行组件比已安装的新，点击“一键准备运行环境”即可更换。", "Runtime: this version comes with a newer runtime than the installed one. Click One-click setup to switch to it."));
         try { await CheckPowerShell(engine.PowerShell, token); ps = true; lines.Add("PowerShell 7+: OK"); }
         catch (Exception e) when (e is not OperationCanceledException) { lines.Add("PowerShell: " + e.Message); }
         if (!host) lines.Add(Text.Get("此版本需要 Windows 10 2004 或更新的 x64 系统。", "This release requires Windows 10 2004 or newer on x64."));
         lines.Add(Text.Get("恢复镜像、OpenCore、OVMF 和 ROM 在导入或创建虚拟机时单独检查。", "Recovery, OpenCore, OVMF and ROM files are checked when importing or creating a VM."));
-        return new(host, whpx, vulkan, runtime, ps, string.Join(Environment.NewLine, lines), outdated);
+        return new(host, whpx, vulkan, runtime, ps, string.Join(Environment.NewLine, lines), outdated, required);
     }
 
     public static async Task CheckPowerShell(string executable, CancellationToken token)
@@ -75,7 +94,7 @@ public static class EnvironmentSetup
         var accel = await ProcessRunner.Run(engine.Qemu, ["-accel", "help"], env, timeout.Token);
         // The QEMU of 1.2 and before had a guest-memory switch on the device and took another command line.
         if (device.Contains("guest-memory"))
-            throw new IOException(Text.Get("此运行组件属于 1.2 及更早版本，与当前版本不兼容。", "This runtime belongs to version 1.2 or earlier and does not work with this version."));
+            throw new IOException(Text.Get("此运行组件属于 1.2.0-pre.1 及更早版本，与当前版本不兼容。", "This runtime belongs to version 1.2.0-pre.1 or earlier and does not work with this version."));
         if (!accel.Contains("whpx")) throw new IOException(Text.Get("运行组件缺少 WHPX。", "Runtime lacks WHPX."));
     }
 

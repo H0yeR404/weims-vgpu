@@ -19,6 +19,22 @@ Check(ReleaseVersion.Parse("1.1.0").CompareTo(ReleaseVersion.Parse("1.1.0-pre.99
 Check(ReleaseVersion.Parse("v1.1.0+build").CompareTo(ReleaseVersion.Parse("1.1.0")) == 0, "build metadata ignored");
 Check(ManagerUpdates.Select(Json(Release("v1.2.0-pre.1", true)), "1.1.0") == null, "stable ignores preview");
 Check(ManagerUpdates.Select(Json(Release("v1.2.0", false, true)), "1.1.0") == null, "draft ignored");
+Check(ManagerUpdates.Select(Json(Release("v1.3.0-pre.1", true), Release("v1.2.1")), "1.2.0", true)?.Tag == "v1.3.0-pre.1", "stable build on the preview channel is offered a preview");
+Check(ManagerUpdates.Select(Json(Release("v1.2.1")), "1.2.0", true)?.Tag == "v1.2.1", "preview channel still offers stable releases");
+Check(ManagerUpdates.Select(Json(Release("v1.2.0-pre.2", true), Release("v1.2.0")), "1.2.0-pre.1", false)?.Tag == "v1.2.0", "preview build on the stable channel is offered stable releases only");
+Check(ManagerUpdates.Select(Json(Release("v1.3.0-pre.2", true), Release("v1.2.1")), "1.3.0-pre.1", false) == null, "leaving the preview channel never offers an older stable release");
+Check(ManagerUpdates.Select(Json(Release("v1.3.0", true)), "1.2.0", false) == null, "a release GitHub marks as prerelease stays off the stable channel");
+{
+ string channelFolder = Path.Combine(Path.GetTempPath(), "weims-channel-" + Guid.NewGuid().ToString("N"));
+ try
+ {
+  Check(ReleaseChannel.Read(channelFolder, "1.2.0") == "stable" && ReleaseChannel.Read(channelFolder, "1.2.0-pre.1") == "preview", "without a choice the channel follows the installed build");
+  ReleaseChannel.Write(channelFolder, "preview"); Check(ReleaseChannel.Read(channelFolder, "1.2.0") == "preview", "chosen channel is kept");
+  File.WriteAllText(Path.Combine(channelFolder, "update-channel.txt"), "nightly"); Check(ReleaseChannel.Read(channelFolder, "1.2.0") == "stable", "unknown saved channel falls back to the build's own");
+  await Reject(() => { ReleaseChannel.Write(channelFolder, "nightly"); return Task.CompletedTask; }, "unknown channel is not saved");
+ }
+ finally { if (Directory.Exists(channelFolder)) Directory.Delete(channelFolder, true); }
+}
 Check(ManagerUpdates.Select(Json(Release("v1.0.1")), "1.1.0-pre.1") == null, "preview never downgrades to older stable");
 Check(ManagerUpdates.Select(Json(Release("v1.1.0-pre.1", true)), "1.1.0-pre.1") == null, "same version not offered");
 Check(ManagerUpdates.Select(Json(Release("v1.1.0")), "1.1.0-pre.1")?.Tag == "v1.1.0", "preview may advance to stable");

@@ -20,9 +20,17 @@ diff -r SMBLibrary/Utilities manager/third_party/SMBLibrary/Utilities
 diff -r SMBLibrary/SMBLibrary.Win32 manager/third_party/SMBLibrary/SMBLibrary.Win32
 ```
 
-## The change to the source
+## The changes to the source
 
-`SMBLibrary/Server/SMBServer.cs`, changed by Weims on 2026-11-24, marked in the file: `ConnectRequestCallback` accepts a
+Both are in `SMBLibrary/Server/SMBServer.cs` and are marked there.
+
+Changed by Weims on 2026-11-25: `ReceiveCallback` handles the requests that arrived on a connection. An exception out
+of that handling is thrown on a thread pool thread, where nothing catches it, and ends the process; what the requests
+are is the client's choice. The call is now inside a `try`: the exception is logged as a warning and the connection it
+came over is closed. Found when macOS connected to a share whose file store did not expect a control request that
+names no file, and the broker was gone.
+
+Changed by Weims on 2026-11-24: `ConnectRequestCallback` accepts a
 connection and then calls `BeginAccept` on the listener again. When `Stop()` has closed the listener in between, that
 call throws `ObjectDisposedException` on a thread pool thread, which ends the process. The broker stops and starts the
 server while it runs (a helper leaves, the list of folders changes), so both such calls are now inside a `try` that

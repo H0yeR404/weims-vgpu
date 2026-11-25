@@ -23,6 +23,7 @@ public partial class MainWindow : Window
         var app = (App)Application.Current; app.LoadTheme(vm.DataDirectory);
         InitializeComponent(); DataContext = vm; LanguagePicker.SelectedIndex = Text.Chinese ? 0 : 1;
         ThemePicker.SelectedValue = app.Theme;
+        ChannelPicker.SelectedValue = ReleaseChannel.Read(vm.DataDirectory, VersionNumber);
         Loaded += async (_, _) => { UpdateCapability(); await vm.Refresh(); timer.Start(); if (detectOnLoad) await Work(DetectEnvironment); };
         timer.Tick += async (_, _) => { if (refreshing || vm.Busy) return; refreshing = true; try { await vm.Refresh(); } finally { refreshing = false; Pace(); } };
         Closed += (_, _) => { timer.Stop(); setupCancellation?.Cancel(); updateCancellation?.Cancel(); };
@@ -72,8 +73,16 @@ public partial class MainWindow : Window
         EnsureValidFields(); vm.Message = Text.Get("正在检查并启动虚拟机…", "Checking and starting the VM…");
         await VmService.RequireStopped(Current());
         Current().Validate();
-        try { await EnsureRuntime(); }
+        // A runtime this Manager's command line does not fit is replaced first, with the user's say.
+        bool replace = EnvironmentSetup.RuntimeUpdateRequired(vm.Engine, vm.DataDirectory);
+        if (replace && MessageBox.Show(this, EnvironmentSetup.RuntimeUpdateRequiredText() + Text.Get("\n\n现在下载并更新吗？更新后虚拟机会接着启动。虚拟机和磁盘不受影响。", "\n\nDownload and update it now? The VM starts afterwards. VMs and disks are not affected."),
+                Text.Get("Weims · 需要更新运行组件", "Weims · The runtime must be updated"), MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.Yes) != MessageBoxResult.Yes)
+        {
+            vm.Message = Text.Get("运行组件没有更新，虚拟机未启动。", "The runtime was not updated. The VM was not started."); return;
+        }
+        try { await EnsureRuntime(replace); }
         catch (OperationCanceledException) { vm.Message = Text.Get("已取消环境准备，虚拟机未启动。", "Setup cancelled. The VM was not started."); return; }
+        if (replace) { try { await DetectEnvironment(); } catch (OperationCanceledException) { } }
         await BootImage.EnsureCurrent(Current(), vm.Engine, vm.DataDirectory, new Progress<string>(s => vm.Message = s), CancellationToken.None);
         string key = LaunchPlan.ResolveOsk(Environment.GetEnvironmentVariable("WEIMS_OSK"));
         var run = await VmService.Start(Current(), vm.Engine, key, Path.Combine(AppContext.BaseDirectory, "launch-vm.ps1"));
@@ -147,6 +156,12 @@ public partial class MainWindow : Window
         // A running broker reads the new mode at once; without one there is nothing to tell.
         try { await Integration.Command(c, "reload"); } catch (IOException) { }
         vm.Message = c.ClipboardMode == "text" ? Text.Get("剪贴板文本共享已开启。", "Clipboard text sharing is on.") : Text.Get("剪贴板共享已关闭。", "Clipboard sharing is off.");
+    });
+    async void ToggleClipboardFiles(object sender, RoutedEventArgs e) => await Work(async () =>
+    {
+        bool on = ((CheckBox)sender).IsChecked == true;
+        try { await Integration.ApplyClipboardFiles(Current(), on); } finally { vm.ClipboardChanged(); }
+        vm.Message = on ? Text.Get("文件复制粘贴已开启。", "Copy and paste of files is on.") : Text.Get("文件复制粘贴已关闭。", "Copy and paste of files is off.");
     });
     // Shared folders and the upload limit are stored and taken up at once, like the clipboard setting.
     Task StoreShares(IReadOnlyList<ShareConfig> shares, int uploadLimitMiB, string done) => Work(async () =>

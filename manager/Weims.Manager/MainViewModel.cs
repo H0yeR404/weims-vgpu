@@ -12,7 +12,7 @@ public sealed class MainViewModel : Observable
     public ObservableCollection<VmConfig> Machines { get; } = new();
     public EngineSettings Engine { get; }
     VmConfig? selected; bool busy, canEdit, isRunning; int page; string status = Text.Get("请选择虚拟机", "Select a virtual machine"), message = Text.Get("欢迎使用 Weims。导入已有虚拟机，或通过恢复镜像开始。", "Welcome to Weims. Import a VM or start with a recovery image."), details = "";
-    public VmConfig? Selected { get => selected; set { if (Set(ref selected, value)) { Changed(nameof(HasVm)); Changed(nameof(CanConfigure)); Changed(nameof(CanIntegrate)); Changed(nameof(ClipboardShared)); SharesChanged(); PairingOpen = false; PairingDigits = ""; PairingPrompt = ""; } } }
+    public VmConfig? Selected { get => selected; set { if (Set(ref selected, value)) { Changed(nameof(HasVm)); Changed(nameof(CanConfigure)); Changed(nameof(CanIntegrate)); ClipboardChanged(); SharesChanged(); PairingOpen = false; PairingDigits = ""; PairingPrompt = ""; } } }
     public bool HasVm => Selected != null;
     public bool Busy { get => busy; set { Set(ref busy, value); Changed(nameof(Available)); Changed(nameof(CanConfigure)); Changed(nameof(CanPower)); Changed(nameof(CanIntegrate)); Changed(nameof(CanPair)); Changed(nameof(CanStartPairing)); Changed(nameof(CanAnswerPairing)); } }
     public bool Available => !Busy;
@@ -36,6 +36,8 @@ public sealed class MainViewModel : Observable
     string installPrompt = "";
     public bool InstallOpen => InstallPrompt != "";
     public bool ClipboardShared => Selected?.ClipboardMode == "text";
+    /// <summary>Files cross with the clipboard. The setting only counts while the clipboard is shared at all.</summary>
+    public bool FilesShared => Selected?.ClipboardFiles == true;
     public bool BrokerConnected { get; private set; }
     public string IntegrationStatus { get => integrationStatus; set => Set(ref integrationStatus, value); }
     public string IntegrationDetail { get => integrationDetail; set => Set(ref integrationDetail, value); }
@@ -46,7 +48,7 @@ public sealed class MainViewModel : Observable
     public string PairingDigits { get => pairingDigits; private set { if (Set(ref pairingDigits, value)) Changed(nameof(CanAnswerPairing)); } }
     public string PairingPrompt { get => pairingPrompt; private set => Set(ref pairingPrompt, value); }
     public bool CanAnswerPairing => PairingDigits != "" && !Busy;
-    public void ClipboardChanged() => Changed(nameof(ClipboardShared));
+    public void ClipboardChanged() { Changed(nameof(ClipboardShared)); Changed(nameof(FilesShared)); }
     // Shared folders. The rows are the selected VM's stored folders; what each one says about itself comes from the broker.
     public ObservableCollection<ShareRow> Shares { get; } = new();
     string uploadLimitText = "";
@@ -126,6 +128,8 @@ public sealed class MainViewModel : Observable
         IntegrationDetail = !current.IntegrationEnabled || !broker.Online ? ""
             : broker.PairedUsers.Count == 0 ? Text.Get("尚未与 macOS 里的 Guest Tools 配对。", "Not paired with Guest Tools in macOS yet.")
             : Text.Get("已配对的 macOS 用户：", "Paired macOS users: ") + string.Join(Text.Get("、", ", "), broker.PairedUsers);
+        // Something that did not cross the clipboard, or how far a transfer of copied files is.
+        if (IntegrationDetail != "" && broker.Note is { Length: > 0 } note) IntegrationDetail += "\n" + note;
         foreach (var row in Shares) row.State = ShareText(current, state.Running, broker, row.Share);
         PairingOpen = broker.Online && broker.PairingOpen;
         PairingDigits = PairingOpen ? broker.PairingDigits ?? "" : "";

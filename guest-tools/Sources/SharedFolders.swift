@@ -152,7 +152,8 @@ final class Relay {
 /// of this user under a name the host made up ("weims-…"), from the relay or from the host's address;
 /// that also finds the mounts an earlier run of the helper left behind.
 final class SharedFolders {
-    struct Share: Equatable { let name: String; let readOnly: Bool }
+    /// - hidden: mounted for the helper's own use (the share behind file copy and paste): no link, no menu entry.
+    struct Share: Equatable { let name: String; let readOnly: Bool; var hidden = false }
     struct Offer: Equatable { var port = 0; var user = ""; var password = ""; var shares: [Share] = [] }
     typealias Mounted = (name: String, path: String)
     typealias Failed = (name: String, error: String)
@@ -210,12 +211,18 @@ final class SharedFolders {
                         self.working = false
                         self.failedAt = failed.isEmpty ? nil : Date()
                     }
-                    Self.link(mounted)
+                    Self.link(mounted.filter { !self.isHidden($0.name) })
                     self.onChange?(mounted, failed)
                 }
             }
         }
     }
+
+    /// Whether the host offers a folder of this name for the helper's own use. Main thread.
+    func isHidden(_ name: String) -> Bool { current.shares.contains { $0.name == name && $0.hidden } }
+
+    /// Where a folder the host offers is mounted now, if it is. Main thread.
+    func mountPath(_ name: String) -> String? { mounted.first { $0.name == name }?.path }
 
     /// The control connection ended, or there has not been one yet. If the host does not make an offer
     /// within the time it keeps serving, the mounts go: reading from one would block until it times out.

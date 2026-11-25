@@ -432,7 +432,7 @@ try
         string LastText() => Encoding.UTF8.GetString(link.Sent.Last(s => s.Header["type"]!.GetValue<string>() == "clipboard").Body);
 
         host.Content = new ClipContent("windows text\r\nline 2", false);
-        sync.Start(hostHasForeignText: true, windowFocused: false);
+        sync.Start(hostHasForeignContent: true, windowFocused: false);
         sync.HostChanged(false);
         Check(link.Sent.Count == 0, "nothing is sent while no helper is connected");
         sync.HelperConnected(link);
@@ -598,6 +598,7 @@ try
 
     // ---- Shared folders (Shares.cs) ----
     await Shares.Run(Check, Eventually, temp);
+    await Files.Run(Check, Eventually, temp);
 
     // ---- The real broker process against a diskless test QEMU ----
     if (args.Length == 1) await ProcessChecks(Path.GetFullPath(args[0]));
@@ -752,5 +753,7 @@ sealed class FakeHost : IHostClipboard
 sealed class FakeLink : IHelperLink
 {
     public List<(JsonObject Header, byte[] Body)> Sent = [];
+    public HashSet<string> Can = ["clipboard-text"];
+    public IReadOnlySet<string> Capabilities => Can;
     public Task<bool> Send(JsonObject header, ReadOnlyMemory<byte> body = default) { Sent.Add((header, body.ToArray())); return Task.FromResult(true); }
 }

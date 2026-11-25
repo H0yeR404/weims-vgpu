@@ -21,8 +21,11 @@ namespace Weims.Broker;
 /// listens and reach the helper over the control connection; the guest does not store them.
 /// Any local process and any running VM can connect to the port, so nothing is served before NTLMv2
 /// authentication with that password.
+///
+/// Beside the user's folders it serves the share behind file copy and paste (<see cref="TransferStore"/>),
+/// when it is given one and the setting is on, to a helper that knows what to do with it.
 /// </summary>
-public sealed class ShareServer(BrokerStatus status, RateLimit limit, Action<string> log, Func<int> controlPort)
+public sealed class ShareServer(BrokerStatus status, RateLimit limit, Action<string> log, Func<int> controlPort, TransferStore? transfer = null)
 {
     public const string Capability = "shares";
     /// <summary>How long the folders stay served after the helper's connection ended, for it to come back to its mounts.</summary>
@@ -35,10 +38,12 @@ public sealed class ShareServer(BrokerStatus status, RateLimit limit, Action<str
     }
     /// <summary>For finding out what a client asks: with WEIMS_SMB_TRACE=1 every request is logged, file names included.</summary>
     static readonly bool Trace = Environment.GetEnvironmentVariable("WEIMS_SMB_TRACE") == "1";
-    sealed record Listening(PortServer Server, int Port, string User, string Password, IReadOnlyList<ShareConfig> Served);
+    /// <param name="Transfer">The transfer share is served too.</param>
+    sealed record Listening(PortServer Server, int Port, string User, string Password, IReadOnlyList<ShareConfig> Served, bool Transfer);
 
     readonly object gate = new();
     IReadOnlyList<ShareConfig> configured = [];
+    bool transferOn;
     string? configProblem;
     Listening? listening;
     HelperSession? helper;
@@ -47,15 +52,16 @@ public sealed class ShareServer(BrokerStatus status, RateLimit limit, Action<str
     readonly Dictionary<string, string> unserved = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, string?> reported = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The folders to share, from the configuration: at the start and whenever it changed.</summary>
-    public void Configure(IReadOnlyList<ShareConfig> shares)
+    /// <summary>The folders to share and whether files cross with the clipboard, from the configuration: at the start and whenever it changed.</summary>
+    public void Configure(IReadOnlyList<ShareConfig> shares, bool transferFiles = false)
     {
         lock (gate)
         {
             configProblem = ShareConfig.Problem(shares);
             var wanted = configProblem == null ? shares : [];
-            if (wanted.SequenceEqual(configured)) { Publish(); return; }
-            configured = wanted;
+            bool transferWanted = transferFiles && transfer != null;
+            if (wanted.SequenceEqual(configured) && transferWanted == transferOn) { Publish(); return; }
+            configured = wanted; transferOn = transferWanted;
             // Folders that changed are served anew, under a new password: whoever holds the old one loses its mounts.
             Close("the shared folders changed");
             if (helper != null) Serve(helper);
@@ -115,7 +121,11 @@ public sealed class ShareServer(BrokerStatus status, RateLimit limit, Action<str
     void Serve(HelperSession session)
     {
         listening ??= Open();
-        var message = new JsonObject { ["type"] = "shares", ["shares"] = new JsonArray([.. (listening?.Served ?? []).Select(s => (JsonNode)new JsonObject { ["name"] = s.Name, ["read_only"] = s.ReadOnly })]) };
+        var offered = (listening?.Served ?? []).Select(s => new JsonObject { ["name"] = s.Name, ["read_only"] = s.ReadOnly }).ToList();
+        // Hidden: mounted, but shown nowhere. A helper from before file copy and paste would show it, so it is not told.
+        if (listening?.Transfer == true && session.Capabilities.Contains(FileTransfer.Capability)) offered.Add(new JsonObject { ["name"] = ShareConfig.TransferName, ["read_only"] = false, ["hidden"] = true });
+        var message = new JsonObject { ["type"] = "shares", ["shares"] = new JsonArray([.. offered]) };
+        if (offered.Count == 0) { _ = session.Send(message); return; }
         if (listening != null) { message["port"] = listening.Port; message["user"] = listening.User; message["password"] = listening.Password; }
         _ = session.Send(message);
     }
@@ -136,7 +146,13 @@ public sealed class ShareServer(BrokerStatus status, RateLimit limit, Action<str
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { unserved[share.Name] = e.Message; log($"shared folder \"{share.Name}\" is not served: {e.Message}"); }
         }
-        if (served.Count == 0) return null;
+        if (transferOn)
+        {
+            var smb = new FileSystemShare(ShareConfig.TransferName, transfer!);
+            smb.AccessRequested += (_, e) => e.Allow = (e.RequestedAccess & FileAccess.Write) == 0 || TransferStore.Writable(e.Path);
+            collection.Add(smb);
+        }
+        if (collection.Count == 0) return null;
 
         string user = "weims-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(4)).ToLowerInvariant();
         string password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -150,8 +166,8 @@ public sealed class ShareServer(BrokerStatus status, RateLimit limit, Action<str
             try
             {
                 server.Start(port);
-                log($"shared folders: serving {string.Join(", ", served.Select(s => $"\"{s.Name}\"{(s.ReadOnly ? " (read-only)" : "")}"))} on 127.0.0.1:{port}");
-                return new Listening(server, port, user, password, served);
+                log($"shared folders: serving {string.Join(", ", served.Select(s => $"\"{s.Name}\"{(s.ReadOnly ? " (read-only)" : "")}").Concat(transferOn ? ["the share for copied files"] : []))} on 127.0.0.1:{port}");
+                return new Listening(server, port, user, password, served, transferOn);
             }
             catch (SocketException) { server.Stop(); }
         }

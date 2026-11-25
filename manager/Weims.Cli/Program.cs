@@ -6,7 +6,7 @@ try
 {
     if (args.Length == 0 || args[0] is "--help" or "help")
     {
-        Console.WriteLine("Weims 1.2.0-pre.1 — Windows x64\nKnown issue: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only for a VM started by 1.1.0 or older, after guest shutdown)\nWeims.Cli tools-enable|tools-disable --config PATH (Guest Tools: clipboard sharing with macOS; off by default)\nWeims.Cli tools-status --config PATH\nWeims.Cli tools-install --config PATH (puts the Guest Tools install disk into the running VM; installing from it pairs without input)\nWeims.Cli tools-pair --config PATH (pairs with Weims Guest Tools in macOS: both show a four-digit number to compare)\nWeims.Cli tools-reset-pairing --config PATH\nWeims.Cli tools-share --config PATH --folder PATH [--name NAME] [--access write|read] (shares a Windows folder with macOS, where Guest Tools mounts it; an existing name is replaced)\nWeims.Cli tools-unshare --config PATH --name NAME\nWeims.Cli tools-upload-limit --config PATH --mib N (most the guest may send to this PC, in MiB per second; 0, the default, for no limit)\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown asks macOS to quit all apps and shut down; it asks about unsaved documents first. QEMU exits when the guest has powered off.");
+        Console.WriteLine("Weims 1.2.0 — Windows x64\nKnown issue: VM freezes are possible; a fix is planned. Back up your data.\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only for a VM started by 1.1.0 or older, after guest shutdown)\nWeims.Cli tools-enable|tools-disable --config PATH (Guest Tools: clipboard sharing with macOS; off by default)\nWeims.Cli tools-status --config PATH\nWeims.Cli tools-install --config PATH (puts the Guest Tools install disk into the running VM; installing from it pairs without input)\nWeims.Cli tools-pair --config PATH (pairs with Weims Guest Tools in macOS: both show a four-digit number to compare)\nWeims.Cli tools-reset-pairing --config PATH\nWeims.Cli tools-share --config PATH --folder PATH [--name NAME] [--access write|read] (shares a Windows folder with macOS, where Guest Tools mounts it; an existing name is replaced)\nWeims.Cli tools-unshare --config PATH --name NAME\nWeims.Cli tools-upload-limit --config PATH --mib N (most the guest may send to this PC, in MiB per second; 0, the default, for no limit)\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown asks macOS to quit all apps and shut down; it asks about unsaved documents first. QEMU exits when the guest has powered off.");
         return 0;
     }
     string command = args[0];
@@ -41,6 +41,7 @@ try
     else
     {
         var c = VmConfig.Load(Required("--config"));
+        if (command == "start" && EnvironmentSetup.RuntimeUpdateRequired(engine, data)) throw new InvalidOperationException(EnvironmentSetup.RuntimeUpdateRequiredText() + " Run: Weims.Cli setup");
         if (command == "start" && EnvironmentSetup.RuntimeOutdated(engine, data)) Console.Error.WriteLine("This version comes with a newer runtime than the installed one. Run: Weims.Cli setup");
         if (command == "start")
         {
@@ -74,6 +75,8 @@ try
             var broker = Integration.Supervise(c, (await VmService.State(c)).Running);
             Console.WriteLine(c.IntegrationEnabled ? broker.Label : "Integration: off");
             if (broker.Online) Console.WriteLine($"Port {broker.Port}; certificate {broker.Fingerprint?[..8]}; paired with: {(broker.PairedUsers.Count == 0 ? "nobody" : string.Join(", ", broker.PairedUsers))}");
+            Console.WriteLine($"Clipboard: {(c.ClipboardMode == "off" ? "not shared" : c.ClipboardFiles ? "text and files" : "text")}");
+            if (broker.Online && broker.Note is { Length: > 0 } note) Console.WriteLine(note);
             Console.WriteLine($"Upload limit: {(c.UploadLimitMiB == 0 ? "none" : c.UploadLimitMiB + " MiB/s")}");
             foreach (var share in c.Shares)
             {

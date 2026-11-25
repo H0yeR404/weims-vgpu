@@ -35,9 +35,12 @@ var managed = At(current);
 if (!ReferenceEquals(managed, await EnvironmentSetup.Ensure(managed, data, new Progress<string>(Console.WriteLine), timeout.Token)) || (await EnvironmentSetup.Detect(managed, timeout.Token, data)).RuntimeOutdated)
     throw new Exception("A managed runtime of the catalog's version should be kept.");
 Console.WriteLine("PASS managed runtime of the catalog's version is kept");
-Directory.Move(current, old);
+// QEMU has just run from the folder; Windows can hold it for a moment after the process is gone.
+for (int attempt = 0; ; attempt++) { try { Directory.Move(current, old); break; } catch (IOException) when (attempt < 20) { await Task.Delay(500); } }
 var outdated = At(old);
-if (!(await EnvironmentSetup.Detect(outdated, timeout.Token, data)).RuntimeOutdated) throw new Exception("A managed runtime of another version should be reported as outdated.");
+var seen = await EnvironmentSetup.Detect(outdated, timeout.Token, data);
+if (!seen.RuntimeOutdated) throw new Exception("A managed runtime of another version should be reported as outdated.");
+if (seen.RuntimeUpdateRequired != catalog.Runtime.Required) throw new Exception("An outdated managed runtime must be replaced exactly when the catalog says so.");
 if (!ReferenceEquals(outdated, await EnvironmentSetup.Ensure(outdated, data, new Progress<string>(), timeout.Token))) throw new Exception("Starting a VM should keep a working runtime, outdated or not.");
 using var stop = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
 var steps = new StopAtDownload(stop, catalog.Runtime.Version); bool replaced = false;

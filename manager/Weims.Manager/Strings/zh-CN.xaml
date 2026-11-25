@@ -199,20 +199,23 @@
 <sys:String x:Key="S199">自动准备运行环境、OpenCore、固件与图形驱动，无需安装 Python、MSYS2 或 WSL。此过程需要联网。</sys:String>
 <sys:String x:Key="S200">高级选项 · 自备引导文件</sys:String>
 <sys:String x:Key="S201">使用自备引导文件与端口，替代自动准备</sys:String>
-<sys:String x:Key="S202">已知问题 · 虚拟机可能卡死，包括切换分辨率时。此问题已知，后续将修复。请备份重要数据。准备完成后，在独立恢复窗口中安装 macOS。</sys:String>
-<sys:String x:Key="S203">1.2.0-pre.1 · 虚拟机可能卡死，包括切换分辨率时。后续将修复，请保留备份并使用测试虚拟机。</sys:String>
+<sys:String x:Key="S202">已知问题 · 虚拟机可能卡死。此问题已知，后续将修复。请备份重要数据。准备完成后，在独立恢复窗口中安装 macOS。</sys:String>
+<sys:String x:Key="S203">1.2.0 · 虚拟机可能卡死。后续将修复，请保留备份并使用测试虚拟机。</sys:String>
  <sys:String x:Key="UpdateTitle">软件更新</sys:String>
  <sys:String x:Key="UpdateCheck">检查更新</sys:String>
+ <sys:String x:Key="RuntimeBannerAction">立即更新运行组件</sys:String>
+ <sys:String x:Key="ChannelLabel">更新频道</sys:String>
+ <sys:String x:Key="ChannelStable">正式版</sys:String>
+ <sys:String x:Key="ChannelPreview">预览版和正式版</sys:String>
  <sys:String x:Key="UpdateInstall">一键更新</sys:String>
  <sys:String x:Key="UpdateNotes">更新说明</sys:String>
  <sys:String x:Key="UpdateHelp">从官方 GitHub 仓库下载并校验 SHA256 后安装。安装前请关闭所有虚拟机；管理器将重新启动。免安装版会安装到当前用户的 Weims Manager 文件夹；虚拟机磁盘和运行环境路径保留。</sys:String>
- <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Weims Manager 1.2.0-pre.1 — 预览版
+ <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Weims Manager 1.2.0
 
-• Guest Tools：在 Windows 和 macOS 之间共享剪贴板文本。为虚拟机开启后点击“安装 Guest Tools…”，再在 macOS 里双击安装程序即可，配对不需要输入任何东西。
-• 安装了更新的管理器后，macOS 里的 Guest Tools 会自动更新。
-• 新运行组件 1.2.0-pre.1：关闭虚拟机或关机后 QEMU 立即退出，不再残留几分钟。
-• 由管理器安装的运行组件比当前版本配套的旧时会提示，在“运行环境”页面点“一键准备”即可换新。
-• 基于 .NET 10 构建。
+• Guest Tools：在 Windows 和 macOS 之间共享剪贴板（文本和文件），并把这台电脑上的文件夹挂载到 macOS 里。
+• 运行组件 1.2.0，直接基于上游 Reims vGPU 构建：macOS 有声音，分辨率跟随窗口，关闭虚拟机或关机后 QEMU 立即退出。
+• 必须更新运行组件。升级后请点击“立即更新运行组件”，更新之前虚拟机无法启动。用早先版本创建的虚拟机在第一次启动时会换上新的引导文件，Mac 身份保持不变。
+• 更新频道：可以选择正式版，或预览版和正式版。
 
 使用中虚拟机卡死的问题仍在排查。</sys:String>
  <sys:String x:Key="RuntimeWelcome">把环境准备交给 Weims</sys:String>
@@ -245,6 +248,8 @@
 <sys:String x:Key="G16">只读</sys:String>
 <sys:String x:Key="G17">停止共享</sys:String>
 <sys:String x:Key="G18">macOS 到 Windows 的上传限速（MiB/s）</sys:String>
-<sys:String x:Key="G19">macOS 每秒最多往共享文件夹写入的数据量；默认是 0，表示不限。如果 macOS 写大文件时虚拟机画面卡顿，可以设一个上限。从 Windows 读取始终不限速。</sys:String>
+<sys:String x:Key="G19">macOS 每秒最多发往这台电脑的数据量，包括写入共享文件夹和取回复制的文件；默认是 0，表示不限。如果 macOS 写大文件时虚拟机画面卡顿，可以设一个上限。从 Windows 读取始终不限速。</sys:String>
 <sys:String x:Key="G20">应用</sys:String>
+<sys:String x:Key="G21">在 Windows 和 macOS 之间复制粘贴文件</sys:String>
+<sys:String x:Key="G22">在 Windows 里复制的文件和文件夹，在 macOS 里粘贴时直接从这台电脑读取，不限大小。在 macOS 里复制的，在你离开虚拟机窗口时取回，每次最多 256 MiB，取回后才能在 Windows 里粘贴；更大的请用共享文件夹。</sys:String>
 </ResourceDictionary>

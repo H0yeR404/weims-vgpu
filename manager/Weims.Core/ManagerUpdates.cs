@@ -33,6 +33,32 @@ public sealed record ReleaseVersion(int Major, int Minor, int Patch, string? Pre
     }
 }
 
+/// <summary>
+/// Which releases the update check offers: "stable" or "preview" (previews and stable releases). The choice is kept in
+/// the settings folder; without one, a preview build follows previews and a stable build does not, as before 1.2.
+/// </summary>
+public static class ReleaseChannel
+{
+    public const string Stable = "stable", Preview = "preview";
+    static string File(string dataDirectory) => Path.Combine(dataDirectory, "update-channel.txt");
+    public static string Read(string dataDirectory, string currentVersion)
+    {
+        try
+        {
+            string saved = System.IO.File.ReadAllText(File(dataDirectory)).Trim();
+            if (saved is Stable or Preview) return saved;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        return ReleaseVersion.Parse(currentVersion).Preview == null ? Stable : Preview;
+    }
+    public static void Write(string dataDirectory, string channel)
+    {
+        if (channel is not (Stable or Preview)) throw new ArgumentException("Unknown update channel: " + channel);
+        Directory.CreateDirectory(dataDirectory);
+        System.IO.File.WriteAllText(File(dataDirectory), channel);
+    }
+}
+
 public sealed record ManagerRelease(string Tag, ReleaseVersion Version, string Notes, string AssetName, string DownloadUrl, long Size, string Sha256);
 
 public sealed class ManagerUpdates : IDisposable
@@ -46,9 +72,15 @@ public sealed class ManagerUpdates : IDisposable
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Weims-Manager-Updater/1.0");
         http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
     }
-    public static ManagerRelease? Select(string json, string current)
+    /// <summary>
+    /// The newest release above the installed one. Previews are offered when <paramref name="previews"/> says so; left
+    /// out, a preview build is offered them and a stable build is not. An older release is never offered, so leaving
+    /// the preview channel keeps the installed preview until a newer stable release exists.
+    /// </summary>
+    public static ManagerRelease? Select(string json, string current, bool? previews = null)
     {
         var installed = ReleaseVersion.Parse(current);
+        bool offerPreviews = previews ?? installed.Preview != null;
         using var doc = JsonDocument.Parse(json);
         ManagerRelease? best = null;
         foreach (var release in doc.RootElement.EnumerateArray())
@@ -57,7 +89,7 @@ public sealed class ManagerUpdates : IDisposable
             string tag = release.GetProperty("tag_name").GetString()!;
             ReleaseVersion version;
             try { version = ReleaseVersion.Parse(tag); } catch (Exception ex) when (ex is FormatException or OverflowException) { continue; }
-            if (installed.Preview == null && (version.Preview != null || release.GetProperty("prerelease").GetBoolean())) continue;
+            if (!offerPreviews && (version.Preview != null || release.GetProperty("prerelease").GetBoolean())) continue;
             if (version.CompareTo(installed) <= 0 || best != null && version.CompareTo(best.Version) <= 0) continue;
             string name = $"Weims-Manager-{tag.TrimStart('v')}-Setup-x64.exe";
             foreach (var asset in release.GetProperty("assets").EnumerateArray())
@@ -79,14 +111,15 @@ public sealed class ManagerUpdates : IDisposable
         Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == "https" && uri.Host == "github.com" && uri.IsDefaultPort && uri.UserInfo == "" && uri.Query == "" && uri.Fragment == "" &&
         Uri.UnescapeDataString(uri.AbsolutePath) == $"/{Repository}/releases/download/{tag}/{name}";
 
-    public async Task<ManagerRelease?> Check(string current, CancellationToken token)
+    public Task<ManagerRelease?> Check(string current, CancellationToken token) => Check(current, null, token);
+    public async Task<ManagerRelease?> Check(string current, bool? previews, CancellationToken token)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(45));
         ManagerRelease? best = null;
         for (int page = 1; page <= 10; page++)
         {
             var json = await http.GetStringAsync($"https://api.github.com/repos/{Repository}/releases?per_page=100&page={page}", timeout.Token);
-            var candidate = Select(json, current);
+            var candidate = Select(json, current, previews);
             if (candidate != null && (best == null || candidate.Version.CompareTo(best.Version) > 0)) best = candidate;
             using var doc = JsonDocument.Parse(json);
             if (doc.RootElement.GetArrayLength() < 100) return best;

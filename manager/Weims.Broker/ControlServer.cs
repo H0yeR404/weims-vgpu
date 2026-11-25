@@ -13,6 +13,8 @@ namespace Weims.Broker;
 /// <summary>Something a frame can be sent to. The clipboard logic only knows this much about a helper.</summary>
 public interface IHelperLink
 {
+    /// <summary>What both ends of this connection can do.</summary>
+    IReadOnlySet<string> Capabilities { get; }
     Task<bool> Send(JsonObject header, ReadOnlyMemory<byte> body = default);
 }
 
@@ -47,7 +49,7 @@ public sealed class HelperSession(Stream stream, string user, string version, IR
 /// </summary>
 public sealed class ControlServer
 {
-    public static readonly string[] Capabilities = ["clipboard-text", HelperUpdate.Capability, ShareServer.Capability];
+    public static readonly string[] Capabilities = ["clipboard-text", HelperUpdate.Capability, ShareServer.Capability, FileTransfer.Capability];
     public const int ProtocolVersion = 1;
     public TimeSpan HandshakeTimeout { get; init; } = TimeSpan.FromSeconds(10);
     public TimeSpan IdleTimeout { get; init; } = TimeSpan.FromSeconds(45);

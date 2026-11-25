@@ -64,6 +64,11 @@ public sealed class VmConfig : Observable, IDataErrorInfo
     public bool IntegrationEnabled { get => Data["integration_enabled"]?.GetValue<bool>() ?? false; set => Write("integration_enabled", value); }
     public int IntegrationPort { get => Number("integration_port", Integration.DefaultPort(this)); set => Write("integration_port", value); }
     public string ClipboardMode { get => ReadText("clipboard_mode", "text"); set => Write("clipboard_mode", value); }
+    /// <summary>
+    /// Files copied on one side can be pasted on the other; on by default, and only while the clipboard is shared
+    /// at all. A value that is no boolean reads as the default here and is refused by Validate.
+    /// </summary>
+    public bool ClipboardFiles { get => Data["clipboard_files"] is not JsonValue v || !v.TryGetValue<bool>(out var on) || on; set => Write("clipboard_files", value); }
     /// <summary>The Windows folders the guest may mount. Entries that cannot be read are left out here and refused by Validate.</summary>
     public IReadOnlyList<ShareConfig> Shares
     {
@@ -99,6 +104,8 @@ public sealed class VmConfig : Observable, IDataErrorInfo
             throw new InvalidDataException(Text.Get($"集成端口应在 {Integration.PortBase}–{Integration.PortBase + Integration.PortCount - 1} 之间。", $"The integration port must be between {Integration.PortBase} and {Integration.PortBase + Integration.PortCount - 1}."));
         if (ClipboardMode is not ("off" or "text"))
             throw new InvalidDataException(Text.Get("剪贴板模式应为 off 或 text。", "Clipboard mode must be off or text."));
+        if (Data["clipboard_files"] is { } pasteFiles && (pasteFiles is not JsonValue flag || !flag.TryGetValue<bool>(out _)))
+            throw new InvalidDataException(Text.Get("clipboard_files 应为 true 或 false。", "clipboard_files must be true or false."));
         if (Data["shares"] is { } shares && (shares is not JsonArray list || Shares.Count != list.Count))
             throw new InvalidDataException(Text.Get("共享文件夹设置无法读取。", "The shared folder settings cannot be read."));
         if (ShareConfig.Problem(Shares) is { } problem) throw new InvalidDataException(problem);

@@ -23,6 +23,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--msys', required=True, type=Path, help='the MSYS2 installation the runtime was built in')
 parser.add_argument('--version', required=True)
 parser.add_argument('--runtime-only', action='store_true')
+parser.add_argument('--required', action='store_true', help='VMs cannot start on an older managed runtime: Manager has it replaced first')
 args = parser.parse_args()
 if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.]+)?', args.version):
     raise ValueError('Invalid release version')
@@ -165,6 +166,6 @@ if args.runtime_only:
     print('Runtime ZIP for local tests (catalog unchanged):', runtime_zip, runtime_zip.stat().st_size, flush=True)
 else:
     catalog = json.loads((root / 'manager/runtime-catalog.json').read_text(encoding='utf-8'))
-    catalog['Runtime'] = dict(Version=f'weims-runtime-{version}', Url=f'https://github.com/H0yeR404/weims-vgpu/releases/download/v{version}/' + runtime_zip.name, Sha256=sha256(runtime_zip), MaxBytes=runtime_zip.stat().st_size)
+    catalog['Runtime'] = dict(Version=f'weims-runtime-{version}', Url=f'https://github.com/H0yeR404/weims-vgpu/releases/download/v{version}/' + runtime_zip.name, Sha256=sha256(runtime_zip), MaxBytes=runtime_zip.stat().st_size, Required=args.required)
     (root / 'manager/runtime-catalog.json').write_text(json.dumps(catalog, indent=2), encoding='utf-8')
     print('Runtime, sources and pinned catalog prepared:', out, flush=True)

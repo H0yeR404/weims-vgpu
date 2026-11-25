@@ -16,20 +16,20 @@ using SmbAttributes = SMBLibrary.FileAttributes;
 static class Shares
 {
     /// <summary>The library's client on a port of ours, as the server is.</summary>
-    sealed class PortClient : SMB2Client
+    internal sealed class PortClient : SMB2Client
     {
         public bool ConnectTo(int port) => Connect(IPAddress.Loopback, SMBTransportType.DirectTCPTransport, port);
     }
 
-    static void Junction(string link, string target)
+    internal static void Junction(string link, string target)
     {
         using var p = Process.Start(new ProcessStartInfo("cmd.exe") { ArgumentList = { "/c", "mklink", "/J", link, target }, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true })!;
         p.WaitForExit();
         if (p.ExitCode != 0) throw new Exception("FAIL: could not make a junction: " + p.StandardError.ReadToEnd());
     }
 
-    const AccessMask Reading = AccessMask.GENERIC_READ | AccessMask.SYNCHRONIZE, Writing = AccessMask.GENERIC_READ | AccessMask.GENERIC_WRITE | AccessMask.DELETE | AccessMask.SYNCHRONIZE;
-    static NTStatus Open(INTFileStore store, string path, AccessMask access, CreateDisposition disposition, out object handle, CreateOptions options = CreateOptions.FILE_NON_DIRECTORY_FILE)
+    internal const AccessMask Reading = AccessMask.GENERIC_READ | AccessMask.SYNCHRONIZE, Writing = AccessMask.GENERIC_READ | AccessMask.GENERIC_WRITE | AccessMask.DELETE | AccessMask.SYNCHRONIZE;
+    internal static NTStatus Open(INTFileStore store, string path, AccessMask access, CreateDisposition disposition, out object handle, CreateOptions options = CreateOptions.FILE_NON_DIRECTORY_FILE)
         => store.CreateFile(out handle, out _, path, access, SmbAttributes.Normal, ShareAccess.Read | ShareAccess.Write | ShareAccess.Delete, disposition, options | CreateOptions.FILE_SYNCHRONOUS_IO_ALERT, null!);
 
     public static async Task Run(Action<bool, string> Check, Func<Func<bool>, int, Task<bool>> Eventually, string temp)

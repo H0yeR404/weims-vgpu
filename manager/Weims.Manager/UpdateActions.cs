@@ -17,9 +17,13 @@ public partial class MainWindow
     string updateState = "idle";
     void RefreshUpdateText()
     {
-        UpdateChannel.Text = ReleaseVersion.Parse(VersionNumber).Preview == null
-            ? Text.Get("更新通道：稳定版", "Update channel: stable releases")
-            : Text.Get("更新通道：预览版和稳定版", "Update channel: preview and stable releases");
+        // What the chosen channel means for the version that is installed.
+        bool previewBuild = ReleaseVersion.Parse(VersionNumber).Preview != null;
+        UpdateChannel.Text = Channel == ReleaseChannel.Preview
+            ? Text.Get("会收到更新的预览版和正式版。预览版以 Weims Manager Preview 的名字安装，与正式版并存，共用同一份设置。", "Newer preview and stable releases are offered. A preview installs as Weims Manager Preview beside the stable app and uses the same settings.")
+            : previewBuild
+                ? Text.Get("只会收到正式版。现在装的是预览版，它会保留到出现比它新的正式版为止。", "Only stable releases are offered. The installed preview stays until a stable release newer than it exists.")
+                : Text.Get("只会收到正式版。", "Only stable releases are offered.");
         UpdateStatus.Text = updateState switch
         {
             "checking" => Text.Get("正在检查 GitHub 发布…", "Checking GitHub releases…"),
@@ -35,13 +39,33 @@ public partial class MainWindow
         else ReleaseNotes.Text = string.IsNullOrWhiteSpace(update.Notes) ? Text.Get("此版本未提供更新说明。", "No release notes were provided for this version.") : update.Notes;
         InstallUpdateButton.IsEnabled = update != null && !vm.Busy;
     }
+    string Channel => ChannelPicker.SelectedValue as string ?? ReleaseChannel.Read(vm.DataDirectory, VersionNumber);
+    bool changingChannel;
+    void ChangeChannel(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || changingChannel || ChannelPicker.SelectedValue is not string choice) return;
+        changingChannel = true;
+        try
+        {
+            ReleaseChannel.Write(vm.DataDirectory, choice);
+            // What was found or downloaded belongs to the channel that was left.
+            update = null; downloadedUpdate = null; updateState = "idle";
+            vm.Message = Text.Get("更新频道已切换，点击检查更新。", "Update channel changed. Click Check for updates.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            ChannelPicker.SelectedValue = ReleaseChannel.Read(vm.DataDirectory, VersionNumber); vm.Message = ex.Message;
+        }
+        finally { changingChannel = false; }
+        RefreshUpdateText();
+    }
     async void CheckUpdates(object sender, RoutedEventArgs e)
     {
         await UpdateWork(async token =>
         {
             update = null; downloadedUpdate = null; ReleaseNotes.Text = "";
             updateState = "checking"; RefreshUpdateText(); UpdateProgress.IsIndeterminate = true;
-            using var service = new ManagerUpdates(); update = await service.Check(VersionNumber, token);
+            using var service = new ManagerUpdates(); update = await service.Check(VersionNumber, Channel == ReleaseChannel.Preview, token);
             updateState = update == null ? "current" : "available";
             ReleaseNotes.Text = update?.Notes ?? "";
         });

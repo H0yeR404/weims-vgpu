@@ -108,12 +108,31 @@ public sealed class PathGuard
 }
 
 /// <summary>
+/// How much a guest may still write to a store: the place for the files that cross with the clipboard has
+/// a size, and none at all while nothing is expected there. What is overwritten counts again.
+/// </summary>
+public sealed class Budget
+{
+    long size, left;
+    /// <summary>What it was last set to: no single file may be made larger than this.</summary>
+    public long Size => Interlocked.Read(ref size);
+    public void Reset(long bytes) { Interlocked.Exchange(ref size, bytes); Interlocked.Exchange(ref left, bytes); }
+    public bool Take(long bytes)
+    {
+        if (Interlocked.Add(ref left, -bytes) >= 0) return true;
+        Interlocked.Add(ref left, bytes);
+        return false;
+    }
+}
+
+/// <summary>
 /// The file store a share is served from: the SMB library's own store for a Windows folder, behind the
 /// checks the library does not make. Every path is put to the <see cref="PathGuard"/>; a read-only share
 /// changes nothing; the guest cannot make links or reach for the volume; and what the guest writes is
-/// counted against the upload limit, which slows the guest down (see <see cref="RateLimit"/>).
+/// counted against the upload limit, which slows the guest down (see <see cref="RateLimit"/>). A store with
+/// a <see cref="Budget"/> takes no more bytes than that allows.
 /// </summary>
-public sealed class GuardedStore(INTFileStore inner, PathGuard guard, bool readOnly, RateLimit limit, Action<string> log) : INTFileStore
+public sealed class GuardedStore(INTFileStore inner, PathGuard guard, bool readOnly, RateLimit limit, Action<string> log, Budget? budget = null) : INTFileStore
 {
     // Sparse files and their ranges. Everything else that is a file system control is refused: among them are
     // the ones that make and remove links, and whatever a later Windows adds.
@@ -133,6 +152,8 @@ public sealed class GuardedStore(INTFileStore inner, PathGuard guard, bool readO
         handle = null!; fileStatus = FileStatus.FILE_DOES_NOT_EXIST;
         if (guard.Refusal(path, out var why) is { } refusal) return Refused(path, refusal, why);
         if (readOnly && (createDisposition != CreateDisposition.FILE_OPEN || (createOptions & CreateOptions.FILE_DELETE_ON_CLOSE) != 0)) return NTStatus.STATUS_ACCESS_DENIED;
+        // Nothing is expected here now, not even an empty file.
+        if (budget is { Size: 0 } && createDisposition != CreateDisposition.FILE_OPEN) return NTStatus.STATUS_DISK_FULL;
         var status = inner.CreateFile(out handle, out fileStatus, path, desiredAccess, fileAttributes, shareAccess, createDisposition, createOptions, securityContext);
         if (status != NTStatus.STATUS_SUCCESS || handle is not IntPtr native || guard.Holds(native)) return status;
         inner.CloseFile(handle); handle = null!;
@@ -143,6 +164,7 @@ public sealed class GuardedStore(INTFileStore inner, PathGuard guard, bool readO
     {
         numberOfBytesWritten = 0;
         if (readOnly) return NTStatus.STATUS_ACCESS_DENIED;
+        if (budget?.Take(data.Length) == false) return NTStatus.STATUS_DISK_FULL;
         var status = inner.WriteFile(out numberOfBytesWritten, handle, offset, data);
         // The server reads this connection's next request only after this returns, so waiting here is what slows the guest.
         limit.Spend(data.Length);
@@ -156,6 +178,9 @@ public sealed class GuardedStore(INTFileStore inner, PathGuard guard, bool readO
         string? destination = information switch { FileRenameInformationType2 r => r.FileName, FileRenameInformationType1 r => r.FileName, _ => null };
         if (destination != null && guard.Refusal(destination, out var why) is { } refusal) return Refused(destination, refusal, why);
         if (information is FileLinkInformationType2 or FileLinkInformationType1) return NTStatus.STATUS_NOT_SUPPORTED;
+        // A size can be set without a byte being written, and Windows then sets the room aside.
+        long size = information switch { FileEndOfFileInformation end => end.EndOfFile, FileAllocationInformation allocation => allocation.AllocationSize, _ => 0 };
+        if (budget != null && size > budget.Size) return NTStatus.STATUS_DISK_FULL;
         return inner.SetFileInformation(handle, information);
     }
 

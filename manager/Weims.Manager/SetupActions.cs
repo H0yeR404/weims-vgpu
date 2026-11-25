@@ -15,13 +15,16 @@ public partial class MainWindow
     {
         string uncheckedText = Text.Get("待检查", "Not checked");
         string State(bool ready) => ready ? Text.Get("已就绪", "Ready") : Text.Get("需要处理", "Needs attention");
-        bool outdated = environmentReport is { RuntimeReady: true, RuntimeOutdated: true };
+        // A required update shows whether the old runtime still passes its check or not (the one before 1.2.0 does not).
+        bool required = environmentReport is { RuntimeUpdateRequired: true };
+        bool outdated = required || environmentReport is { RuntimeReady: true, RuntimeOutdated: true };
         RuntimeState.Text = environmentReport == null ? uncheckedText : outdated ? Text.Get("有新版本", "Update available") : State(environmentReport.RuntimeReady && environmentReport.PowerShellReady);
         VirtualizationState.Text = environmentReport == null ? uncheckedText : State(environmentReport.HypervisorReady && environmentReport.SupportedHost);
         GraphicsState.Text = environmentReport == null ? uncheckedText : State(environmentReport.VulkanReady);
         bool ready = environmentReport is { SupportedHost: true, HypervisorReady: true, VulkanReady: true, RuntimeReady: true, PowerShellReady: true };
         RuntimeHeadline.Text = setupCancellation != null ? Text.Get("正在自动准备…", "Preparing your environment…")
             : runtimeChecking ? Text.Get("正在检查这台电脑…", "Checking this computer…")
+            : required ? Text.Get("需要更新运行组件", "The runtime must be updated")
             : ready && outdated ? Text.Get("运行组件有新版本", "A newer runtime is available")
             : ready ? Text.Get("可以开始使用 macOS 了", "Ready for your macOS VM")
             : Text.Get("把环境准备交给 Weims", "Let Weims handle the setup");
@@ -29,9 +32,16 @@ public partial class MainWindow
             : environmentReport is { SupportedHost: false } ? Text.Get("需要 Windows 10 2004 或更新的 x64 系统。", "Windows 10 2004 or newer on x64 is required.")
             : environmentReport is { HypervisorReady: false } ? Text.Get("运行组件可自动准备；请在 BIOS/UEFI 中开启虚拟化，并启用 Windows 虚拟机监控程序平台后重启。", "Components can be prepared automatically. Enable virtualization in BIOS/UEFI and Windows Hypervisor Platform, then restart.")
             : environmentReport is { VulkanReady: false } ? Text.Get("运行组件可自动准备；显卡支持尚未就绪，请检查 Vulkan 驱动与诊断详情。", "Components can be prepared automatically. Review the Vulkan driver and diagnostics to resolve graphics support.")
+            : required ? EnvironmentSetup.RuntimeUpdateRequiredText() + Text.Get("点击“一键准备运行环境”即可。", " Click One-click setup.")
             : ready && outdated ? RuntimeUpdateHint()
             : ready ? Text.Get("无需填写路径。现在可以创建或导入虚拟机。", "No paths to fill in. Create or import a virtual machine to continue.")
             : Text.Get("点击一键准备。下载完成后，所有路径会自动保存。", "Click One-click setup. All paths will be saved automatically after download.");
+        // An outdated runtime is announced on every page, not only on the runtime page.
+        RuntimeBanner.Visibility = outdated && setupCancellation == null ? Visibility.Visible : Visibility.Collapsed;
+        RuntimeBannerTitle.Text = required ? Text.Get("需要更新运行组件", "The runtime must be updated") : Text.Get("运行组件有新版本", "A newer runtime is available");
+        RuntimeBannerText.Text = required
+            ? Text.Get("这个版本的管理器必须使用新的运行组件，更新之前虚拟机无法启动。虚拟机和磁盘不受影响。", "This version of Manager needs its newer runtime. VMs cannot start until it is updated. VMs and disks are not affected.")
+            : Text.Get("虚拟机和磁盘不受影响；正在运行的虚拟机在下次启动时改用新组件。", "VMs and disks are not affected; a running VM uses the new runtime the next time it starts.");
         SystemActions.Visibility = environmentReport is { HypervisorReady: false } or { VulkanReady: false } ? Visibility.Visible : Visibility.Collapsed;
         WindowsFeaturesButton.Visibility = environmentReport is { HypervisorReady: false } ? Visibility.Visible : Visibility.Collapsed;
         GpuHelpButton.Visibility = environmentReport is { VulkanReady: false } ? Visibility.Visible : Visibility.Collapsed;
@@ -51,7 +61,8 @@ public partial class MainWindow
     {
         environmentReport = report;
         SetupReport.Text = report.Details;
-        vm.Message = report is { RuntimeReady: true, RuntimeOutdated: true }
+        vm.Message = report is { RuntimeUpdateRequired: true } ? EnvironmentSetup.RuntimeUpdateRequiredText()
+            : report is { RuntimeReady: true, RuntimeOutdated: true }
             ? Text.Get("运行组件有新版本。请到“运行环境”页点击“一键准备运行环境”。", "A newer runtime is available. Open Runtime and click One-click setup.")
             : Text.Get("环境检测完成。需要的组件可一键准备，无需填写路径。", "Environment checked. Prepare missing components in one click, without filling in paths.");
         RefreshRuntimeSummary();

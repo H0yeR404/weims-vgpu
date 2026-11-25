@@ -61,15 +61,20 @@ public static class Program
         var server = new ControlServer(ControlServer.Bind(config.IntegrationPort), secrets, pairing, status, log.Write);
         log.Write($"broker {BrokerStatus.Version} for QEMU {qemu.Id}, listening on 127.0.0.1:{server.Port}, fingerprint {secrets.Fingerprint}");
 
-        var window = new HostWindow(qemu.Id, Integration.VmKey(config), log.Write);
-        var sync = new ClipboardSync(window, () => Volatile.Read(ref mode), note => status.Update(s => s.Note = note));
-        window.ClipboardChanged += sync.HostChanged;
-        window.FocusChanged += sync.FocusChanged;
-        // A newer helper shipped with this Manager goes to an older one that can update itself; see HelperUpdate.
         // One limit for everything this VM's guest sends here; the shared folders are served while a helper is connected.
         var limit = new RateLimit(UploadLimit(config));
-        var shares = new ShareServer(status, limit, log.Write, () => server.Port);
-        shares.Configure(config.Shares);
+        // Files that cross with the clipboard: a folder beside the VM's state, served as a share of its own.
+        bool pasteFiles = config.ClipboardFiles;
+        FileTransfer? transfer = null;
+        try { transfer = new FileTransfer(Path.Combine(Integration.StateDirectory(config), "transfers"), limit, log.Write); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { log.Write("files will not cross with the clipboard: " + e.Message); }
+        var window = new HostWindow(qemu.Id, Integration.VmKey(config), log.Write);
+        var sync = new ClipboardSync(window, () => Volatile.Read(ref mode), note => status.Update(s => s.Note = note), null, transfer, () => Volatile.Read(ref pasteFiles));
+        window.ClipboardChanged += sync.HostChanged;
+        window.FocusChanged += sync.FocusChanged;
+        var shares = new ShareServer(status, limit, log.Write, () => server.Port, transfer?.Store);
+        shares.Configure(config.Shares, pasteFiles && mode != "off");
+        // A newer helper shipped with this Manager goes to an older one that can update itself; see HelperUpdate.
         var update = HelperUpdate.Load(Path.Combine(AppContext.BaseDirectory, "guest-tools"));
         if (update != null) log.Write($"helper {update.Version} is available for guests that run an older one");
         server.Connected = session =>
@@ -141,7 +146,8 @@ public static class Program
                         var stored = VmConfig.Load(config.ConfigPath);
                         Volatile.Write(ref mode, stored.ClipboardMode); status.Update(s => s.ClipboardMode = mode);
                         limit.BytesPerSecond = UploadLimit(stored);
-                        shares.Configure(stored.Shares);
+                        Volatile.Write(ref pasteFiles, stored.ClipboardFiles);
+                        shares.Configure(stored.Shares, stored.ClipboardFiles && stored.ClipboardMode != "off");
                     }
                     catch (Exception e) when (e is IOException or InvalidDataException or System.Text.Json.JsonException) { return new JsonObject { ["ok"] = false, ["error"] = e.Message }; }
                     break;
@@ -160,9 +166,10 @@ public static class Program
             qemu.WaitForExitAsync(stop.Token).ContinueWith(t => { if (t.IsCompletedSuccessfully) Stop("QEMU exited"); }, TaskScheduler.Default)
         };
         // Blocks on this thread until Stop.
-        window.Run(() => sync.Start(window.HasForeignText(), window.Foreground));
+        window.Run(() => sync.Start(window.HasForeignContent(), window.Foreground));
         try { stop.Cancel(); } catch (ObjectDisposedException) { }
         shares.Stop();
+        transfer?.Clear();
         Task.WaitAll(tasks, TimeSpan.FromSeconds(3));
         status.Update(s => { s.Stopped = true; s.HelperUser = null; });
         status.Write(statePath, log.Write);

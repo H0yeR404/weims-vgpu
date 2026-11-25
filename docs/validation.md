@@ -1,5 +1,29 @@
 # Validation scope
 
+## Moving from the 1.2.0-pre.1 runtime to 1.2.0, 2026-11-25
+
+Tested with the 1.2.0 Manager build and the packaged runtime ZIP, on one Windows 11 host with a macOS 26.7.2 guest:
+
+- The setup test program on the packaged ZIP: SHA-256, extraction, validation with the packaged QEMU, environment detection, and that a managed runtime of another version is reported, goes on to the catalog's download and stays in place when that is cancelled.
+- A settings folder holding the real 1.2.0-pre.1 runtime as a Manager-installed runtime: `Weims.Cli start` refuses with the notice that the runtime must be updated, and starts nothing; `status` still works.
+- The 1.2.0 runtime unpacked beside it under the catalog's name, after its checksum was compared with the catalog: the VM starts from it, the desktop shows, Guest Tools connects 39 s after the start command and both shared folders are mounted.
+- The banner and the texts of a required update, in the UI tests.
+
+Not tested: the download of the runtime from the release page (it does not exist before the release), the banner's button and the dialog before a start clicked in a real Manager window, the updater taking a 1.1.1 installation to 1.2.0, and a fresh installation from recovery to the desktop on this runtime. A VM of an earlier version getting new boot files at its first start was tested on 2026-11-24 (below), not again with the packaged runtime.
+
+## File copy and paste, 2026-11-25
+
+Copy and paste of files between Windows and macOS was checked on the machine and guest of the shared folders below, with helper 0.3.0 built in the guest and the broker of this tree in place of the running one.
+
+- **Automated tests.** 343 broker checks, 68 of them new: the list of files as Windows keeps it on the clipboard, the share that copied files are read from and brought to (with the library's own SMB client standing in for macOS), and the rules for when files cross, against stand-ins for the clipboard and the helper. Also 115 core, 76 WPF and 22 update checks.
+- **Windows to macOS.** Three items were put on the Windows clipboard as Explorer does: a file with a Chinese name, a 64 MiB file, and a folder of 152 files with Chinese and emoji names. When the VM's window came to the front, the guest's pasteboard held their addresses in the hidden share. Command-V in Finder pasted them on the desktop, and all 154 files had the SHA-256 of the originals. The folder the guest was given listed the three items and not a fourth file that lay beside them in Windows.
+- **macOS to Windows.** Three items were copied in Finder with Command-C: a file with a Chinese name, a 32 MiB file, and a folder of 23 files with a symbolic link and a `.DS_Store` in it. 1.9 seconds after the VM's window was left they were on the Windows clipboard. All 25 files had the same SHA-256; the link and `.DS_Store` were left out; `slash:name?.txt` and `ends with dot.` arrived as `slash_name_.txt` and `ends with dot`. Explorer's paste verb then copied the 25 files into a folder. macOS asked for no permission; the files were in a folder of the home folder that macOS does not guard.
+- **Size and calling off.** A 300 MiB file was not fetched, and the broker's state said why. With uploads limited to 4 MiB/s, fetching 32 MiB took 7.9 seconds. Text copied in Windows while files were being fetched called the fetch off, and nothing of it stayed in the inbox.
+- **Text and the older helper.** Text still crossed both ways. Helper 0.2.0 kept its two shared folders with the new broker and was not offered the hidden share.
+- **A crash found on the way.** When macOS connects to a share it sends control requests that name no file. The first build of the hidden share did not expect a request without a handle, and the exception ended the broker; Manager started it again. The share now answers such requests, and the SMB library closes a connection whose request throws instead of ending the process (the second change in `manager/third_party/SMBLibrary`). The checks above were made after that.
+
+Not checked: copying in Explorer's own window and pasting there by hand (the Windows clipboard was written and read by a script, and pasted with Explorer's paste verb); cancelling a paste in Finder; files in the folders macOS guards (Desktop, Documents, Downloads), where it asks before the helper may read them; the switch and the progress line in Manager's window on a running VM; files from several folders in one copy on a real guest; the broker updating a 0.2.0 helper to 0.3.0; several macOS users; the frame rate during a fetch; Intel and AMD GPUs; and the release packages.
+
 ## Shared folders, 2026-11-25
 
 Guest Tools' shared folders were checked on one machine: Windows 11, RTX 4090 Laptop GPU, a macOS 26.7.2 guest on a copy-on-write overlay of an existing VM, on the runtime built from source.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Weims Guest Tools: the macOS side of clipboard sharing and shared folders with the Windows host.
+// Weims Guest Tools: the macOS side of clipboard sharing, file copy and paste, and shared folders with the Windows host.
 //
 // It runs as the logged-in user, needs no root and installs nothing into the system. It connects to
 // the host's broker at 10.0.2.2 (QEMU's user-mode network maps that to the host's loopback), checks
@@ -11,9 +11,9 @@ import CryptoKit
 import Foundation
 import Network
 
-let helperVersion = "0.2.0"
+let helperVersion = "0.3.0"
 let protocolVersion = 1
-let helperCapabilities = ["clipboard-text", "self-update", "shares"]
+let helperCapabilities = ["clipboard-text", "self-update", "shares", "files"]
 let hostAddress = "10.0.2.2"
 let portBase: UInt16 = 46400
 let portCount: UInt16 = 64
@@ -299,6 +299,12 @@ final class FingerprintBox { var value: String? }
 /// is, a change of the macOS pasteboard is sent at once. While it is not, nothing is sent, but the
 /// change is remembered: when the window leaves the foreground the broker asks once for the latest
 /// content, which covers "copy in macOS, switch to Windows straight away".
+///
+/// Files are not sent as content. Files copied in Windows arrive as places in the host's transfer
+/// share, which is mounted here out of sight; their addresses go on the pasteboard and Finder copies
+/// from the share when the user pastes. Files copied in macOS are only mentioned, and only in answer
+/// to the broker's question on the way out of the window; if the broker then asks for them, `Upload`
+/// copies them into the share.
 final class Client {
     private enum Phase { case hello, credentials, session }
 
@@ -314,6 +320,13 @@ final class Client {
     private var dirty = false
     private var lastCount = NSPasteboard.general.changeCount
     private var lastReceived = Date()
+    /// What both ends of the current connection can do, from the broker's hello.
+    private var common = Set<String>()
+    /// Files copied in Windows that wait for the transfer share to be mounted: its name, and the places in it.
+    private var waitingFiles: (share: String, items: [String])?
+    /// The files that were on the pasteboard when the host was last told of them, and the copy of them to the host, if one runs.
+    private var mentionedFiles: [URL] = []
+    private var upload: Upload?
     private(set) var status = "" { didSet { if status != oldValue { Log.write("status: \(status)"); onStatus?(status) } } }
     var onStatus: ((String) -> Void)?
     /// The host's shared folders; see SharedFolders.swift.
@@ -334,7 +347,8 @@ final class Client {
         DistributedNotificationCenter.default().addObserver(forName: reloadNotification, object: nil, queue: .main) { [weak self] _ in self?.reload() }
         folders.onChange = { [weak self] mounted, failed in
             guard let self = self else { return }
-            self.onFolders?(mounted)
+            self.onFolders?(mounted.filter { !self.folders.isHidden($0.name) })
+            self.placeFiles()
             guard self.phase == .session, let link = self.link else { return }
             link.send(["type": "shares_state", "mounted": mounted.map { $0.name }, "failed": failed.map { ["name": $0.name, "error": $0.error] }])
         }
@@ -362,6 +376,7 @@ final class Client {
         old?.onClosed = nil
         old?.close("replaced")
         if phase == .session { folders.hostGone() }
+        stopUpload()
         // No link, no session: the keep-alive check must not judge the next connection by the last one.
         phase = .hello
         active = false
@@ -467,6 +482,7 @@ final class Client {
         link = nil
         phase = .hello
         active = false
+        stopUpload()
         Log.write((wasSession ? "disconnected: " : "handshake failed: ") + reason)
         status = L("Disconnected. Reconnecting…", "连接已断开，正在重连…")
         if wasSession { retryDelay = 2; folders.hostGone() }
@@ -809,6 +825,7 @@ final class Client {
         switch phase {
         case .hello:
             guard frame.type == "hello" else { link.close("unexpected answer to hello"); return }
+            common = Set(frame.header["capabilities"] as? [String] ?? [])
             phase = .credentials
             link.send(["type": "auth", "token": pairing?.token ?? ""])
         case .credentials:
@@ -843,8 +860,16 @@ final class Client {
             active = frame.header["active"] as? Bool ?? false
             Log.write("VM window in the foreground on the host: \(active)")
         case "clipboard":
+            if frame.header["kind"] as? String == "files" {
+                guard common.contains("files"), let share = frame.header["share"] as? String, let list = String(data: frame.body, encoding: .utf8) else { return }
+                waitingFiles = (share, list.split(separator: "\n").map(String.init))
+                placeFiles()
+                return
+            }
             guard frame.header["kind"] as? String == "text", frame.body.count <= textLimit,
                   let text = String(data: frame.body, encoding: .utf8), !text.isEmpty else { return }
+            // Newer than files that are still waiting for their share.
+            waitingFiles = nil
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
@@ -862,7 +887,7 @@ final class Client {
                 // The name becomes part of an address and of a path under /Volumes.
                 guard let name = entry["name"] as? String, !name.isEmpty, name.count <= 64, !name.hasPrefix("."), !name.contains("/"),
                       !name.unicodeScalars.contains(where: { $0.value < 32 }) else { continue }
-                offer.shares.append(SharedFolders.Share(name: name, readOnly: entry["read_only"] as? Bool ?? true))
+                offer.shares.append(SharedFolders.Share(name: name, readOnly: entry["read_only"] as? Bool ?? true, hidden: entry["hidden"] as? Bool ?? false))
             }
             if !offer.shares.isEmpty {
                 guard let port = frame.header["port"] as? Int, port >= Int(portBase), port < Int(portBase + portCount),
@@ -877,6 +902,10 @@ final class Client {
         case "clipboard_request":
             Log.write("the host asked for the latest pasteboard content; changed since last sent: \(dirty)")
             sendPasteboard(to: link, replyTo: frame.header["id"])
+        case "files_fetch":
+            startUpload(frame, on: link)
+        case "files_cancel":
+            if let id = frame.header["id"] as? String, upload?.id == id { stopUpload() }
         default:
             break
         }
@@ -890,11 +919,82 @@ final class Client {
         guard count != lastCount else { return }
         lastCount = count
         dirty = true
+        // Whatever is being copied to the host is no longer what the pasteboard holds; files that waited for their share are older too.
+        upload?.cancel()
+        waitingFiles = nil
         if active, phase == .session, let link = link { sendPasteboard(to: link, replyTo: nil) }
+    }
+
+    /// Puts the addresses of files that were copied in Windows on the pasteboard, once the share they are in is mounted.
+    private func placeFiles() {
+        guard let waiting = waitingFiles, let mount = folders.mountPath(waiting.share) else { return }
+        waitingFiles = nil
+        var urls: [NSURL] = []
+        for item in waiting.items {
+            // "7/report.pdf": a number the host gave, and a name in it. Nothing that could lead out of the share.
+            let parts = item.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+            guard parts.count == 2, !parts[0].isEmpty, parts[0].allSatisfy({ $0.isASCII && $0.isNumber }),
+                  !parts[1].isEmpty, parts[1] != ".", parts[1] != "..", !parts[1].unicodeScalars.contains(where: { $0.value < 32 }) else { continue }
+            urls.append(URL(fileURLWithPath: mount, isDirectory: true).appendingPathComponent(parts[0]).appendingPathComponent(parts[1]) as NSURL)
+        }
+        guard !urls.isEmpty else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects(urls)
+        // Our own write must not be sent back.
+        lastCount = pasteboard.changeCount
+        dirty = false
+        Log.write("received \(urls.count) file(s) from the host to paste")
+    }
+
+    /// The host wants the files it was told of: copies them into the folder it made in its transfer share.
+    private func startUpload(_ frame: Frame, on link: Link) {
+        guard let id = frame.header["id"] as? String, !id.isEmpty, id.count <= 12, id.allSatisfy({ $0.isASCII && $0.isNumber }) else { return }
+        func done(_ problem: String?) {
+            if let problem = problem, problem != "cancelled" { Log.write("copy to the host not finished: \(problem)") }
+            var answer: [String: Any] = ["type": "files_done", "id": id, "ok": problem == nil]
+            if let problem = problem { answer["reason"] = problem }
+            if self.link === link { link.send(answer) }
+        }
+        stopUpload()
+        guard let share = frame.header["share"] as? String, let limit = frame.header["limit"] as? Int, limit > 0, !mentionedFiles.isEmpty else { done("the host's request is incomplete"); return }
+        guard let mount = folders.mountPath(share) else { done("the host's transfer folder is not mounted in macOS yet"); return }
+        // The pasteboard moved on between the answer and the request.
+        guard !dirty else { done("cancelled"); return }
+        let destination = URL(fileURLWithPath: mount, isDirectory: true).appendingPathComponent("in").appendingPathComponent(id)
+        let copy = Upload(id: id, sources: mentionedFiles, destination: destination, limit: Int64(limit))
+        copy.onProgress = { [weak self, weak copy] written, total in
+            guard let self = self, let copy = copy, self.upload === copy, self.link === link else { return }
+            link.send(["type": "files_progress", "id": id, "done": written, "total": total])
+        }
+        copy.onDone = { [weak self, weak copy] problem in
+            if let self = self, let copy = copy, self.upload === copy { self.upload = nil }
+            if problem == nil { Log.write("copied \(self?.mentionedFiles.count ?? 0) item(s) from the pasteboard to the host") }
+            done(problem)
+        }
+        upload = copy
+        Log.write("the host asks for the \(mentionedFiles.count) item(s) on the pasteboard")
+        copy.start()
+    }
+
+    /// Ends the copy to the host, if one runs. Its end is still reported, as cancelled, while there is a connection.
+    private func stopUpload() {
+        upload?.cancel()
+        upload = nil
     }
 
     private func sendPasteboard(to link: Link, replyTo: Any?) {
         let pasteboard = NSPasteboard.general
+        if dirty, common.contains("files"),
+           let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+            // Files are mentioned only when the host asks on the way out of the VM's window; until then the change stays unsent.
+            guard let replyTo = replyTo else { return }
+            dirty = false
+            mentionedFiles = urls
+            Log.write("told the host of \(urls.count) copied file(s)")
+            link.send(["type": "clipboard", "kind": "files", "reply_to": replyTo, "count": urls.count])
+            return
+        }
         var header: [String: Any] = ["type": "clipboard", "kind": "text"]
         if let replyTo = replyTo { header["reply_to"] = replyTo }
         guard dirty, let text = pasteboard.string(forType: .string), !text.isEmpty else {

@@ -26,7 +26,12 @@
    <Border BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="28,12" Background="{DynamicResource Card}">
     <DockPanel shell:WindowChrome.IsHitTestVisibleInChrome="True"><Button DockPanel.Dock="Right" Content="{DynamicResource S17}" Click="ImportVm" IsEnabled="{Binding Available}"/><ComboBox ItemsSource="{Binding Machines}" SelectedItem="{Binding Selected}" DisplayMemberPath="Name" MinWidth="220" MaxWidth="400" HorizontalAlignment="Left" SelectionChanged="MachineChanged" AutomationProperties.Name="{DynamicResource S18}" IsEnabled="{Binding Available}"/></DockPanel>
    </Border>
-   <TabControl Grid.Row="1" SelectedIndex="{Binding Page}" Background="Transparent" BorderThickness="0" Padding="0">
+   <DockPanel Grid.Row="1">
+   <Border x:Name="RuntimeBanner" DockPanel.Dock="Top" Visibility="Collapsed" Background="{DynamicResource Accent}" Padding="28,12"><DockPanel>
+    <Button x:Name="RuntimeBannerButton" DockPanel.Dock="Right" Content="{DynamicResource RuntimeBannerAction}" Click="PrepareEnvironment" IsEnabled="{Binding Available}" Margin="16,0,0,0" VerticalAlignment="Center"/>
+    <StackPanel VerticalAlignment="Center"><TextBlock x:Name="RuntimeBannerTitle" Foreground="{DynamicResource OnAccent}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock x:Name="RuntimeBannerText" Foreground="{DynamicResource OnAccent}" TextWrapping="Wrap" Margin="0,2,0,0" AutomationProperties.LiveSetting="Assertive"/></StackPanel>
+   </DockPanel></Border>
+   <TabControl SelectedIndex="{Binding Page}" Background="Transparent" BorderThickness="0" Padding="0">
     <TabControl.Template><ControlTemplate TargetType="TabControl"><ContentPresenter ContentSource="SelectedContent"/></ControlTemplate></TabControl.Template>
     <TabItem><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="36,28,36,28">
      <TextBlock Text="{DynamicResource S203}" Style="{StaticResource Hint}" Margin="0,0,0,16"/>
@@ -61,6 +66,10 @@
       <TextBlock Text="{DynamicResource G3}" Style="{StaticResource Hint}"/>
       <CheckBox x:Name="ClipboardText" Content="{DynamicResource G4}" IsChecked="{Binding ClipboardShared, Mode=OneWay}" IsEnabled="{Binding Selected.IntegrationEnabled}" Click="ToggleClipboard" Margin="0,14,0,0"/>
       <TextBlock Text="{DynamicResource G5}" Style="{StaticResource Hint}"/>
+      <StackPanel IsEnabled="{Binding Selected.IntegrationEnabled}">
+       <CheckBox x:Name="ClipboardFiles" Content="{DynamicResource G21}" IsChecked="{Binding FilesShared, Mode=OneWay}" IsEnabled="{Binding ClipboardShared}" Click="ToggleClipboardFiles" Margin="0,10,0,0"/>
+      </StackPanel>
+      <TextBlock Text="{DynamicResource G22}" Style="{StaticResource Hint}"/>
       <StackPanel IsEnabled="{Binding Selected.IntegrationEnabled}" Margin="0,14,0,0">
        <TextBlock Text="{DynamicResource G13}" FontWeight="SemiBold"/>
        <TextBlock Text="{DynamicResource G14}" Style="{StaticResource Hint}"/>
@@ -153,7 +162,9 @@
      <TextBlock Text="{DynamicResource UpdateTitle}" Style="{StaticResource Heading}"/>
      <TextBlock Text="{Binding AppVersion, RelativeSource={RelativeSource AncestorType=Window}}" Style="{StaticResource Hint}"/>
      <Border Style="{StaticResource CardBorder}" Margin="0,24,0,12"><StackPanel>
-      <TextBlock x:Name="UpdateChannel" Style="{StaticResource Hint}"/>
+      <TextBlock Text="{DynamicResource ChannelLabel}" Style="{StaticResource Hint}" Margin="0,0,0,4"/>
+      <ComboBox x:Name="ChannelPicker" SelectedValuePath="Tag" SelectionChanged="ChangeChannel" HorizontalAlignment="Left" MinWidth="260" IsEnabled="{Binding Available}" AutomationProperties.Name="{DynamicResource ChannelLabel}"><ComboBoxItem Tag="stable" Content="{DynamicResource ChannelStable}"/><ComboBoxItem Tag="preview" Content="{DynamicResource ChannelPreview}"/></ComboBox>
+      <TextBlock x:Name="UpdateChannel" Style="{StaticResource Hint}" Margin="0,6,0,0"/>
       <TextBlock Text="{DynamicResource UpdateHelp}" Style="{StaticResource Hint}"/>
       <WrapPanel Margin="0,18,0,12">
        <Button Content="{DynamicResource UpdateCheck}" Click="CheckUpdates" IsEnabled="{Binding Available}"/>
@@ -167,6 +178,7 @@
      <TextBox x:Name="ReleaseNotes" IsReadOnly="True" TextWrapping="Wrap" MinHeight="160" MaxHeight="300" VerticalScrollBarVisibility="Auto"/>
     </StackPanel></ScrollViewer></TabItem>
    </TabControl>
+   </DockPanel>
    <Border Grid.Row="2" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Background="{DynamicResource Card}" Padding="28,12"><DockPanel><Button Content="{DynamicResource S93}" DockPanel.Dock="Right" Click="RefreshState" Padding="12,4" MinHeight="28"/><StackPanel Margin="0,0,16,0"><ProgressBar Height="3" IsIndeterminate="{Binding Busy}" Margin="0,0,0,6"/><TextBlock Text="{Binding Message}" FontSize="12" Foreground="{DynamicResource Muted}" AutomationProperties.LiveSetting="Polite"/></StackPanel></DockPanel></Border>
   </Grid>
  </Grid></Border>
