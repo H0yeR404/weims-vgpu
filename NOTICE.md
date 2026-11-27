@@ -20,4 +20,6 @@ reims-util is distributed under GPL-2.0-or-later (its dual-license alternative r
 
 Manager's Guest Tools broker (`Weims.Broker.exe`) serves shared folders with [SMBLibrary](https://github.com/TalAloni/SMBLibrary) 1.5.8.1 by Tal Aloni, licensed under LGPL-3.0-or-later. Its source is in `manager/third_party/SMBLibrary` with one file changed; the README there names the upstream commit, the change and how to replace the library, and a release ships it as two separate assemblies with that README and both license texts under `licenses/SMBLibrary`. The broker combined with the library is distributed under the terms of the GPL, version 3 or later, as this project's GPL-2.0-or-later code allows.
 
+USB passthrough installs [UsbDk](https://github.com/daynix/UsbDk) 1.0.22, the official 64-bit installer from release v1.00-22, licensed under Apache-2.0. The unchanged installer and its license are in `manager/third_party/UsbDk`. Manager checks the installer's SHA-256 before running it.
+
 Modifications were prepared with AI assistance. This repository is a downstream distribution, not a submission to QEMU upstream. The screenshot was supplied and approved for publication by the repository owner.

@@ -76,9 +76,25 @@ public partial class MainWindow : Window
             UsbList.ItemsSource = rows.Select(row => new CheckBox { Content = row.Caption, IsChecked = row.Selected, Margin = new Thickness(0, 6, 0, 0), Tag = row }).ToList();
             foreach (CheckBox box in UsbList.ItemsSource) { box.Checked += UsbBoxChanged; box.Unchecked += UsbBoxChanged; }
             UsbStatus.Text = scan.Problem ?? (rows.Count == 0 ? Text.Get("没有可传入的 USB 设备。插上后点刷新。", "No USB device can be passed in. Plug one in and click Refresh.") : "");
+            InstallUsbDk.Visibility = UsbHost.DriverInstalled ? Visibility.Collapsed : Visibility.Visible;
         }
         catch (Exception e) { UsbStatus.Text = e.Message; }
     }
+    async void InstallUsbDriver(object sender, RoutedEventArgs e) => await Work(async () =>
+    {
+        int code;
+        try { code = await UsbHost.Install(); }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            vm.Message = Text.Get("没有获得管理员权限，USB 驱动未安装。", "Administrator permission was not granted. The USB driver was not installed.");
+            return;
+        }
+        if (code is not (0 or 3010)) throw new IOException(Text.Get($"USB 驱动安装没有完成（msiexec {code}）。", $"The USB driver install did not finish (msiexec {code})."));
+        vm.Message = code == 3010
+            ? Text.Get("USB 驱动已安装。如果刷新后仍然列不出设备，请重启 Windows。", "The USB driver is installed. If a refresh still lists nothing, restart Windows.")
+            : Text.Get("USB 驱动已安装。", "The USB driver is installed.");
+        await LoadUsb();
+    });
     void UsbBoxChanged(object sender, RoutedEventArgs e)
     {
         if (sender is not CheckBox box || box.Tag is not UsbRow row || vm.Selected is not { } config || UsbList.ItemsSource is not IEnumerable<CheckBox> boxes) return;

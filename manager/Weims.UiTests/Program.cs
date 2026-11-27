@@ -36,7 +36,7 @@ internal static class Program
             for(int i=0;i<7;i++) { model.Page=i; Pump(); Shot(w,Path.Combine(output,$"page-{i}.png")); }
             model.Page=1; Pump();
             Check(w.FindName("Qmp")==null,"QMP port is no longer a user setting");
-            Check(w.FindName("UsbList") != null && w.FindName("RefreshUsb") != null, "USB passthrough list is on the hardware page");
+            Check(w.FindName("UsbList") != null && w.FindName("RefreshUsb") != null && w.FindName("InstallUsbDk") != null, "USB passthrough list is on the hardware page");
             var ssh=(TextBox)w.FindName("Ssh"); ssh.SetCurrentValue(TextBox.TextProperty,"not-a-port"); ssh.GetBindingExpression(TextBox.TextProperty)!.UpdateSource(); Pump();
             Check(Validation.GetHasError(ssh),"invalid port exposes inline WPF validation");
             model.Page=0; Pump(); bool rejected=false; try { model.Selected!.Validate(); }catch(InvalidDataException){rejected=true;}

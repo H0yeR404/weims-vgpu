@@ -251,6 +251,7 @@
 <sys:String x:Key="G21">在 Windows 和 macOS 之间复制粘贴文件</sys:String>
 <sys:String x:Key="G22">在 Windows 里复制的文件和文件夹，在 macOS 里粘贴时直接从这台电脑读取，不限大小。在 macOS 里复制的，在你离开虚拟机窗口时取回，每次最多 256 MiB，取回后才能在 Windows 里粘贴；更大的请用共享文件夹。</sys:String>
 <sys:String x:Key="Usb1">USB 设备</sys:String>
-<sys:String x:Key="Usb2">勾选的插口在下次启动时交给 macOS，并按插口记住。iPhone 重新连接后仍从同一个口进入。虚拟机运行期间，这个设备在 Windows 里不可用。需要安装 UsbDk。不要勾选正在使用的键盘或鼠标。</sys:String>
+<sys:String x:Key="Usb2">勾选的插口在下次启动时交给 macOS，并按插口记住。iPhone 重新连接后仍从同一个口进入。虚拟机运行期间，这个设备在 Windows 里不可用。USB 驱动随管理器附带，没装时点“安装 USB 驱动”。不要勾选正在使用的键盘或鼠标。</sys:String>
 <sys:String x:Key="Usb3">刷新</sys:String>
+<sys:String x:Key="Usb4">安装 USB 驱动</sys:String>
 </ResourceDictionary>

@@ -251,6 +251,7 @@
 <sys:String x:Key="G21">Copy and paste files between Windows and macOS</sys:String>
 <sys:String x:Key="G22">Files and folders copied in Windows are pasted in macOS straight from this PC, at any size. Those copied in macOS are fetched when you leave the VM's window, up to 256 MiB at a time, and can be pasted in Windows once they are here; for more, use a shared folder.</sys:String>
 <sys:String x:Key="Usb1">USB DEVICES</sys:String>
-<sys:String x:Key="Usb2">Checked ports are given to macOS at the next start, and remembered by the port. An iPhone comes back through the same port after it reconnects. While the VM runs, Windows cannot use that device. UsbDk has to be installed. Do not check a keyboard or mouse you are using.</sys:String>
+<sys:String x:Key="Usb2">Checked ports are given to macOS at the next start, and remembered by the port. An iPhone comes back through the same port after it reconnects. While the VM runs, Windows cannot use that device. The USB driver comes with Manager; click Install USB driver if it is not installed yet. Do not check a keyboard or mouse you are using.</sys:String>
 <sys:String x:Key="Usb3">Refresh</sys:String>
+<sys:String x:Key="Usb4">Install USB driver</sys:String>
 </ResourceDictionary>

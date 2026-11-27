@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -14,12 +16,16 @@ namespace Weims.Core;
 /// in that port when the VM starts, and again if it is plugged in later, so a missing device does not
 /// stop the VM from starting.
 ///
-/// Windows only gives QEMU the device when the UsbDk driver is installed. Listing uses the same libusb
-/// UsbDk backend QEMU does, and never opens a device, so looking at the list does not take it from Windows.
+/// Windows only gives QEMU the device when the UsbDk driver is installed. Manager ships that driver and
+/// installs it on request. Listing uses the same libusb UsbDk backend QEMU does, and never opens a device,
+/// so looking at the list does not take it from Windows.
 /// </summary>
 public static class UsbHost
 {
     public const int Limit = 8;
+    /// <summary>The official 64-bit UsbDk 1.0.22 installer shipped beside Manager. See third_party/UsbDk.</summary>
+    public const string InstallerName = "UsbDk_1.0.22_x64.msi";
+    public const string InstallerSha256 = "91f6f695e1e13c656024e6d3b55620bf08d8835ef05ee0496935ba6bb62466a5";
     public sealed record Selection(int Bus, string Port, string Label)
     {
         public static Selection? Read(JsonNode? node)
@@ -73,11 +79,54 @@ public static class UsbHost
         }
     }
 
+    public static bool DriverInstalled
+    {
+        get
+        {
+            if (!OperatingSystem.IsWindows()) return false;
+            using var service = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\UsbDk");
+            return service != null;
+        }
+    }
+
+    /// <summary>The installer copied next to Manager, or null when this build does not have it.</summary>
+    public static string? InstallerFile()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "UsbDk", InstallerName);
+        return File.Exists(path) ? path : null;
+    }
+
+    public static bool InstallerMatches(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(stream)).Equals(InstallerSha256, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Runs the bundled installer. Windows asks for an administrator. 0 means it finished; 3010 means it finished
+    /// and a restart is required. The caller decides what to say about any other code.
+    /// </summary>
+    public static async Task<int> Install(CancellationToken token = default)
+    {
+        var path = InstallerFile() ?? throw new FileNotFoundException(Text.Get("找不到随程序附带的 UsbDk 安装包。", "The UsbDk installer included with the program is missing."));
+        if (!InstallerMatches(path)) throw new InvalidDataException(Text.Get("附带的 UsbDk 安装包校验失败，没有安装。", "The included UsbDk installer failed its checksum and was not installed."));
+        var info = new ProcessStartInfo("msiexec.exe")
+        {
+            UseShellExecute = true,
+            Verb = "runas",
+            Arguments = "/i \"" + path + "\" /passive /norestart"
+        };
+        using var process = Process.Start(info) ?? throw new IOException(Text.Get("无法启动 UsbDk 安装。", "Could not start the UsbDk installer."));
+        await process.WaitForExitAsync(token);
+        return process.ExitCode;
+    }
+
     public static ScanResult Scan(EngineSettings engine)
     {
         if (!OperatingSystem.IsWindows()) return new([], Text.Get("只能在 Windows 上列出 USB 设备。", "USB devices can only be listed on Windows."));
-        using var service = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\UsbDk");
-        if (service == null) return new([], Text.Get("需要先安装 UsbDk，QEMU 才能从 Windows 接手 USB 设备：https://github.com/daynix/UsbDk/releases", "Install UsbDk first, so QEMU can take a USB device over from Windows: https://github.com/daynix/UsbDk/releases"));
+        if (!DriverInstalled) return new([], InstallerFile() == null
+            ? Text.Get("找不到随程序附带的 UsbDk 安装包。", "The UsbDk installer included with the program is missing.")
+            : Text.Get("随管理器附带的 USB 驱动还没安装。点“安装 USB 驱动”，Windows 会要求管理员权限。", "The USB driver included with Manager is not installed yet. Click Install USB driver. Windows asks for an administrator."));
         var dll = LibraryPath(engine);
         if (dll == null) return new([], Text.Get("运行组件目录里没有 libusb-1.0.dll，无法列出 USB 设备。", "libusb-1.0.dll is not in the runtime directory, so USB devices cannot be listed."));
         try { lock (scan) return List(dll, Names()); }

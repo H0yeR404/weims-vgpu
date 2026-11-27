@@ -147,6 +147,16 @@ try
     c.UsbDevices = Enumerable.Range(1, UsbHost.Limit + 1).Select(n => new UsbHost.Selection(1, n.ToString(), "d")).ToList();
     Reject(() => c.Validate(false), "too many USB devices rejected");
     c.Data.Remove("usb_devices"); Check(c.UsbDevices.Count == 0 && !LaunchPlan.Build(c, engine, temp, new string('s', 64), "test").Arguments.Any(a => a.Contains("usb-host")), "a configuration without the USB key passes nothing through");
+    var junkInstaller = Path.Combine(temp, "bad.msi"); File.WriteAllBytes(junkInstaller, [1, 2, 3, 4]);
+    Check(!UsbHost.InstallerMatches(junkInstaller), "a substituted UsbDk installer is refused");
+    string? usbdkDir = AppContext.BaseDirectory; bool foundInstaller = false;
+    for (var hop = 0; hop < 8 && usbdkDir != null; hop++)
+    {
+        var bundled = Path.Combine(usbdkDir, "manager", "third_party", "UsbDk", UsbHost.InstallerName);
+        if (File.Exists(bundled)) { Check(UsbHost.InstallerMatches(bundled), "the bundled UsbDk installer matches its hash"); foundInstaller = true; break; }
+        usbdkDir = Path.GetDirectoryName(usbdkDir);
+    }
+    Check(foundInstaller, "the bundled UsbDk installer is in the tree");
     var req=new RecoveryRequest("test",Path.Combine(temp,"newvm"),FileAt("installer.iso"),200,c.OpenCore,c.FirmwareCode,c.FirmwareVars,c.Rom,4550,2330);
     Reject(()=>RecoveryService.Validate(req), "ISO rejected");
     Reject(()=>RecoveryService.Validate(req with { Image=c.Recovery, Destination=temp }), "existing recovery destination rejected");
