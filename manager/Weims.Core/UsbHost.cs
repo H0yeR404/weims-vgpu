@@ -163,14 +163,17 @@ public static class UsbHost
     static ScanResult List(string dll, IReadOnlyDictionary<(int Vendor, int Product), string> names)
     {
         var native = Native.Load(dll);
-        // QEMU sets this before libusb_init. The same backend is what makes the bus and port numbers match.
-        if (native.SetOption(IntPtr.Zero, Native.UseUsbDk) != 0)
-            return new([], Text.Get("这份 libusb 不支持 UsbDk。", "This libusb was built without UsbDk support."));
+        // libusb 1.0.30 probes UsbDk while initializing and keeps the WinUSB backend until the option is
+        // set on that context. Setting it on a null context beforehand makes init fail and report UsbDk
+        // as missing. QEMU never sets the option; scripts/libusb-usbdk.c does it inside libusb_init, and
+        // the bus and port numbers only match the VM when both sides use this backend.
         if (native.Init(out var ctx) != 0 || ctx == IntPtr.Zero)
-            return new([], Text.Get("UsbDk 没有就绪。确认它已安装后点刷新。", "UsbDk is not ready. Install it and click Refresh."));
+            return new([], Text.Get("无法初始化 USB 库。", "Could not initialize the USB library."));
         IntPtr list = IntPtr.Zero;
         try
         {
+            if (native.SetOption(ctx, Native.UseUsbDk) != 0)
+                return new([], Text.Get("UsbDk 没有就绪。确认它已安装后点刷新。", "UsbDk is not ready. Install it and click Refresh."));
             var count = native.DeviceList(ctx, out list);
             if (count < 0) return new([], Text.Get($"列出 USB 设备失败（libusb {count}）。", $"Listing USB devices failed (libusb {count})."));
             var found = new List<Seen>();

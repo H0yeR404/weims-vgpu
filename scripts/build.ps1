@@ -33,6 +33,8 @@ $stage = "$Runtime.new"
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage, "$stage\pc-bios", "$stage\boot" | Out-Null
 Copy-Item "$qemu\bin\*.dll" $stage
+# QEMU leaves libusb on the WinUSB backend. USB passthrough needs UsbDk's bus and port numbers.
+& "$PSScriptRoot\wrap-libusb.ps1" -Directory $stage
 foreach ($name in 'qemu-system-x86_64.exe', 'qemu-img.exe', 'reims-vgpu-compile.exe') { Copy-Item -LiteralPath "$qemu\bin\$name" $stage }
 foreach ($name in 'bios-256k.bin', 'kvmvapic.bin', 'efi-virtio.rom', 'pxe-virtio.rom') { Copy-Item -LiteralPath "$qemu\share\$name" "$stage\pc-bios" }
 Copy-Item -LiteralPath "$Upstream\cargo\bin\reims-util.exe" $stage
