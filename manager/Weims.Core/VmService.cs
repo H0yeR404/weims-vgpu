@@ -138,6 +138,7 @@ public static class VmService
         using var launchLock = new FileStream(Path.Combine(Path.GetDirectoryName(c.ConfigPath)!, "manager-launch.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         osk = LaunchPlan.ResolveOsk(osk);
         await RequireStopped(c); CheckPorts(c);
+        if (c.UsbDevices.Count > 0) { using var usb = new CancellationTokenSource(TimeSpan.FromSeconds(10)); await UsbHost.RequireSupport(engine, usb.Token); }
         var run = Path.Combine(c.DirectoryPath, "logs", DateTime.Now.ToString("yyyyMMdd-HHmmss-fff"));
         var name = "weims-" + Guid.NewGuid().ToString("N");
         var plan = LaunchPlan.Build(c, engine, run, osk, name);

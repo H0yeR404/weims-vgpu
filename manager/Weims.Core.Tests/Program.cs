@@ -136,6 +136,17 @@ try
     c.Recovery=FileAt("BaseSystem.img"); c.RecoveryAttached=true;
     var recovery=LaunchPlan.Build(c,engine,temp,new string('s',64),"test"); Check(recovery.Arguments.Any(a=>a.StartsWith("id=recovery,")&&a.Contains("snapshot=on")), "recovery source protected by temporary write layer");
     c.RecoveryAttached=false; Check(!LaunchPlan.Build(c,engine,temp,new string('s',64),"test").Arguments.Any(a=>a.StartsWith("id=recovery,")), "recovery detach omits disk");
+    Check(!LaunchPlan.Build(c,engine,temp,new string('s',64),"test").Arguments.Any(a => a.Contains("usb-host")), "no USB device is passed through until one is chosen");
+    c.UsbDevices = [new UsbHost.Selection(2, "1.4", "iPhone"), new UsbHost.Selection(1, "3", "Disk")];
+    var usbArgs = LaunchPlan.Build(c, engine, temp, new string('s', 64), "test").Arguments;
+    Check(usbArgs.Contains("usb-host,id=usbhost0,bus=xhci.0,hostbus=2,hostport=1.4") && usbArgs.Contains("usb-host,id=usbhost1,bus=xhci.0,hostbus=1,hostport=3"), "chosen USB ports are usb-host devices on the guest controller");
+    c.Save(); Check(VmConfig.Load(c.ConfigPath).UsbDevices.Select(d => d.Port).SequenceEqual(["1.4", "3"]), "USB ports survive a save");
+    c.Data["usb_devices"] = new JsonArray(new JsonObject { ["bus"] = 1, ["port"] = "1,id=evil" });
+    Reject(() => c.Validate(false), "a USB port that could change the QEMU option is rejected");
+    c.UsbDevices = [new UsbHost.Selection(0, "1", "bad")]; Reject(() => c.Validate(false), "USB bus 0 rejected");
+    c.UsbDevices = Enumerable.Range(1, UsbHost.Limit + 1).Select(n => new UsbHost.Selection(1, n.ToString(), "d")).ToList();
+    Reject(() => c.Validate(false), "too many USB devices rejected");
+    c.Data.Remove("usb_devices"); Check(c.UsbDevices.Count == 0 && !LaunchPlan.Build(c, engine, temp, new string('s', 64), "test").Arguments.Any(a => a.Contains("usb-host")), "a configuration without the USB key passes nothing through");
     var req=new RecoveryRequest("test",Path.Combine(temp,"newvm"),FileAt("installer.iso"),200,c.OpenCore,c.FirmwareCode,c.FirmwareVars,c.Rom,4550,2330);
     Reject(()=>RecoveryService.Validate(req), "ISO rejected");
     Reject(()=>RecoveryService.Validate(req with { Image=c.Recovery, Destination=temp }), "existing recovery destination rejected");

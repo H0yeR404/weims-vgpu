@@ -24,7 +24,7 @@ public partial class MainWindow : Window
         InitializeComponent(); DataContext = vm; LanguagePicker.SelectedIndex = Text.Chinese ? 0 : 1;
         ThemePicker.SelectedValue = app.Theme;
         ChannelPicker.SelectedValue = ReleaseChannel.Read(vm.DataDirectory, VersionNumber);
-        Loaded += async (_, _) => { UpdateCapability(); await vm.Refresh(); timer.Start(); if (detectOnLoad) await Work(DetectEnvironment); };
+        Loaded += async (_, _) => { UpdateCapability(); await LoadUsb(); await vm.Refresh(); timer.Start(); if (detectOnLoad) await Work(DetectEnvironment); };
         timer.Tick += async (_, _) => { if (refreshing || vm.Busy) return; refreshing = true; try { await vm.Refresh(); } finally { refreshing = false; Pace(); } };
         Closed += (_, _) => { timer.Stop(); setupCancellation?.Cancel(); updateCancellation?.Cancel(); };
         RefreshUpdateText(); RefreshRuntimeSummary();
@@ -55,7 +55,36 @@ public partial class MainWindow : Window
     void CloseWindow(object sender, RoutedEventArgs e) => Close();
     void MinimizeWindow(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     void MaximizeWindow(object sender, RoutedEventArgs e) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-    async void MachineChanged(object sender, SelectionChangedEventArgs e) { if (IsLoaded && !vm.Busy) await vm.Refresh(); }
+    async void MachineChanged(object sender, SelectionChangedEventArgs e) { if (!IsLoaded) return; if (!vm.Busy) await vm.Refresh(); await LoadUsb(); }
+    async void RefreshUsbDevices(object sender, RoutedEventArgs e) => await LoadUsb();
+    async Task LoadUsb()
+    {
+        if (UsbList == null) return;
+        try
+        {
+            var saved = vm.Selected?.UsbDevices ?? [];
+            var scan = await Task.Run(() => UsbHost.Scan(vm.Engine));
+            var rows = new List<UsbRow>();
+            var seen = new HashSet<string>();
+            foreach (var device in scan.Devices)
+            {
+                seen.Add(device.Bus + ":" + device.Port);
+                rows.Add(new UsbRow(device.Bus, device.Port, device.Name, $"{device.Name} · {device.Vendor:X4}:{device.Product:X4} · {device.Bus}/{device.Port}", saved.Any(s => s.Bus == device.Bus && s.Port == device.Port)));
+            }
+            foreach (var device in saved.Where(s => !seen.Contains(s.Bus + ":" + s.Port)))
+                rows.Add(new UsbRow(device.Bus, device.Port, UsbHost.Label(device.Label), $"{UsbHost.Label(device.Label)} · {device.Bus}/{device.Port} · {Text.Get("当前没插上", "not plugged in")}", true));
+            UsbList.ItemsSource = rows.Select(row => new CheckBox { Content = row.Caption, IsChecked = row.Selected, Margin = new Thickness(0, 6, 0, 0), Tag = row }).ToList();
+            foreach (CheckBox box in UsbList.ItemsSource) { box.Checked += UsbBoxChanged; box.Unchecked += UsbBoxChanged; }
+            UsbStatus.Text = scan.Problem ?? (rows.Count == 0 ? Text.Get("没有可传入的 USB 设备。插上后点刷新。", "No USB device can be passed in. Plug one in and click Refresh.") : "");
+        }
+        catch (Exception e) { UsbStatus.Text = e.Message; }
+    }
+    void UsbBoxChanged(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox box || box.Tag is not UsbRow row || vm.Selected is not { } config || UsbList.ItemsSource is not IEnumerable<CheckBox> boxes) return;
+        row.Choose(box.IsChecked == true);
+        config.UsbDevices = boxes.Select(item => (UsbRow)item.Tag).Where(item => item.Selected).Select(item => new UsbHost.Selection(item.Bus, item.Port, item.Label)).ToList();
+    }
     async void RefreshState(object sender, RoutedEventArgs e) => await Work(async () => { UpdateCapability(); await vm.Refresh(); vm.Message = vm.Status; });
     async void ImportVm(object sender, RoutedEventArgs e)
     {
@@ -230,4 +259,16 @@ public partial class MainWindow : Window
         var wizard = new RecoveryWindow(vm.Engine, vm.Repo, vm.DataDirectory) { Owner = this };
         if (wizard.ShowDialog() == true && wizard.Created != null) { vm.Add(wizard.Created.ConfigPath); vm.Page = 0; vm.Message = Text.Get("新虚拟机已准备好。请检查配置后启动恢复安装。", "The new VM is ready. Check its settings, then start recovery installation."); }
     }
+}
+
+sealed class UsbRow
+{
+    public int Bus { get; }
+    public string Port { get; }
+    public string Label { get; }
+    public string Caption { get; }
+    public bool Selected { get; private set; }
+    public UsbRow(int bus, string port, string label, string caption, bool selected)
+    { Bus = bus; Port = port; Label = label; Caption = caption; Selected = selected; }
+    public void Choose(bool selected) => Selected = selected;
 }

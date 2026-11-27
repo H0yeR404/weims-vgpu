@@ -48,6 +48,7 @@ public sealed record LaunchPlan(List<string> Arguments, Dictionary<string, strin
             "-display", "none", "-monitor", "none", "-serial", $"file:{Q(Path.Combine(run, "serial.log"))}", "-msg", "timestamp=on",
             "-qmp", $"unix:{Q(qmpSocket)},server=on,wait=off"
         };
+        a.AddRange(UsbHost.Arguments(c.UsbDevices));
         if (c.RecoveryAttached) a.AddRange(new[] { "-drive", $"id=recovery,if=none,format=raw,snapshot=on,file={Q(c.Recovery)}", "-device", "ide-hd,bus=sata.4,drive=recovery" });
         var env = new Dictionary<string, string> {
             ["PATH"] = Path.GetDirectoryName(engine.Qemu) + ";" + engine.RuntimeBin + ";" + System.Environment.GetEnvironmentVariable("PATH"),
