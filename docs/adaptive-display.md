@@ -14,13 +14,19 @@ There is no display mode to choose. The `display_mode` key stays in a VM's confi
 
 **Start in borderless fullscreen** opens the window without a frame, filling its screen.
 
+## Full screen while the VM runs
+
+**Ctrl+Alt+Enter** in the VM's window switches between a window and full screen, and so does **Full screen / window** beside **Shut down** in Manager. A window that leaves full screen has the size and place it had before, and macOS takes each size as its resolution.
+
+In full screen, rest the pointer at the top of the screen, in the middle, for a quarter of a second: a small bar shows, with the chord and two buttons, minimize and back to a window. It hides about half a second after the pointer has left it. The pointer on its way to macOS's menus at the left and right of the top edge does not show it. The bar has no close button: closing the window powers the VM off.
+
 ## Pointer and keyboard
 
-With **Allow the pointer to leave the VM window freely** on, the pointer moves in and out of the window like in any other, a click is a click in macOS, and Windows keeps its own shortcuts such as Alt+Tab and the Windows key. The window's title ends in `free pointer (host shortcuts enabled)`. New VMs have it on.
+With **Allow the pointer to leave the VM window freely** on, the pointer moves in and out of the window like in any other, a click is a click in macOS, and Windows keeps its own shortcuts such as Alt+Tab. The Windows key is the exception: while the window has the keyboard and the pointer is inside the image, the left and right Windows keys go to macOS as Command, and Windows opens no Start menu; with the pointer outside the image they are Windows's again. Win+L still locks Windows, which no program can prevent. The window's title ends in `free pointer · Ctrl+Alt+Enter: full screen`. New VMs have it on.
 
 With it off, a click in the image captures the keyboard and the pointer: the pointer stays over the image and Windows' shortcuts go to macOS. **Ctrl+Alt+Win** releases them. Games that read relative mouse motion need this mode: while macOS hides its cursor, the window hands the mouse's motion to the guest's own mouse.
 
-The free pointer comes from this project's patch, so it is offered with the runtime built here and not with a build of upstream's own, which Manager can also run.
+The free pointer, the Windows key and full screen while the VM runs come from this project's patch, so they are offered with the runtime built here and not with a build of upstream's own, which Manager can also run.
 
 ## Sound
 

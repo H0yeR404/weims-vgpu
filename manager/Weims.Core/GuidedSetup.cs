@@ -29,9 +29,11 @@ public static class GuidedSetup
     }
 
     public static async Task<VmConfig> Create(string name, string destination, string? image, int diskGiB,
-        EngineSettings engine, string data, IProgress<string> progress, CancellationToken token)
+        EngineSettings engine, string data, IProgress<string> progress, CancellationToken token, string? model = null)
     {
-        // Validate user choices before any network or runtime installation.
+        // Validate user choices before any network or runtime installation. A model name that is no choice is
+        // refused here; whether the runtime can make it is asked once the runtime is there.
+        if (model != null && MacModel.Find(model) == null) MacModel.Require(engine, model);
         if (!System.Text.RegularExpressions.Regex.IsMatch(name, @"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,47}$") || diskGiB < 64 || diskGiB > 2048)
             throw new InvalidDataException(Text.Get("名称须为 1–48 个英文字母、数字、短横线或下划线；容量为 64–2048 GiB。", "Use a 1–48 character name (letters, digits, hyphen, underscore) and 64–2048 GiB capacity."));
         if (!Path.IsPathFullyQualified(destination) || Directory.Exists(destination) || File.Exists(destination))
@@ -43,7 +45,8 @@ public static class GuidedSetup
         // One helper uses the shared download cache at a time, including across CLI/GUI processes.
         using var preparationLock = new FileStream(Path.Combine(data, "preparation.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         string boot = BootFiles(engine);
-        var args = BootImage.HelperArguments(engine, Path.Combine(work, "OpenCore.img"));
+        // Asked only now: the runtime that was just prepared is the one whose reims-util makes the image.
+        var args = BootImage.HelperArguments(engine, Path.Combine(work, "OpenCore.img"), null, model == null ? null : MacModel.Require(engine, model).Id);
         progress.Report(Text.Get("生成独立 OpenCore 并准备固件…", "Generating independent OpenCore and preparing firmware…"));
         await RunHelper(engine, args, data, progress, token);
         if (string.IsNullOrWhiteSpace(image))

@@ -94,7 +94,13 @@ try
     c.FreePointer=true; Check(engine.SupportsFreePointer && LaunchPlan.Build(c,engine,temp,"","test").Environment["REIMS_VGPU_WINDOW_FREE_POINTER"]=="1", "runtime record enables free pointer");
     JsonFiles.Write(record, new { format=1, capabilities=Array.Empty<string>(), qemu_bytes=new FileInfo(engine.Qemu).Length }); Check(!engine.SupportsFreePointer, "record without the capability does not enable it");
     JsonFiles.Write(record, new { format=1, capabilities=new[] { "free-pointer" }, qemu_bytes=new FileInfo(engine.Qemu).Length + 1 }); Check(!engine.SupportsFreePointer, "record beside another QEMU counts for nothing");
+    JsonFiles.Write(record, new { format=1, capabilities=new[] { "free-pointer", "full-screen", "super-key" }, qemu_bytes=new FileInfo(engine.Qemu).Length });
+    Check(engine.SupportsFullScreen && engine.SupportsSuperKey, "runtime record names full screen and the Windows key");
+    JsonFiles.Write(record, new { format=1, capabilities=new[] { "free-pointer" }, qemu_bytes=new FileInfo(engine.Qemu).Length });
+    Check(!engine.SupportsFullScreen && !engine.SupportsSuperKey, "a 1.2.0 runtime record names neither");
     File.Delete(record); c.FreePointer=false;
+    Check(VmWindow.Find(Environment.ProcessId).Count==0 && VmWindow.Ask(Environment.ProcessId, VmWindow.FullScreen.Toggle)==0, "a process without windows has no display window to ask");
+    Reject(()=>VmService.ToggleFullScreen(c), "full screen refused for a VM that is not running");
     // Boot files: a made-up Mac in a config.plist as reims-util writes it, inside a raw image with other bytes around it.
     string Plist(string serial, string picker = "<true/>") => $"""
         <?xml version="1.0" encoding="UTF-8"?>
@@ -120,6 +126,34 @@ try
     var renewArgs = BootImage.HelperArguments(engine, "out.img", mac);
     Check(renewArgs.Contains("--no-ovmf") && renewArgs[renewArgs.IndexOf("--serial") + 1] == "TESTSERIAL01" && renewArgs[renewArgs.IndexOf("--rom") + 1] == "112233445566" && renewArgs.Count(a => a == "--add-kext") == 3 && renewArgs.Contains("--disable-sip"), "renewal keeps the Mac, its settings and the firmware, with this runtime's drivers");
     Check(!BootImage.HelperArguments(engine, "out.img").Contains("--serial"), "a new VM gets a Mac of its own");
+    // Mac models: another model is another serial number, which reims-util makes; each model's serials are kept beside the image.
+    Check(!BootImage.HelperArguments(engine, "out.img", null, MacModel.Default).Contains("--model"), "the iMac is reims-util's own default, which no runtime has to be told");
+    var newArgs = BootImage.HelperArguments(engine, "out.img", null, "MacBookPro16,1");
+    Check(newArgs[newArgs.IndexOf("--model") + 1] == "MacBookPro16,1" && !newArgs.Contains("--serial"), "a new VM of another model names it and gets a Mac of its own");
+    var book = MacModel.Find("macbookpro16,1")!;
+    var freshArgs = BootImage.HelperArguments(engine, "out.img", MacModel.As(mac, book, new Dictionary<string, (string, string)>()));
+    Check(freshArgs[freshArgs.IndexOf("--model") + 1] == "MacBookPro16,1" && !freshArgs.Contains("--serial") && !freshArgs.Contains("--mlb") && freshArgs[freshArgs.IndexOf("--uuid") + 1] == mac.Uuid && freshArgs[freshArgs.IndexOf("--rom") + 1] == mac.Rom && freshArgs.Contains("--no-ovmf"),
+        "a model the VM never was gets new serials, with the UUID, ROM and firmware the VM has");
+    var back = MacModel.As(mac, book, new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase) { ["MacBookPro16,1"] = ("BOOKSERIAL01", "BOOKMLB0000000001") });
+    var backArgs = BootImage.HelperArguments(engine, "out.img", back);
+    Check(backArgs[backArgs.IndexOf("--serial") + 1] == "BOOKSERIAL01" && backArgs[backArgs.IndexOf("--mlb") + 1] == "BOOKMLB0000000001" && back.Uuid == mac.Uuid, "a model the VM was before gets the serials it had");
+    string modelImage = Image("boot-m.img", Plist("TESTSERIAL01"));
+    Check(MacModel.Kept(modelImage).Count == 0, "no serials are kept beside an image that never changed its model");
+    File.WriteAllText(MacModel.KeptFile(modelImage), """{"MacBookPro16,1":{"serial":"BOOKSERIAL01","mlb":"BOOKMLB0000000001"},"iMac20,1":{"serial":""},"other":7}""");
+    var keptNow = MacModel.Kept(modelImage);
+    Check(keptNow.Count == 1 && keptNow["macbookpro16,1"] == ("BOOKSERIAL01", "BOOKMLB0000000001"), "kept serials are read, and entries that are not whole are passed over");
+    File.WriteAllText(MacModel.KeptFile(modelImage), "not json"); Check(MacModel.Kept(modelImage).Count == 0, "a kept file that cannot be read counts as none");
+    File.Delete(MacModel.KeptFile(modelImage));
+    Reject(() => MacModel.Require(engine, "Mac13,1"), "a model that is no choice is refused");
+    Reject(() => MacModel.Require(engine, "MacBookPro16,1"), "the MacBook Pro is refused on a runtime whose reims-util has no table for it");
+    Check(MacModel.Require(engine, "imac20,1").Id == "iMac20,1", "the iMac asks nothing of the runtime");
+    JsonFiles.Write(record, new { format=1, capabilities=new[] { "mac-models" }, qemu_bytes=new FileInfo(engine.Qemu).Length });
+    Check(engine.SupportsMacModels && MacModel.Require(engine, "MacBookPro16,1").Id == "MacBookPro16,1", "runtime record names the Mac models");
+    string ownImage = c.OpenCore; c.OpenCore = modelImage;
+    Check(!MacModel.Switch(c, engine, "iMac20,1", temp, new Progress<string>(), default).GetAwaiter().GetResult() && !File.Exists(MacModel.KeptFile(modelImage)), "a VM that already is the model is left as it is");
+    c.BootSet = VmConfig.OwnBootFiles; Reject(() => MacModel.Switch(c, engine, "MacBookPro16,1", temp, new Progress<string>(), default).GetAwaiter().GetResult(), "boot files of the user's own keep their model");
+    c.Data.Remove("boot_set"); c.OpenCore = ownImage; File.Delete(record);
+    Reject(() => GuidedSetup.Create("valid", Path.Combine(temp, "guided-model"), null, 200, engine, temp, new Progress<string>(), default, "Mac13,1").GetAwaiter().GetResult(), "guided setup refuses a model that is no choice before downloading");
     Check(BootImage.SetId(engine) == null && !BootImage.Outdated(c, engine), "runtime without guest drivers never calls a VM's boot files outdated");
     Directory.CreateDirectory(Path.Combine(temp, "boot")); File.WriteAllText(Path.Combine(temp, "boot", "set.toml"), "format = 1"); File.WriteAllText(Path.Combine(temp, "boot", "ReimsGraphics.rom"), "rom"); FileAt("reims-util.exe");
     string setId = BootImage.SetId(engine)!;

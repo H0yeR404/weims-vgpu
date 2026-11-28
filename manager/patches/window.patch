@@ -47,19 +47,32 @@ index 0380618f5..cea0541f1 100644
          }
      })
 diff --git a/crates/reims-vgpu-window/src/native/sdl_thread/input.rs b/crates/reims-vgpu-window/src/native/sdl_thread/input.rs
-index 619ad1fb2..0a6d666b9 100644
+index 619ad1fb2..606ba6e84 100644
 --- a/crates/reims-vgpu-window/src/native/sdl_thread/input.rs
 +++ b/crates/reims-vgpu-window/src/native/sdl_thread/input.rs
-@@ -70,6 +70,8 @@ pub(crate) const FOCUS_CLICK_NS: u64 = 100_000_000;
+@@ -70,6 +70,12 @@ pub(crate) const FOCUS_CLICK_NS: u64 = 100_000_000;
  
  /// What the title ends with while captured: what capture is on and how to release it.
  const CAPTURED_SUFFIX: &str = " \u{2014} input captured (press Ctrl+Alt+Super to release)";
 +/// What the title ends with where a click does not capture.
-+const FREE_POINTER_SUFFIX: &str = " \u{2014} free pointer (host shortcuts enabled)";
++const FREE_POINTER_SUFFIX: &str =
++    " \u{2014} free pointer \u{00B7} Ctrl+Alt+Enter: full screen";
++
++/// Return's usage, and the keypad's Enter's: with Ctrl and Alt, the chord for full screen.
++const ENTER_USAGES: [u16; 2] = [0x28, 0x58];
  
  /// What the window knows when an event reaches it.
  #[derive(Clone, Copy, Debug, Default, PartialEq)]
-@@ -170,6 +172,10 @@ pub(crate) struct Input {
+@@ -90,6 +96,8 @@ pub(crate) struct Reaction {
+     /// The capture state changed: the keyboard grab, the pointer's hold, the title and the cursor
+     /// follow it.
+     pub(crate) capture_changed: bool,
++    /// The person pressed Ctrl+Alt+Enter: the window enters full screen, or leaves it.
++    pub(crate) full_screen: bool,
+ }
+ 
+ /// What the input sends the host, in the order it is sent.
+@@ -170,6 +178,10 @@ pub(crate) struct Input {
      keys: KeyState,
      /// Who gets the keyboard.
      capture: Capture,
@@ -70,7 +83,7 @@ index 619ad1fb2..0a6d666b9 100644
      /// The `BUTTON_*` bits of the buttons the guest was told are down.
      buttons: u32,
      /// The pointer event last sent.
-@@ -220,6 +226,7 @@ impl Input {
+@@ -220,6 +232,7 @@ impl Input {
          Input {
              beyond,
              motion,
@@ -78,7 +91,7 @@ index 619ad1fb2..0a6d666b9 100644
              ..Input::default()
          }
      }
-@@ -287,7 +294,9 @@ impl Input {
+@@ -287,7 +300,9 @@ impl Input {
  
      /// What the title ends with: the release chord while captured, that a click captures while not.
      pub(crate) fn title_suffix(&self) -> &'static str {
@@ -89,7 +102,7 @@ index 619ad1fb2..0a6d666b9 100644
              CAPTURED_SUFFIX
          } else {
              UNCAPTURED_SUFFIX
-@@ -418,7 +427,10 @@ impl Input {
+@@ -418,7 +433,10 @@ impl Input {
                  .focused_at
                  .is_some_and(|t| timestamp.saturating_sub(t) < FOCUS_CLICK_NS);
          let was_captured = self.is_captured();
@@ -101,7 +114,66 @@ index 619ad1fb2..0a6d666b9 100644
              true
          } else {
              self.capture.click_in_image(!focusing).forward
-@@ -698,6 +710,40 @@ mod tests {
+@@ -429,6 +447,7 @@ impl Input {
+         }
+         Reaction {
+             capture_changed: self.is_captured() != was_captured,
++            ..Reaction::default()
+         }
+     }
+ 
+@@ -502,6 +521,13 @@ impl Input {
+             }
+             return Reaction::default();
+         }
++        if ENTER_USAGES.contains(&usage) && self.full_screen_chord() {
++            // The window's own chord: Enter is not sent, and its up finds no key to lift.
++            return Reaction {
++                full_screen: !repeat,
++                ..Reaction::default()
++            };
++        }
+         if let Some(event) = self.keys.key_down(usage, repeat) {
+             self.out.push(ToHost::Key(event));
+         }
+@@ -511,6 +537,20 @@ impl Input {
+         Reaction::default()
+     }
+ 
++    /// Whether the modifiers held are the full-screen chord's: Ctrl and Alt, and no other.
++    fn full_screen_chord(&self) -> bool {
++        let held = self.keys.held_modifiers();
++        held.control && held.option && !held.command && !held.shift
++    }
++
++    /// Whether the window takes the Windows keys for the guest while the pointer is over the
++    /// image: with the free pointer, while it has the keyboard. Captured input has them through
++    /// the keyboard's grab.
++    #[cfg_attr(not(windows), allow(dead_code))]
++    pub(crate) fn takes_super(&self) -> bool {
++        self.free_pointer && self.focused
++    }
++
+     /// The window gained the keyboard at `timestamp`.
+     pub(crate) fn focus_gained(&mut self, timestamp: u64) {
+         self.focused = true;
+@@ -526,6 +566,7 @@ impl Input {
+         self.let_go_away();
+         Reaction {
+             capture_changed: self.capture.resign_key(),
++            ..Reaction::default()
+         }
+     }
+ 
+@@ -536,6 +577,7 @@ impl Input {
+         self.let_go_away();
+         Reaction {
+             capture_changed: self.capture.release(),
++            ..Reaction::default()
+         }
+     }
+ 
+@@ -698,6 +740,73 @@ mod tests {
          assert_eq!(input.take(), vec![pointer(20, 20, BUTTON_LEFT)]);
      }
  
@@ -126,6 +198,39 @@ index 619ad1fb2..0a6d666b9 100644
 +        assert_eq!(input.title_suffix(), FREE_POINTER_SUFFIX);
 +    }
 +
++    /// Ctrl+Alt+Enter asks for full screen once, and the guest gets no Enter; Enter alone, and
++    /// with any other modifier, is the guest's
++    #[test]
++    fn ctrl_alt_enter_asks_for_full_screen_and_is_not_sent() {
++        let mut input = focused();
++        assert!(!input.key(0x28, true, false).full_screen);
++        input.key(0x28, false, false);
++        input.key(0xE0, true, false);
++        input.key(0xE2, true, false);
++        input.take();
++        assert!(input.key(0x28, true, false).full_screen);
++        assert!(!input.key(0x28, true, true).full_screen, "the host's repeat");
++        assert!(!input.key(0x28, false, false).full_screen);
++        assert!(input.key(0x58, true, false).full_screen, "the keypad's Enter");
++        assert_eq!(input.take(), vec![]);
++        input.key(0xE1, true, false);
++        assert!(!input.key(0x28, true, false).full_screen, "with Shift");
++    }
++
++    /// With the free pointer the window takes the Windows keys while it has the keyboard; where
++    /// a click captures, never
++    #[test]
++    fn a_free_pointer_s_window_takes_the_windows_keys_while_it_has_the_keyboard() {
++        let mut input = Input::new();
++        assert!(!input.takes_super());
++        input.focus_gained(0);
++        assert!(!input.takes_super(), "a click captures here");
++        input.free_pointer = true;
++        assert!(input.takes_super());
++        input.focus_lost();
++        assert!(!input.takes_super());
++    }
++
 +    /// With the free pointer, the click that focuses the window is not sent; the next one is
 +    #[test]
 +    fn a_free_pointer_s_focusing_click_is_not_sent() {
@@ -143,10 +248,159 @@ index 619ad1fb2..0a6d666b9 100644
      #[test]
      fn a_click_in_the_image_captures_and_is_sent() {
 diff --git a/crates/reims-vgpu-window/src/native/sdl_thread/sdl.rs b/crates/reims-vgpu-window/src/native/sdl_thread/sdl.rs
-index 41fdfa289..372636a80 100644
+index 41fdfa289..223d14fae 100644
 --- a/crates/reims-vgpu-window/src/native/sdl_thread/sdl.rs
 +++ b/crates/reims-vgpu-window/src/native/sdl_thread/sdl.rs
-@@ -212,6 +212,34 @@ pub(crate) fn follow(shell: &mut Shell, mode: (u16, u16), _taken: &[Frame]) {
+@@ -33,6 +33,12 @@
+ //! with whether SDL holds the grab ([`grab_keyboard`]). On Windows the grab is a low-level keyboard
+ //! hook on this thread, which takes the system's shortcuts while the window has the keyboard
+ //! (`super::super::windows`).
++//!
++//! **Full screen** at the person's wish ([`set_full_screen`]): Ctrl+Alt+Enter enters it and leaves
++//! it, through the compositor's own full screen on the window's screen, as a borderless window
++//! opens. On Windows a bar at the screen's top leaves it too, and minimizes (`bar_asked`),
++//! another program may ask for it (`full_screen_asked`), and with the free pointer the Windows
++//! keys are the guest's while the pointer is over the image (`after_event`).
+ 
+ use std::sync::Arc;
+ 
+@@ -68,6 +74,9 @@ pub(crate) struct State {
+     /// The screen it opened on: SDL's answer to which screen a window is on is not used (the
+     /// module doc).
+     display: SDL_DisplayID,
++    /// Whether the window has its full-screen bar (Windows).
++    #[cfg(windows)]
++    bar: bool,
+ }
+ 
+ /// A window's input: SDL's events, queued until the shell sends them (`super::input`).
+@@ -180,6 +189,8 @@ pub(crate) fn open(window: &Arc<Window>, borderless: bool, _taken: &[Frame]) ->
+         }
+         SDL_ShowWindow(sdl);
+     }
++    #[cfg(windows)]
++    crate::native::windows::remote::listen();
+     window.surface().set_target(Target(sdl));
+     window.surface().set_visible(true);
+     log::debug!(
+@@ -198,10 +209,115 @@ pub(crate) fn open(window: &Arc<Window>, borderless: bool, _taken: &[Frame]) ->
+                 .and_then(|callbacks| callbacks.beyond.clone()),
+             callbacks.and_then(|callbacks| callbacks.motion),
+         )),
+-        state: State { display },
++        state: State {
++            display,
++            #[cfg(windows)]
++            bar: false,
++        },
+     })
+ }
+ 
++/// Enters full screen (`Some(true)`), leaves it (`Some(false)`) or does the other of the two
++/// (`None`): the compositor's own full screen on the window's screen. A window that leaves it is
++/// the size and place it was before.
++pub(crate) fn set_full_screen(shell: &Shell, full: Option<bool>) {
++    // SAFETY: the window is SDL's, on this thread.
++    let now = (unsafe { SDL_GetWindowFlags(shell.sdl) } & SDL_WINDOW_FULLSCREEN).0 != 0;
++    let full = full.unwrap_or(!now);
++    if full == now {
++        return;
++    }
++    // SAFETY: as above.
++    if unsafe { SDL_SetWindowFullscreen(shell.sdl, full) } {
++        log::info!(
++            target: "reims_vgpu_window",
++            "window {:?}: {} at the person's wish",
++            shell.window.title(),
++            if full { "full screen" } else { "a window again" }
++        );
++    } else {
++        shell::refused(
++            if full {
++                "no full screen"
++            } else {
++                "no way out of full screen"
++            },
++            shell.window.title(),
++        );
++    }
++}
++
++/// SDL's window's `HWND`.
++#[cfg(windows)]
++fn hwnd(sdl: *mut SDL_Window) -> crate::native::windows::HWND {
++    // SAFETY: the window is SDL's, on this thread; the property's name is SDL's own.
++    unsafe {
++        SDL_GetPointerProperty(
++            SDL_GetWindowProperties(sdl),
++            SDL_PROP_WINDOW_WIN32_HWND_POINTER,
++            std::ptr::null_mut(),
++        )
++    }
++}
++
++/// After each of the window's events, what Windows adds follows the window's state. With the
++/// free pointer, the Windows keys are the guest's while the window has the keyboard and the
++/// pointer is over the image (`crate::native::windows::superkey`). A full-screen window has its
++/// bar (`crate::native::windows::bar`), a windowed one none.
++#[cfg(windows)]
++pub(crate) fn after_event(shell: &mut Shell) {
++    use crate::native::windows::{bar, superkey};
++    // SAFETY: the window is SDL's, on this thread.
++    let (id, flags) = unsafe { (SDL_GetWindowID(shell.sdl).0, SDL_GetWindowFlags(shell.sdl)) };
++    let takes = shell.input.0.takes_super() && shell.is_over_image();
++    if superkey::follow(id, takes) {
++        log::debug!(
++            target: "reims_vgpu_window",
++            "window {:?}: the Windows keys are {}",
++            shell.window.title(),
++            if takes { "the guest's" } else { "the host's" }
++        );
++    }
++    let full = (flags & SDL_WINDOW_FULLSCREEN).0 != 0;
++    if full != shell.os.bar {
++        shell.os.bar = full;
++        if full {
++            bar::open(hwnd(shell.sdl), shell.window.id(), shell.window.title());
++        } else {
++            bar::close(hwnd(shell.sdl));
++        }
++    }
++}
++
++/// The person asked `asked` of window `window`'s full-screen bar: posted to the UI thread, which
++/// does it between its events.
++#[cfg(windows)]
++pub(crate) fn bar_asked(window: u64, asked: crate::native::windows::bar::Asked) {
++    use crate::native::windows::bar::Asked;
++    super::ui::post(move || {
++        shell::with_shell(window, |shell| match asked {
++            Asked::Windowed => set_full_screen(shell, Some(false)),
++            Asked::Minimize => {
++                // SAFETY: the window is SDL's, on this thread.
++                unsafe { SDL_MinimizeWindow(shell.sdl) };
++            }
++        });
++    });
++}
++
++/// Another program asked the window whose `HWND` is `owner` for full screen (`Some(true)`), a
++/// window (`Some(false)`) or the other of the two (`crate::native::windows::remote`): posted to
++/// the UI thread.
++#[cfg(windows)]
++pub(crate) fn full_screen_asked(owner: isize, full: Option<bool>) {
++    super::ui::post(move || {
++        let ids = shell::each_open(|s| (hwnd(s.sdl) as isize == owner).then(|| s.window.id()));
++        for id in ids {
++            shell::with_shell(id, |shell| set_full_screen(shell, full));
++        }
++    });
++}
++
+ /// Resizes a window following the guest's mode for `mode`, as it would open on its screen.
+ pub(crate) fn follow(shell: &mut Shell, mode: (u16, u16), _taken: &[Frame]) {
+     let size = windowed_size(shell.os.display, mode);
+@@ -212,6 +328,34 @@ pub(crate) fn follow(shell: &mut Shell, mode: (u16, u16), _taken: &[Frame]) {
      }
  }
  
@@ -181,8 +435,1319 @@ index 41fdfa289..372636a80 100644
  /// The window's size in points and its pixels per point: SDL's sizes of it in points and in
  /// pixels, whose ratio is the scale, fractional ones included. `None` before it has a size.
  pub(crate) fn metrics(shell: &Shell) -> Option<((f64, f64), f64)> {
+@@ -312,13 +456,14 @@ pub(crate) fn input_event(shell: &mut Shell, kind: u32, event: &SDL_Event) -> bo
+         k if k == SDL_EVENT_KEY_DOWN.0 || k == SDL_EVENT_KEY_UP.0 => {
+             // SAFETY: a key event.
+             let key = unsafe { event.key };
+-            keymap::usb_usage(key.scancode.0).is_some_and(|usage| {
+-                shell
+-                    .input
+-                    .0
+-                    .key(usage, key.down, key.repeat)
+-                    .capture_changed
+-            })
++            let Some(usage) = keymap::usb_usage(key.scancode.0) else {
++                return false;
++            };
++            let reaction = shell.input.0.key(usage, key.down, key.repeat);
++            if reaction.full_screen {
++                set_full_screen(shell, None);
++            }
++            reaction.capture_changed
+         }
+         _ => false,
+     }
+@@ -444,6 +589,13 @@ fn grab_outcome(captured: bool, focused: bool, held: bool, refused: Option<&str>
+ /// The display ended: the window hides. SDL's window goes once the render thread has let go
+ /// (`crate::sdl::shell::released`), never before.
+ pub(crate) fn close(shell: &mut Shell) -> bool {
++    #[cfg(windows)]
++    {
++        // SAFETY: the window is SDL's, on this thread.
++        crate::native::windows::superkey::forget(unsafe { SDL_GetWindowID(shell.sdl).0 });
++        crate::native::windows::bar::close(hwnd(shell.sdl));
++        shell.os.bar = false;
++    }
+     // SAFETY: the window is SDL's, on this thread.
+     unsafe { SDL_HideWindow(shell.sdl) };
+     false
+diff --git a/crates/reims-vgpu-window/src/native/windows.rs b/crates/reims-vgpu-window/src/native/windows.rs
+index 793eda087..7b599f50d 100644
+--- a/crates/reims-vgpu-window/src/native/windows.rs
++++ b/crates/reims-vgpu-window/src/native/windows.rs
+@@ -20,11 +20,22 @@
+ //!   system's shortcuts (the Windows key, Alt+Tab, Alt+Esc) before Windows does (read from SDL
+ //!   3.4.18's code, `WIN_GrabKeyboard`). Windows calls the hook on that thread, so it is answered
+ //!   between the thread's events and jobs.
++//! - **The Windows keys** where a click does not capture ([`superkey`]): the guest's while the
++//!   pointer is over the image, through a hook of the window's own that takes those keys alone.
++//! - **Full screen** has a bar at the screen's top ([`bar`]), and can be asked for by another
++//!   program on the host ([`remote`]).
+ //! - **The compositor's GPU**: Windows names none to a window's client ([`compositor_device`]),
+ //!   so the window presents on the runtime's device, as a window does where Linux names none.
+ 
+ use sdl3_sys::everything::SDL_Window;
+ 
++pub(crate) mod bar;
++pub(crate) mod remote;
++pub(crate) mod superkey;
++mod win32;
++
++pub(crate) use win32::HWND;
++
+ /// The GPU the compositor composites SDL's window on: none known on Windows (the module doc).
+ ///
+ /// # Safety
+diff --git a/crates/reims-vgpu-window/src/native/windows/bar.rs b/crates/reims-vgpu-window/src/native/windows/bar.rs
+new file mode 100644
+index 000000000..991eb0064
+--- /dev/null
++++ b/crates/reims-vgpu-window/src/native/windows/bar.rs
+@@ -0,0 +1,602 @@
++//! The full-screen bar: a small window at the top of a full-screen window's screen, hidden until
++//! the pointer rests at the screen's top edge over where it shows, with the window's title, the
++//! chord that leaves full screen, and two buttons, minimize and back to a window.
++//!
++//! - **Shown and hidden** by a timer of its own, [`TICK_MS`] apart, which reads where the
++//!   pointer is: hidden, the bar shows once the pointer has stayed [`SHOW_TICKS`] ticks in the
++//!   top [`REVEAL`] pixels of the screen, within the bar's own width, so the pointer on its way
++//!   to the guest's menus at the left and right of the top edge shows nothing; shown, it hides
++//!   once the pointer has been [`HIDE_TICKS`] ticks away from it, and at once when its window
++//!   is no longer the foreground one.
++//! - **Its own window**, owned by SDL's, so Windows keeps it over that one and hides it with it.
++//!   It never takes the keyboard (`WS_EX_NOACTIVATE`, `MA_NOACTIVATE`): a click on it leaves the
++//!   keyboard with the guest's window. Its messages are pumped by SDL on the UI thread with the
++//!   window's own.
++//! - **Its buttons** post what the person asked to the UI thread
++//!   (`super::super::sdl_thread::sdl::bar_asked`), which runs it between events, never inside
++//!   the bar's window procedure.
++
++use std::cell::{Cell, RefCell};
++
++use super::win32::*;
++
++/// The timer's period, in ms.
++const TICK_MS: u32 = 50;
++/// Ticks the pointer rests at the top edge before the bar shows: a quarter of a second.
++const SHOW_TICKS: u8 = 5;
++/// Ticks the pointer is away from the bar before it hides: 0.6 s.
++const HIDE_TICKS: u8 = 12;
++/// The rows of the screen's top the pointer shows the bar from, in pixels.
++const REVEAL: i32 = 2;
++/// How far around the shown bar the pointer still counts as on it, in pixels at 96 DPI.
++const MARGIN: i32 = 12;
++
++/// The bar's colours, as `COLORREF` (0x00BBGGRR).
++const BACK: u32 = 0x002B_2B2B;
++/// A button under the pointer.
++const HOVER: u32 = 0x0048_4848;
++/// A button held down.
++const PRESSED: u32 = 0x0060_6060;
++/// The text and the glyphs.
++const TEXT: u32 = 0x00F0_F0F0;
++
++/// Segoe MDL2 Assets' ChromeMinimize.
++const GLYPH_MINIMIZE: u16 = 0xE921;
++/// Segoe MDL2 Assets' ChromeRestore: back to a window.
++const GLYPH_WINDOWED: u16 = 0xE923;
++
++/// What the person asked of the bar.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub(crate) enum Asked {
++    /// Minimize the window.
++    Minimize,
++    /// Leave full screen.
++    Windowed,
++}
++
++/// The bar's sizes in pixels at a DPI.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++struct Sizes {
++    /// The whole bar's width.
++    width: i32,
++    /// Its height.
++    height: i32,
++    /// The label's width, at the left.
++    label: i32,
++    /// A button's width.
++    button: i32,
++    /// The room left of the label.
++    pad: i32,
++}
++
++/// The bar's sizes at `dpi`.
++fn sizes(dpi: u32) -> Sizes {
++    let px = |at_96: i32| at_96 * dpi.max(96) as i32 / 96;
++    let (label, button) = (px(250), px(44));
++    Sizes {
++        width: label + 2 * button,
++        height: px(30),
++        label,
++        button,
++        pad: px(12),
++    }
++}
++
++/// The button at `x`, pixels from the bar's left.
++fn button_at(x: i32, sizes: Sizes) -> Option<Asked> {
++    match (x - sizes.label).div_euclid(sizes.button) {
++        0 if x >= sizes.label => Some(Asked::Minimize),
++        1 => Some(Asked::Windowed),
++        _ => None,
++    }
++}
++
++/// Where the bar is on its window's screen: `screen` is the full-screen window's rectangle, the
++/// bar centred at its top.
++fn place(screen: RECT, sizes: Sizes) -> RECT {
++    let left = screen.left + (screen.right - screen.left - sizes.width) / 2;
++    RECT {
++        left,
++        top: screen.top,
++        right: left + sizes.width,
++        bottom: screen.top + sizes.height,
++    }
++}
++
++/// Whether the pointer at `at` counts for the bar at `bar`: shown, on it or within `margin` of
++/// it; hidden, in the top [`REVEAL`] rows of the screen within its width.
++fn in_reach(at: POINT, bar: RECT, shown: bool, margin: i32) -> bool {
++    if shown {
++        at.x >= bar.left - margin
++            && at.x < bar.right + margin
++            && at.y >= bar.top
++            && at.y < bar.bottom + margin
++    } else {
++        at.x >= bar.left && at.x < bar.right && at.y >= bar.top && at.y < bar.top + REVEAL
++    }
++}
++
++/// One tick: `dwell` ticks so far toward a change, the bar `shown` or not, the pointer in reach
++/// (`reach`, [`in_reach`]) and the window the foreground one (`front`). The ticks from then on,
++/// and whether the bar shows (`Some(true)`) or hides now.
++fn tick_step(dwell: u8, shown: bool, reach: bool, front: bool) -> (u8, Option<bool>) {
++    match (shown, reach && front) {
++        (false, true) if dwell + 1 >= SHOW_TICKS => (0, Some(true)),
++        (true, false) if !front || dwell + 1 >= HIDE_TICKS => (0, Some(false)),
++        (false, true) | (true, false) => (dwell + 1, None),
++        _ => (0, None),
++    }
++}
++
++/// A bar.
++#[derive(Clone)]
++struct Bar {
++    /// Its window.
++    hwnd: isize,
++    /// SDL's window, which owns it.
++    owner: isize,
++    /// The crate's ID of the window it is for.
++    window: u64,
++    /// What it says at its left, as Windows takes a string.
++    label: Vec<u16>,
++    /// Whether it shows.
++    shown: bool,
++    /// The ticks toward showing or hiding ([`tick_step`]).
++    dwell: u8,
++    /// The button under the pointer.
++    hover: Option<Asked>,
++    /// The button the left button went down on.
++    pressed: Option<Asked>,
++    /// Whether the pointer's leaving is asked for (`TrackMouseEvent`).
++    tracking: bool,
++}
++
++thread_local! {
++    /// The bars open, on the UI thread. Borrowed for a read or a write of a bar's own values
++    /// only, never across a call into Windows, which may call the window procedure again.
++    static BARS: RefCell<Vec<Bar>> = const { RefCell::new(Vec::new()) };
++    /// Whether the bar's window class is registered.
++    static REGISTERED: Cell<bool> = const { Cell::new(false) };
++}
++
++/// The bar of window `hwnd`, as it is now.
++fn bar_of(hwnd: HWND) -> Option<Bar> {
++    BARS.with(|bars| {
++        bars.borrow()
++            .iter()
++            .find(|bar| bar.hwnd == hwnd as isize)
++            .cloned()
++    })
++}
++
++/// Changes the bar of window `hwnd`.
++fn change(hwnd: HWND, f: impl FnOnce(&mut Bar)) {
++    BARS.with(|bars| {
++        if let Some(bar) = bars
++            .borrow_mut()
++            .iter_mut()
++            .find(|bar| bar.hwnd == hwnd as isize)
++        {
++            f(bar);
++        }
++    });
++}
++
++/// The bar's window class's name.
++fn class_name() -> Vec<u16> {
++    wide("ReimsVgpuFullScreenBar")
++}
++
++/// Opens the bar of SDL's window `owner`, full screen, for the crate's window `window`, titled
++/// `title`: hidden until the pointer rests at the top edge (the module doc). Nothing where it
++/// has one.
++pub(crate) fn open(owner: HWND, window: u64, title: &str) {
++    if owner.is_null() || BARS.with(|bars| bars.borrow().iter().any(|b| b.owner == owner as isize))
++    {
++        return;
++    }
++    let class = class_name();
++    // SAFETY: a null module name names the process's own module.
++    let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
++    if !REGISTERED.with(Cell::get) {
++        let definition = WNDCLASSEXW {
++            cbSize: size_of::<WNDCLASSEXW>() as u32,
++            style: 0,
++            lpfnWndProc: Some(window_proc),
++            cbClsExtra: 0,
++            cbWndExtra: 0,
++            hInstance: instance,
++            hIcon: std::ptr::null_mut(),
++            // SAFETY: the system's arrow, which needs no module.
++            hCursor: unsafe { LoadCursorW(std::ptr::null_mut(), IDC_ARROW) },
++            hbrBackground: std::ptr::null_mut(),
++            lpszMenuName: std::ptr::null(),
++            lpszClassName: class.as_ptr(),
++            hIconSm: std::ptr::null_mut(),
++        };
++        // SAFETY: the class's strings outlive the call, and its procedure the process.
++        if unsafe { RegisterClassExW(&definition) } == 0 {
++            log::warn!(target: "reims_vgpu_window", "no full-screen bar: its class is refused");
++            return;
++        }
++        REGISTERED.with(|registered| registered.set(true));
++    }
++    // SAFETY: the class is registered; the owner is SDL's window, on this thread.
++    let hwnd = unsafe {
++        CreateWindowExW(
++            WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
++            class.as_ptr(),
++            std::ptr::null(),
++            WS_POPUP,
++            0,
++            0,
++            0,
++            0,
++            owner,
++            std::ptr::null_mut(),
++            instance,
++            std::ptr::null_mut(),
++        )
++    };
++    if hwnd.is_null() {
++        log::warn!(target: "reims_vgpu_window", "no full-screen bar: its window is refused");
++        return;
++    }
++    BARS.with(|bars| {
++        bars.borrow_mut().push(Bar {
++            hwnd: hwnd as isize,
++            owner: owner as isize,
++            window,
++            label: wide(&format!("{title}  \u{00B7}  Ctrl+Alt+Enter")),
++            shown: false,
++            dwell: 0,
++            hover: None,
++            pressed: None,
++            tracking: false,
++        });
++    });
++    // SAFETY: the bar's window, just made on this thread.
++    unsafe { SetTimer(hwnd, 1, TICK_MS, std::ptr::null()) };
++}
++
++/// Closes the bar of SDL's window `owner`, where it has one.
++pub(crate) fn close(owner: HWND) {
++    let bar = BARS.with(|bars| {
++        let mut bars = bars.borrow_mut();
++        let at = bars.iter().position(|bar| bar.owner == owner as isize)?;
++        Some(bars.remove(at))
++    });
++    if let Some(bar) = bar {
++        // SAFETY: the bar's window, made on this thread, with its timer.
++        unsafe {
++            KillTimer(bar.hwnd as HWND, 1);
++            DestroyWindow(bar.hwnd as HWND);
++        }
++    }
++}
++
++/// The bar's window procedure.
++unsafe extern "system" fn window_proc(
++    hwnd: HWND,
++    message: u32,
++    wparam: usize,
++    lparam: isize,
++) -> isize {
++    match message {
++        WM_TIMER => {
++            tick(hwnd);
++            0
++        }
++        WM_MOUSEACTIVATE => MA_NOACTIVATE,
++        WM_ERASEBKGND => 1,
++        WM_PAINT => {
++            paint(hwnd);
++            0
++        }
++        WM_MOUSEMOVE => {
++            pointer(hwnd, Some(lparam as i32 & 0xFFFF));
++            0
++        }
++        WM_MOUSELEAVE => {
++            pointer(hwnd, None);
++            0
++        }
++        WM_LBUTTONDOWN => {
++            let hover = bar_of(hwnd).and_then(|bar| bar.hover);
++            change(hwnd, |bar| bar.pressed = hover);
++            repaint(hwnd);
++            0
++        }
++        WM_LBUTTONUP => {
++            if let Some(bar) = bar_of(hwnd) {
++                change(hwnd, |bar| bar.pressed = None);
++                repaint(hwnd);
++                if let Some(asked) = bar.pressed.filter(|&pressed| bar.hover == Some(pressed)) {
++                    crate::native::sdl_thread::sdl::bar_asked(bar.window, asked);
++                }
++            }
++            0
++        }
++        // SAFETY: the message is passed on as it came.
++        _ => unsafe { DefWindowProcW(hwnd, message, wparam, lparam) },
++    }
++}
++
++/// The bar is drawn again.
++fn repaint(hwnd: HWND) {
++    // SAFETY: the bar's window, on its thread; a null rectangle is the whole of it.
++    unsafe { InvalidateRect(hwnd, std::ptr::null(), 0) };
++}
++
++/// The pointer is over the bar at `x` pixels from its left, or has left it (`None`).
++fn pointer(hwnd: HWND, x: Option<i32>) {
++    let Some(bar) = bar_of(hwnd) else {
++        return;
++    };
++    // SAFETY: the bar's owner is SDL's window, on this thread.
++    let sizes = sizes(unsafe { GetDpiForWindow(bar.owner as HWND) });
++    let hover = x.and_then(|x| button_at(x, sizes));
++    if x.is_some() && !bar.tracking {
++        let mut track = TRACKMOUSEEVENT {
++            cbSize: size_of::<TRACKMOUSEEVENT>() as u32,
++            dwFlags: TME_LEAVE,
++            hwndTrack: hwnd,
++            dwHoverTime: 0,
++        };
++        // SAFETY: the structure is valid for the call.
++        unsafe { TrackMouseEvent(&mut track) };
++    }
++    change(hwnd, |bar| {
++        bar.hover = hover;
++        bar.tracking = x.is_some();
++        if x.is_none() {
++            bar.pressed = None;
++        }
++    });
++    if hover != bar.hover || x.is_none() {
++        repaint(hwnd);
++    }
++}
++
++/// One tick of the bar's timer: it shows or hides as the pointer's place says (the module doc).
++fn tick(hwnd: HWND) {
++    let Some(bar) = bar_of(hwnd) else {
++        return;
++    };
++    let owner = bar.owner as HWND;
++    let (mut screen, mut at) = (RECT::default(), POINT::default());
++    // SAFETY: the owner is SDL's window, on this thread; both structures are valid for the calls.
++    let (known, front, dpi) = unsafe {
++        (
++            GetWindowRect(owner, &mut screen) != 0 && GetCursorPos(&mut at) != 0,
++            GetForegroundWindow() == owner && IsIconic(owner) == 0,
++            GetDpiForWindow(owner),
++        )
++    };
++    let sizes = sizes(dpi);
++    let place = place(screen, sizes);
++    let margin = MARGIN * dpi.max(96) as i32 / 96;
++    let reach = known && in_reach(at, place, bar.shown, margin);
++    let (dwell, shows) = tick_step(bar.dwell, bar.shown, reach, front);
++    change(hwnd, |bar| {
++        bar.dwell = dwell;
++        if let Some(shows) = shows {
++            bar.shown = shows;
++            if !shows {
++                bar.hover = None;
++                bar.pressed = None;
++            }
++        }
++    });
++    match shows {
++        // SAFETY: the bar's window, on its thread; a null window to go after is the top.
++        Some(true) => unsafe {
++            SetWindowPos(
++                hwnd,
++                std::ptr::null_mut(),
++                place.left,
++                place.top,
++                sizes.width,
++                sizes.height,
++                SWP_NOACTIVATE | SWP_SHOWWINDOW,
++            );
++        },
++        // SAFETY: as above.
++        Some(false) => unsafe {
++            ShowWindow(hwnd, SW_HIDE);
++        },
++        None => {}
++    }
++}
++
++/// Paints the bar: its label, then its two buttons.
++fn paint(hwnd: HWND) {
++    // SAFETY: an all-zero paint structure is a valid one for Windows to fill.
++    let mut paint: PAINTSTRUCT = unsafe { std::mem::zeroed() };
++    // SAFETY: the bar's window, on its thread, in answer to `WM_PAINT`.
++    let dc = unsafe { BeginPaint(hwnd, &mut paint) };
++    if let Some(bar) = bar_of(hwnd).filter(|_| !dc.is_null()) {
++        // SAFETY: the bar's owner is SDL's window, on this thread.
++        let dpi = unsafe { GetDpiForWindow(bar.owner as HWND) };
++        let sizes = sizes(dpi);
++        let points = |points: i32| -(points * dpi.max(96) as i32 / 72);
++        let font = |points_high: i32, face: &str| {
++            let face = wide(face);
++            // SAFETY: the face's name is valid for the call, which copies it.
++            unsafe {
++                CreateFontW(
++                    points(points_high),
++                    0,
++                    0,
++                    0,
++                    400,
++                    0,
++                    0,
++                    0,
++                    DEFAULT_CHARSET,
++                    0,
++                    0,
++                    CLEARTYPE_QUALITY,
++                    0,
++                    face.as_ptr(),
++                )
++            }
++        };
++        let fill = |rect: RECT, color: u32| {
++            // SAFETY: the device context is the paint's; the brush is made and freed here.
++            unsafe {
++                let brush = CreateSolidBrush(color);
++                FillRect(dc, &rect, brush);
++                DeleteObject(brush);
++            }
++        };
++        let mut client = RECT::default();
++        // SAFETY: the bar's window; the rectangle is valid for the call.
++        unsafe { GetClientRect(hwnd, &mut client) };
++        fill(client, BACK);
++        let (text_font, glyph_font) = (font(9, "Segoe UI"), font(8, "Segoe MDL2 Assets"));
++        // SAFETY: the device context is the paint's.
++        let before = unsafe {
++            SetBkMode(dc, TRANSPARENT);
++            SetTextColor(dc, TEXT);
++            SelectObject(dc, text_font)
++        };
++        let mut label = RECT {
++            left: sizes.pad,
++            right: sizes.label,
++            ..client
++        };
++        let length = bar.label.len().saturating_sub(1) as i32;
++        // SAFETY: the label's `length` units are valid for the call.
++        unsafe {
++            DrawTextW(
++                dc,
++                bar.label.as_ptr(),
++                length,
++                &mut label,
++                DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS,
++            );
++            SelectObject(dc, glyph_font);
++        }
++        let buttons = [
++            (Asked::Minimize, GLYPH_MINIMIZE),
++            (Asked::Windowed, GLYPH_WINDOWED),
++        ];
++        for (index, (asked, glyph)) in buttons.into_iter().enumerate() {
++            let left = sizes.label + index as i32 * sizes.button;
++            let mut rect = RECT {
++                left,
++                right: left + sizes.button,
++                ..client
++            };
++            if bar.pressed == Some(asked) && bar.hover == Some(asked) {
++                fill(rect, PRESSED);
++            } else if bar.hover == Some(asked) {
++                fill(rect, HOVER);
++            }
++            // SAFETY: one unit, valid for the call.
++            unsafe {
++                DrawTextW(
++                    dc,
++                    &glyph,
++                    1,
++                    &mut rect,
++                    DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX,
++                );
++            }
++        }
++        // SAFETY: the fonts are made above and selected out before they are freed.
++        unsafe {
++            SelectObject(dc, before);
++            DeleteObject(text_font);
++            DeleteObject(glyph_font);
++        }
++    }
++    // SAFETY: the paint begun above ends.
++    unsafe { EndPaint(hwnd, &paint) };
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    /// A 2560 x 1600 screen at 150%.
++    const SCREEN: RECT = RECT {
++        left: 0,
++        top: 0,
++        right: 2560,
++        bottom: 1600,
++    };
++
++    /// The bar is centred at the top of its window's screen, at the screen's scale
++    #[test]
++    fn the_bar_is_centred_at_the_screen_s_top() {
++        let sizes = sizes(144);
++        assert_eq!((sizes.width, sizes.height), (507, 45));
++        let bar = place(SCREEN, sizes);
++        assert_eq!((bar.left, bar.top, bar.right, bar.bottom), (1026, 0, 1533, 45));
++        // A second screen left of the main one, and above it.
++        let other = RECT {
++            left: -1920,
++            top: -200,
++            right: 0,
++            bottom: 880,
++        };
++        let bar = place(other, super::sizes(96));
++        assert_eq!((bar.left, bar.top), (-1920 + (1920 - 338) / 2, -200));
++    }
++
++    /// Hidden, only the top rows within the bar's width show it; shown, the pointer near it
++    /// keeps it
++    #[test]
++    fn the_pointer_shows_the_bar_from_the_top_edge_over_it_only() {
++        let bar = place(SCREEN, sizes(96));
++        let at = |x, y| POINT { x, y };
++        assert!(in_reach(at(1280, 0), bar, false, 12));
++        assert!(in_reach(at(bar.left, 1), bar, false, 12));
++        assert!(!in_reach(at(1280, 2), bar, false, 12), "below the edge");
++        assert!(!in_reach(at(bar.left - 1, 0), bar, false, 12), "left of it");
++        assert!(!in_reach(at(40, 0), bar, false, 12), "the guest's menus");
++        assert!(in_reach(at(1280, bar.bottom + 11), bar, true, 12));
++        assert!(in_reach(at(bar.left - 12, 5), bar, true, 12));
++        assert!(!in_reach(at(1280, bar.bottom + 12), bar, true, 12));
++    }
++
++    /// The bar shows after a quarter second at the edge, hides 0.6 s after the pointer left,
++    /// and at once when its window is no longer in front
++    #[test]
++    fn the_bar_shows_after_a_rest_and_hides_after_the_pointer_left() {
++        let mut dwell = 0;
++        for _ in 0..SHOW_TICKS - 1 {
++            let (next, shows) = tick_step(dwell, false, true, true);
++            assert_eq!(shows, None);
++            dwell = next;
++        }
++        assert_eq!(tick_step(dwell, false, true, true), (0, Some(true)));
++        // A pass over the edge counts for nothing once the pointer is gone.
++        assert_eq!(tick_step(3, false, false, true), (0, None));
++        let mut dwell = 0;
++        for _ in 0..HIDE_TICKS - 1 {
++            let (next, shows) = tick_step(dwell, true, false, true);
++            assert_eq!(shows, None);
++            dwell = next;
++        }
++        assert_eq!(tick_step(dwell, true, false, true), (0, Some(false)));
++        assert_eq!(tick_step(5, true, true, true), (0, None), "back on the bar");
++        assert_eq!(tick_step(0, true, true, false), (0, Some(false)));
++        assert_eq!(tick_step(0, false, true, false), (0, None));
++    }
++
++    /// The two buttons are right of the label, minimize first
++    #[test]
++    fn the_buttons_are_right_of_the_label() {
++        let sizes = sizes(96);
++        assert_eq!(button_at(0, sizes), None);
++        assert_eq!(button_at(249, sizes), None);
++        assert_eq!(button_at(250, sizes), Some(Asked::Minimize));
++        assert_eq!(button_at(293, sizes), Some(Asked::Minimize));
++        assert_eq!(button_at(294, sizes), Some(Asked::Windowed));
++        assert_eq!(button_at(337, sizes), Some(Asked::Windowed));
++        assert_eq!(button_at(338, sizes), None);
++    }
++}
+diff --git a/crates/reims-vgpu-window/src/native/windows/remote.rs b/crates/reims-vgpu-window/src/native/windows/remote.rs
+new file mode 100644
+index 000000000..536efe0ac
+--- /dev/null
++++ b/crates/reims-vgpu-window/src/native/windows/remote.rs
+@@ -0,0 +1,75 @@
++//! Full screen asked for from outside the process: a program on the host posts the registered
++//! message [`MESSAGE`] to a display's window (the top-level window of class `SDL_app` in QEMU's
++//! process), with what it asks in `wParam`: 0 for a window, 1 for full screen, anything else for
++//! the other of the two. SDL's message hook sees the message as SDL takes it off the UI thread's
++//! queue, and what it asks is posted to that thread
++//! (`super::super::sdl_thread::sdl::full_screen_asked`).
++
++use std::cell::Cell;
++use std::ffi::c_void;
++
++use sdl3_sys::everything::SDL_SetWindowsMessageHook;
++
++use super::win32::{MSG, RegisterWindowMessageW, wide};
++
++/// The message's name, which `RegisterWindowMessageW` gives every process the same number for.
++pub(crate) const MESSAGE: &str = "ReimsVgpuWindow.FullScreen";
++
++thread_local! {
++    /// The message's number on this system, once the UI thread listens; 0 before.
++    static NUMBER: Cell<u32> = const { Cell::new(0) };
++}
++
++/// What `wparam` asks: full screen, a window, or the other of the two (`None`).
++fn asked(wparam: usize) -> Option<bool> {
++    match wparam {
++        0 => Some(false),
++        1 => Some(true),
++        _ => None,
++    }
++}
++
++/// Listens for the message on the UI thread, once.
++pub(crate) fn listen() {
++    if NUMBER.with(Cell::get) != 0 {
++        return;
++    }
++    let name = wide(MESSAGE);
++    // SAFETY: the name is valid for the call.
++    let number = unsafe { RegisterWindowMessageW(name.as_ptr()) };
++    if number == 0 {
++        log::warn!(
++            target: "reims_vgpu_window",
++            "the message {MESSAGE} is refused: full screen is not asked for from outside"
++        );
++        return;
++    }
++    NUMBER.with(|n| n.set(number));
++    // SAFETY: SDL's video runs on this thread; the hook is this module's, for the process.
++    unsafe { SDL_SetWindowsMessageHook(Some(hook), std::ptr::null_mut()) };
++}
++
++/// SDL's message hook: the registered message is taken, every other is SDL's.
++unsafe extern "C" fn hook(_userdata: *mut c_void, msg: *mut sdl3_sys::everything::MSG) -> bool {
++    // SAFETY: SDL hands the `MSG` it took off the queue, valid for the call.
++    let msg = unsafe { &*msg.cast::<MSG>() };
++    if msg.message != NUMBER.with(Cell::get) {
++        return true;
++    }
++    crate::native::sdl_thread::sdl::full_screen_asked(msg.hwnd as isize, asked(msg.wParam));
++    false
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    /// 0 asks for a window, 1 for full screen, anything else for the other of the two
++    #[test]
++    fn the_message_s_value_says_which() {
++        assert_eq!(asked(0), Some(false));
++        assert_eq!(asked(1), Some(true));
++        assert_eq!(asked(2), None);
++        assert_eq!(asked(usize::MAX), None);
++    }
++}
+diff --git a/crates/reims-vgpu-window/src/native/windows/superkey.rs b/crates/reims-vgpu-window/src/native/windows/superkey.rs
+new file mode 100644
+index 000000000..60658447d
+--- /dev/null
++++ b/crates/reims-vgpu-window/src/native/windows/superkey.rs
+@@ -0,0 +1,254 @@
++//! The Windows keys for the guest, where a click does not capture
++//! (`REIMS_VGPU_WINDOW_FREE_POINTER`): while the window has the keyboard and the pointer is over
++//! the image, the left and right Windows keys go to the guest, its Command keys, and Windows
++//! opens no Start menu and takes none of its Windows-key shortcuts. Every other key of the host's
++//! stays the host's (Alt+Tab, Ctrl+Esc), which SDL's keyboard grab would take too.
++//!
++//! A low-level keyboard hook on the UI thread, installed while a window takes the keys
++//! ([`follow`]) or a key it took is still down. Windows calls it on that thread between its
++//! events. A Windows key that goes down while a window takes them is kept from Windows and
++//! pushed to that window as SDL's key event, which reaches the guest as any key does
++//! (`super::super::sdl_thread::input`); its up goes the same way wherever the pointer is by
++//! then, so the guest's Command key never sticks and Windows never sees an up without its down.
++//! A key that went down outside stays the host's, up included. Win+L is Windows's own: no hook
++//! sees it.
++
++use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering::Relaxed};
++
++use sdl3_sys::everything::*;
++
++use super::win32::*;
++
++/// The hook, while installed.
++static HOOK: AtomicIsize = AtomicIsize::new(0);
++/// Whether Windows has refused the hook, which the log says once.
++static REFUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
++/// SDL's ID of the window that takes the Windows keys; 0 for none.
++static TARGET: AtomicU32 = AtomicU32::new(0);
++/// For the left and the right Windows key: SDL's ID of the window its down went to, [`HOST`]
++/// while it is down for the host, 0 while it is up.
++static HELD: [AtomicU32; 2] = [AtomicU32::new(0), AtomicU32::new(0)];
++/// What [`HELD`] says of a key that went down for the host. SDL gives no window this ID.
++const HOST: u32 = u32::MAX;
++
++/// What the hook does with a Windows key going down (`down`) or up.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++enum Step {
++    /// The host's: passed on.
++    Pass,
++    /// The guest's: kept from the host and sent to this window, as a repeat or not.
++    Send {
++        /// SDL's ID of the window.
++        window: u32,
++        /// The host's repeat of a key already down.
++        repeat: bool,
++    },
++}
++
++/// What becomes of a Windows key event: `target` takes the keys (0 for none), and `held` is
++/// where the key's down went ([`HELD`]). The step, and what `held` is from then on. A key stays
++/// with whoever got its down, repeats and up included, wherever the pointer goes meanwhile.
++fn step(down: bool, target: u32, held: u32) -> (Step, u32) {
++    match (down, target, held) {
++        (true, _, HOST) | (true, 0, 0) => (Step::Pass, HOST),
++        (true, target, 0) => (
++            Step::Send {
++                window: target,
++                repeat: false,
++            },
++            target,
++        ),
++        (true, _, held) => (
++            Step::Send {
++                window: held,
++                repeat: true,
++            },
++            held,
++        ),
++        (false, _, 0 | HOST) => (Step::Pass, 0),
++        (false, _, held) => (
++            Step::Send {
++                window: held,
++                repeat: false,
++            },
++            0,
++        ),
++    }
++}
++
++/// Window `window` (SDL's ID) takes the Windows keys (`takes`) or no longer does: whether that
++/// changed. The hook is installed while any window takes them or a key is still down in the
++/// guest, and removed otherwise.
++pub(crate) fn follow(window: u32, takes: bool) -> bool {
++    let target = TARGET.load(Relaxed);
++    let changed = if takes && target != window {
++        TARGET.store(window, Relaxed);
++        true
++    } else if !takes && target == window {
++        TARGET.store(0, Relaxed);
++        true
++    } else {
++        false
++    };
++    let wanted = TARGET.load(Relaxed) != 0 || HELD.iter().any(|held| held.load(Relaxed) != 0);
++    let hook = HOOK.load(Relaxed);
++    if wanted && hook == 0 {
++        // SAFETY: the procedure is this module's, for the process's lifetime; a null module name
++        // names the process's own.
++        let installed = unsafe {
++            SetWindowsHookExW(
++                WH_KEYBOARD_LL,
++                hook_proc,
++                GetModuleHandleW(std::ptr::null()),
++                0,
++            )
++        };
++        // Said once: the hook is asked for again at every event while a window takes the keys.
++        if installed.is_null() && !REFUSED.swap(true, Relaxed) {
++            log::warn!(
++                target: "reims_vgpu_window",
++                "no keyboard hook: the Windows keys stay the host's"
++            );
++        }
++        HOOK.store(installed as isize, Relaxed);
++    } else if !wanted && hook != 0 {
++        // SAFETY: the hook is the one installed above, on this thread.
++        unsafe { UnhookWindowsHookEx(hook as HANDLE) };
++        HOOK.store(0, Relaxed);
++    }
++    changed
++}
++
++/// Window `window` is going: it takes no key, and none is down in it.
++pub(crate) fn forget(window: u32) {
++    for held in &HELD {
++        // The guest was sent the key's up at the window's end; the key's own up then goes to the
++        // host, which never saw its down.
++        let _ = held.compare_exchange(window, 0, Relaxed, Relaxed);
++    }
++    follow(window, false);
++}
++
++/// The hook: a Windows key is the guest's or the host's ([`step`]).
++unsafe extern "system" fn hook_proc(code: i32, wparam: usize, lparam: isize) -> isize {
++    if code == HC_ACTION {
++        // SAFETY: for `HC_ACTION` Windows hands a `KBDLLHOOKSTRUCT`, valid for the call.
++        let key = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
++        let side = match key.vkCode {
++            VK_LWIN => Some(0),
++            VK_RWIN => Some(1),
++            _ => None,
++        };
++        if let Some(side) = side {
++            let down = matches!(wparam as u32, WM_KEYDOWN | WM_SYSKEYDOWN);
++            let (step, held) = step(down, TARGET.load(Relaxed), HELD[side].load(Relaxed));
++            HELD[side].store(held, Relaxed);
++            if let Step::Send { window, repeat } = step {
++                push(window, side, down, repeat);
++                return 1;
++            }
++        }
++    }
++    // SAFETY: the values are Windows's own, passed on as it asks.
++    unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
++}
++
++/// Pushes the left (`side` 0) or right Windows key going down or up to window `window` as SDL's
++/// key event.
++fn push(window: u32, side: usize, down: bool, repeat: bool) {
++    // SAFETY: an all-zero key event is a valid one to fill.
++    let mut key: SDL_KeyboardEvent = unsafe { std::mem::zeroed() };
++    key.r#type = if down {
++        SDL_EVENT_KEY_DOWN
++    } else {
++        SDL_EVENT_KEY_UP
++    };
++    // SAFETY: SDL's clock, read on its thread.
++    key.timestamp = unsafe { SDL_GetTicksNS() };
++    key.windowID = SDL_WindowID(window);
++    key.scancode = if side == 0 {
++        SDL_SCANCODE_LGUI
++    } else {
++        SDL_SCANCODE_RGUI
++    };
++    key.down = down;
++    key.repeat = repeat;
++    // SAFETY: as above.
++    let mut event: SDL_Event = unsafe { std::mem::zeroed() };
++    event.key = key;
++    // SAFETY: SDL copies the event into its queue.
++    unsafe { SDL_PushEvent(&mut event) };
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    /// A Windows key that goes down while a window takes them is the guest's, and its up too
++    #[test]
++    fn a_windows_key_over_the_image_is_the_guest_s_down_and_up() {
++        let (down, held) = step(true, 7, 0);
++        assert_eq!(
++            down,
++            Step::Send {
++                window: 7,
++                repeat: false
++            }
++        );
++        assert_eq!(held, 7);
++        let (repeat, held) = step(true, 7, held);
++        assert_eq!(
++            repeat,
++            Step::Send {
++                window: 7,
++                repeat: true
++            }
++        );
++        let (up, held) = step(false, 7, held);
++        assert_eq!(
++            up,
++            Step::Send {
++                window: 7,
++                repeat: false
++            }
++        );
++        assert_eq!(held, 0);
++    }
++
++    /// The up of a key the guest took reaches the guest though the pointer has left the image
++    #[test]
++    fn the_up_follows_its_down_after_the_pointer_left() {
++        let (_, held) = step(true, 7, 0);
++        assert_eq!(
++            step(true, 0, held),
++            (
++                Step::Send {
++                    window: 7,
++                    repeat: true
++                },
++                7
++            )
++        );
++        assert_eq!(
++            step(false, 0, held),
++            (
++                Step::Send {
++                    window: 7,
++                    repeat: false
++                },
++                0
++            )
++        );
++    }
++
++    /// A Windows key that went down for the host stays the host's, its repeats and its up,
++    /// though the pointer enters the image before it comes up
++    #[test]
++    fn a_key_down_outside_stays_the_host_s() {
++        let (down, held) = step(true, 0, 0);
++        assert_eq!((down, held), (Step::Pass, HOST));
++        assert_eq!(step(true, 7, held), (Step::Pass, HOST));
++        assert_eq!(step(false, 7, held), (Step::Pass, 0));
++        assert_eq!(step(false, 7, 0), (Step::Pass, 0));
++    }
++}
+diff --git a/crates/reims-vgpu-window/src/native/windows/win32.rs b/crates/reims-vgpu-window/src/native/windows/win32.rs
+new file mode 100644
+index 000000000..8aa6742d1
+--- /dev/null
++++ b/crates/reims-vgpu-window/src/native/windows/win32.rs
+@@ -0,0 +1,293 @@
++//! The Win32 calls the window makes itself, beside SDL's: a low-level keyboard hook
++//! (`super::superkey`), a small window of its own (`super::bar`) and a registered message
++//! (`super::remote`). Declared here as Windows documents them, so the crate takes no dependency
++//! for them; every call is made on the UI thread.
++
++#![allow(non_snake_case, clippy::upper_case_acronyms)]
++
++use std::ffi::c_void;
++
++/// A window's handle.
++pub(crate) type HWND = *mut c_void;
++/// Any other handle: a module, a hook, a device context, a GDI object.
++pub(crate) type HANDLE = *mut c_void;
++/// A window procedure.
++pub(crate) type WNDPROC = unsafe extern "system" fn(HWND, u32, usize, isize) -> isize;
++/// A hook procedure.
++pub(crate) type HOOKPROC = unsafe extern "system" fn(i32, usize, isize) -> isize;
++
++/// `POINT`.
++#[repr(C)]
++#[derive(Clone, Copy, Default)]
++pub(crate) struct POINT {
++    /// Across.
++    pub(crate) x: i32,
++    /// Down.
++    pub(crate) y: i32,
++}
++
++/// `RECT`.
++#[repr(C)]
++#[derive(Clone, Copy, Default)]
++pub(crate) struct RECT {
++    /// The left edge.
++    pub(crate) left: i32,
++    /// The top edge.
++    pub(crate) top: i32,
++    /// One past the right edge.
++    pub(crate) right: i32,
++    /// One past the bottom edge.
++    pub(crate) bottom: i32,
++}
++
++/// `MSG`, which SDL's message hook is handed.
++#[repr(C)]
++pub(crate) struct MSG {
++    /// The window it is for.
++    pub(crate) hwnd: HWND,
++    /// Which message.
++    pub(crate) message: u32,
++    /// Its first value.
++    pub(crate) wParam: usize,
++    /// Its second value.
++    pub(crate) lParam: isize,
++    /// When it was posted.
++    pub(crate) time: u32,
++    /// Where the pointer was.
++    pub(crate) pt: POINT,
++}
++
++/// `KBDLLHOOKSTRUCT`, which a low-level keyboard hook is handed.
++#[repr(C)]
++pub(crate) struct KBDLLHOOKSTRUCT {
++    /// The virtual key.
++    pub(crate) vkCode: u32,
++    /// Its scan code.
++    pub(crate) scanCode: u32,
++    /// `LLKHF_*`.
++    pub(crate) flags: u32,
++    /// When.
++    pub(crate) time: u32,
++    /// The sender's own value.
++    pub(crate) dwExtraInfo: usize,
++}
++
++/// `WNDCLASSEXW`.
++#[repr(C)]
++pub(crate) struct WNDCLASSEXW {
++    /// The structure's size.
++    pub(crate) cbSize: u32,
++    /// `CS_*`.
++    pub(crate) style: u32,
++    /// The class's window procedure.
++    pub(crate) lpfnWndProc: Option<WNDPROC>,
++    /// Extra bytes after the class.
++    pub(crate) cbClsExtra: i32,
++    /// Extra bytes after each window.
++    pub(crate) cbWndExtra: i32,
++    /// The module the procedure is in.
++    pub(crate) hInstance: HANDLE,
++    /// The class's icon.
++    pub(crate) hIcon: HANDLE,
++    /// The class's cursor.
++    pub(crate) hCursor: HANDLE,
++    /// The class's background brush.
++    pub(crate) hbrBackground: HANDLE,
++    /// The class's menu.
++    pub(crate) lpszMenuName: *const u16,
++    /// The class's name.
++    pub(crate) lpszClassName: *const u16,
++    /// The class's small icon.
++    pub(crate) hIconSm: HANDLE,
++}
++
++/// `PAINTSTRUCT`.
++#[repr(C)]
++pub(crate) struct PAINTSTRUCT {
++    /// The device context to paint in.
++    pub(crate) hdc: HANDLE,
++    /// Whether the background is to be erased.
++    pub(crate) fErase: i32,
++    /// What to paint.
++    pub(crate) rcPaint: RECT,
++    /// Windows's own.
++    pub(crate) fRestore: i32,
++    /// Windows's own.
++    pub(crate) fIncUpdate: i32,
++    /// Windows's own.
++    pub(crate) rgbReserved: [u8; 32],
++}
++
++/// `TRACKMOUSEEVENT`.
++#[repr(C)]
++pub(crate) struct TRACKMOUSEEVENT {
++    /// The structure's size.
++    pub(crate) cbSize: u32,
++    /// `TME_*`.
++    pub(crate) dwFlags: u32,
++    /// The window to track the pointer over.
++    pub(crate) hwndTrack: HWND,
++    /// The hover time.
++    pub(crate) dwHoverTime: u32,
++}
++
++/// `WH_KEYBOARD_LL`.
++pub(crate) const WH_KEYBOARD_LL: i32 = 13;
++/// `HC_ACTION`.
++pub(crate) const HC_ACTION: i32 = 0;
++/// `VK_LWIN`.
++pub(crate) const VK_LWIN: u32 = 0x5B;
++/// `VK_RWIN`.
++pub(crate) const VK_RWIN: u32 = 0x5C;
++
++/// `WM_PAINT`.
++pub(crate) const WM_PAINT: u32 = 0x000F;
++/// `WM_ERASEBKGND`.
++pub(crate) const WM_ERASEBKGND: u32 = 0x0014;
++/// `WM_MOUSEACTIVATE`.
++pub(crate) const WM_MOUSEACTIVATE: u32 = 0x0021;
++/// `WM_KEYDOWN`.
++pub(crate) const WM_KEYDOWN: u32 = 0x0100;
++/// `WM_SYSKEYDOWN`.
++pub(crate) const WM_SYSKEYDOWN: u32 = 0x0104;
++/// `WM_TIMER`.
++pub(crate) const WM_TIMER: u32 = 0x0113;
++/// `WM_MOUSEMOVE`.
++pub(crate) const WM_MOUSEMOVE: u32 = 0x0200;
++/// `WM_LBUTTONDOWN`.
++pub(crate) const WM_LBUTTONDOWN: u32 = 0x0201;
++/// `WM_LBUTTONUP`.
++pub(crate) const WM_LBUTTONUP: u32 = 0x0202;
++/// `WM_MOUSELEAVE`.
++pub(crate) const WM_MOUSELEAVE: u32 = 0x02A3;
++/// `MA_NOACTIVATE`.
++pub(crate) const MA_NOACTIVATE: isize = 3;
++
++/// `WS_POPUP`.
++pub(crate) const WS_POPUP: u32 = 0x8000_0000;
++/// `WS_EX_TOOLWINDOW`.
++pub(crate) const WS_EX_TOOLWINDOW: u32 = 0x0000_0080;
++/// `WS_EX_NOACTIVATE`.
++pub(crate) const WS_EX_NOACTIVATE: u32 = 0x0800_0000;
++/// `SW_HIDE`.
++pub(crate) const SW_HIDE: i32 = 0;
++/// `SWP_NOACTIVATE`.
++pub(crate) const SWP_NOACTIVATE: u32 = 0x0010;
++/// `SWP_SHOWWINDOW`.
++pub(crate) const SWP_SHOWWINDOW: u32 = 0x0040;
++/// `TME_LEAVE`.
++pub(crate) const TME_LEAVE: u32 = 0x0002;
++/// `IDC_ARROW`, as `LoadCursorW` takes it.
++pub(crate) const IDC_ARROW: *const u16 = 32512 as *const u16;
++
++/// `TRANSPARENT`, a background mode.
++pub(crate) const TRANSPARENT: i32 = 1;
++/// `DT_CENTER`.
++pub(crate) const DT_CENTER: u32 = 0x0001;
++/// `DT_VCENTER`.
++pub(crate) const DT_VCENTER: u32 = 0x0004;
++/// `DT_SINGLELINE`.
++pub(crate) const DT_SINGLELINE: u32 = 0x0020;
++/// `DT_NOPREFIX`.
++pub(crate) const DT_NOPREFIX: u32 = 0x0800;
++/// `DT_END_ELLIPSIS`.
++pub(crate) const DT_END_ELLIPSIS: u32 = 0x8000;
++/// `CLEARTYPE_QUALITY`.
++pub(crate) const CLEARTYPE_QUALITY: u32 = 5;
++/// `DEFAULT_CHARSET`.
++pub(crate) const DEFAULT_CHARSET: u32 = 1;
++
++#[link(name = "user32")]
++unsafe extern "system" {
++    pub(crate) fn SetWindowsHookExW(id: i32, proc: HOOKPROC, module: HANDLE, thread: u32)
++    -> HANDLE;
++    pub(crate) fn UnhookWindowsHookEx(hook: HANDLE) -> i32;
++    pub(crate) fn CallNextHookEx(hook: HANDLE, code: i32, wparam: usize, lparam: isize) -> isize;
++    pub(crate) fn RegisterWindowMessageW(name: *const u16) -> u32;
++    pub(crate) fn RegisterClassExW(class: *const WNDCLASSEXW) -> u16;
++    pub(crate) fn CreateWindowExW(
++        ex_style: u32,
++        class: *const u16,
++        name: *const u16,
++        style: u32,
++        x: i32,
++        y: i32,
++        width: i32,
++        height: i32,
++        parent: HWND,
++        menu: HANDLE,
++        instance: HANDLE,
++        param: *mut c_void,
++    ) -> HWND;
++    pub(crate) fn DestroyWindow(hwnd: HWND) -> i32;
++    pub(crate) fn DefWindowProcW(hwnd: HWND, message: u32, wparam: usize, lparam: isize) -> isize;
++    pub(crate) fn ShowWindow(hwnd: HWND, show: i32) -> i32;
++    pub(crate) fn SetWindowPos(
++        hwnd: HWND,
++        after: HWND,
++        x: i32,
++        y: i32,
++        width: i32,
++        height: i32,
++        flags: u32,
++    ) -> i32;
++    pub(crate) fn GetWindowRect(hwnd: HWND, rect: *mut RECT) -> i32;
++    pub(crate) fn GetClientRect(hwnd: HWND, rect: *mut RECT) -> i32;
++    pub(crate) fn GetCursorPos(point: *mut POINT) -> i32;
++    pub(crate) fn GetForegroundWindow() -> HWND;
++    pub(crate) fn IsIconic(hwnd: HWND) -> i32;
++    pub(crate) fn GetDpiForWindow(hwnd: HWND) -> u32;
++    pub(crate) fn SetTimer(hwnd: HWND, id: usize, ms: u32, proc: *const c_void) -> usize;
++    pub(crate) fn KillTimer(hwnd: HWND, id: usize) -> i32;
++    pub(crate) fn InvalidateRect(hwnd: HWND, rect: *const RECT, erase: i32) -> i32;
++    pub(crate) fn BeginPaint(hwnd: HWND, paint: *mut PAINTSTRUCT) -> HANDLE;
++    pub(crate) fn EndPaint(hwnd: HWND, paint: *const PAINTSTRUCT) -> i32;
++    pub(crate) fn FillRect(dc: HANDLE, rect: *const RECT, brush: HANDLE) -> i32;
++    pub(crate) fn DrawTextW(
++        dc: HANDLE,
++        text: *const u16,
++        length: i32,
++        rect: *mut RECT,
++        format: u32,
++    ) -> i32;
++    pub(crate) fn TrackMouseEvent(track: *mut TRACKMOUSEEVENT) -> i32;
++    pub(crate) fn LoadCursorW(instance: HANDLE, name: *const u16) -> HANDLE;
++}
++
++#[link(name = "gdi32")]
++unsafe extern "system" {
++    pub(crate) fn CreateSolidBrush(color: u32) -> HANDLE;
++    pub(crate) fn DeleteObject(object: HANDLE) -> i32;
++    pub(crate) fn SelectObject(dc: HANDLE, object: HANDLE) -> HANDLE;
++    pub(crate) fn SetBkMode(dc: HANDLE, mode: i32) -> i32;
++    pub(crate) fn SetTextColor(dc: HANDLE, color: u32) -> u32;
++    pub(crate) fn CreateFontW(
++        height: i32,
++        width: i32,
++        escapement: i32,
++        orientation: i32,
++        weight: i32,
++        italic: u32,
++        underline: u32,
++        strike_out: u32,
++        char_set: u32,
++        out_precision: u32,
++        clip_precision: u32,
++        quality: u32,
++        pitch_and_family: u32,
++        face: *const u16,
++    ) -> HANDLE;
++}
++
++#[link(name = "kernel32")]
++unsafe extern "system" {
++    pub(crate) fn GetModuleHandleW(name: *const u16) -> HANDLE;
++}
++
++/// `text` as Windows takes a string: UTF-16, NUL-terminated.
++pub(crate) fn wide(text: &str) -> Vec<u16> {
++    text.encode_utf16()
++        .filter(|&unit| unit != 0)
++        .chain(std::iter::once(0))
++        .collect()
++}
 diff --git a/crates/reims-vgpu-window/src/sdl/shell.rs b/crates/reims-vgpu-window/src/sdl/shell.rs
-index 17b13dc31..e00614d4c 100644
+index 17b13dc31..10e990a64 100644
 --- a/crates/reims-vgpu-window/src/sdl/shell.rs
 +++ b/crates/reims-vgpu-window/src/sdl/shell.rs
 @@ -334,6 +334,11 @@ impl Shell {
@@ -197,6 +1762,22 @@ index 17b13dc31..e00614d4c 100644
                  false
              }
              k if k == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED.0
+@@ -378,6 +383,15 @@ impl Shell {
+         if capture_changed {
+             self.capture_changed();
+         }
++        // What Windows adds follows the window: the Windows keys and the full-screen bar.
++        #[cfg(windows)]
++        os::after_event(self);
++    }
++
++    /// Whether the pointer is over the image.
++    #[cfg(windows)]
++    pub(crate) fn is_over_image(&self) -> bool {
++        self.over_image
+     }
+ 
+     /// The person closed the window: the input lets go ([`os::Input::close_requested`]), and the
 diff --git a/crates/reims-vgpu-window/src/sdl/units.rs b/crates/reims-vgpu-window/src/sdl/units.rs
 index 2877be39a..4fa38bbca 100644
 --- a/crates/reims-vgpu-window/src/sdl/units.rs

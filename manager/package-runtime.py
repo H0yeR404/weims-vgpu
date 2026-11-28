@@ -64,7 +64,7 @@ for source in json.loads((root / 'sources.json').read_text(encoding='utf-8')):
     patch = source.get('patch')
     if patch and run('git', '-C', root / 'sources' / source['name'], 'apply', '--reverse', '--check', root / patch, stderr=subprocess.STDOUT):
         raise RuntimeError('Patch is not applied to its source: ' + patch)
-# reims-util is the one upstream's reims-ctl names; the build installed it at that commit.
+# reims-util is the commit upstream's reims-ctl names, which scripts/build.ps1 builds with this project's patch.
 util_rev = re.search(r'pub const REV: &str\s*=\s*"([0-9a-f]{40})"', (reims / 'crates/reims-ctl/src/reims_util.rs').read_text(encoding='utf-8')).group(1)
 
 stage = Path(tempfile.mkdtemp(prefix='runtime-' + version + '-', dir=root / 'build'))
@@ -147,7 +147,7 @@ if not args.runtime_only:
         for relative in ['sources.json', 'NOTICE.md', 'LICENSE', 'docs/reproduce.md', 'manager/package-runtime.py']:
             archive.write(root / relative, relative)
         archive.writestr('dependency-sources.json', json.dumps(manifest, indent=2))
-        archive.writestr('BUILD-SOURCES.txt', f'sources/reims-vgpu is upstream reims-vgpu at {head} with the patches sources.json lists already applied; do not apply them twice. vendor/qemu inside it is the QEMU it builds. Build with scripts/build.ps1, which runs upstream\'s scripts/install-ctl.sh in an MSYS2 CLANG64 shell and assembles the runtime folder. sources/reims-util is the helper at {util_rev}, which that build installs. dependencies/vendor holds the Cargo dependencies of both, metal2vulkan and SDL3 among them; configure source replacement for offline builds. dependencies/*.src.tar.zst are the MSYS2 source packages of the DLLs shipped. The SeaBIOS and iPXE archives are the firmware sources at the commits QEMU names. Manager and CLI sources are in repository tag v{version}. No macOS image is distributed.\n')
+        archive.writestr('BUILD-SOURCES.txt', f'sources/reims-vgpu is upstream reims-vgpu at {head} with the patches sources.json lists already applied; do not apply them twice. vendor/qemu inside it is the QEMU it builds. Build with scripts/build.ps1, which runs upstream\'s scripts/install-ctl.sh in an MSYS2 CLANG64 shell and assembles the runtime folder. sources/reims-util is the helper at {util_rev} with its patch applied, which scripts/build.ps1 builds after it. dependencies/vendor holds the Cargo dependencies of both, metal2vulkan and SDL3 among them; configure source replacement for offline builds. dependencies/*.src.tar.zst are the MSYS2 source packages of the DLLs shipped. The SeaBIOS and iPXE archives are the firmware sources at the commits QEMU names. Manager and CLI sources are in repository tag v{version}. No macOS image is distributed.\n')
 
 # The folder must run with nothing but Windows around it.
 env = dict(os.environ, PATH=str(stage) + ';' + os.environ['SystemRoot'] + '\\System32;' + os.environ['SystemRoot'])
@@ -156,6 +156,10 @@ for exe, arguments in [('qemu-system-x86_64.exe', ['--version']), ('qemu-img.exe
     if result.returncode:
         raise RuntimeError(result.stderr + result.stdout)
     print(result.stdout[:180], flush=True)
+# A record that names the Mac models must sit beside the reims-util that makes them, not upstream's own.
+models = subprocess.run([str(stage / 'reims-util.exe'), 'opencore', '--help'], env=env, capture_output=True, text=True, timeout=60).stdout
+if ('mac-models' in record.get('capabilities', [])) != ('MacBookPro16,1' in models):
+    raise RuntimeError('weims-runtime.json and reims-util.exe disagree about the Mac models: run scripts/build.ps1')
 runtime_zip = out / f'weims-runtime-{version}-win-x64.zip'
 with zipfile.ZipFile(runtime_zip, 'w', zipfile.ZIP_DEFLATED, compresslevel=6, strict_timestamps=False) as archive:
     for path in sorted(stage.rglob('*')):

@@ -143,6 +143,12 @@ public sealed class EngineSettings : Observable
     public string Bios { get => bios; set => Set(ref bios, value); }
     public string ImageTool => Path.Combine(Path.GetDirectoryName(Qemu) ?? "", "qemu-img.exe");
     public bool SupportsFreePointer => Has("free-pointer");
+    /// <summary>The display window enters and leaves full screen while the VM runs, and takes VmWindow's message.</summary>
+    public bool SupportsFullScreen => Has("full-screen");
+    /// <summary>With the free pointer, the Windows keys go to the guest while the pointer is over the VM's image.</summary>
+    public bool SupportsSuperKey => Has("super-key");
+    /// <summary>The runtime's reims-util makes boot images for every model in MacModel.Choices, not upstream's two alone.</summary>
+    public bool SupportsMacModels => Has("mac-models");
     /// <summary>
     /// Whether weims-runtime.json beside QEMU, the record of a runtime this project built (scripts/build.ps1),
     /// names the capability: something the build adds to upstream's. The library is linked into QEMU, so the

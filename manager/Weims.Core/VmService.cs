@@ -83,6 +83,13 @@ public static class VmService
     /// keyboard can be held, so the request is the chord macOS documents for this:
     /// Control-Option-Command-Power.
     /// </summary>
+    /// <summary>Asks the running VM's display windows to enter full screen, or to leave it (VmWindow).</summary>
+    public static void ToggleFullScreen(VmConfig c)
+    {
+        var rt = Runtime(c);
+        if (rt == null || !ProcessMatches(rt)) throw new IOException(Text.Get("虚拟机已停止。", "The VM has stopped."));
+        if (VmWindow.Ask(rt["pid"]!.GetValue<int>(), VmWindow.FullScreen.Toggle) == 0) throw new IOException(Text.Get("没有找到虚拟机的显示窗口。", "The VM's display window was not found."));
+    }
     public static async Task Shutdown(VmConfig c)
     {
         var rt = Runtime(c) ?? throw new IOException(Text.Get("没有运行记录。", "No runtime record."));

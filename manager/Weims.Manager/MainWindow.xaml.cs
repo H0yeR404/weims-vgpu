@@ -17,6 +17,7 @@ public partial class MainWindow : Window
     public int[] CpuChoices { get; } = [2, 4, 6, 8, 12, 16, 24, 32, 48, 64];
     public int[] MemoryChoices { get; } = [4096, 8192, 12288, 16384, 24576, 32768, 49152, 65536, 98304, 131072, 262144];
     public string[] ResolutionChoices { get; } = ["1280x800", "1440x900", "1600x900", "1920x1080", "1920x1200", "2048x1152", "2560x1440", "2560x1600", "3440x1440", "3840x2160"];
+    public IReadOnlyList<MacModel.Choice> MacModelChoices => MacModel.Choices;
     public MainWindow(MainViewModel model, bool detectOnLoad = true)
     {
         vm = model;
@@ -50,12 +51,48 @@ public partial class MainWindow : Window
     void UpdateCapability()
     {
         FreePointer.IsEnabled = vm.Engine.SupportsFreePointer;
-        PointerHint.Text = FreePointer.IsEnabled ? Text.Get("开启后鼠标可直接移出窗口，Windows 快捷键照常可用；关闭后点击窗口捕获键盘和鼠标，按 Ctrl+Alt+Win 释放。游戏需要关闭此项才能使用相对鼠标。", "When on, the pointer moves freely in and out of the window and Windows keeps its shortcuts. When off, a click captures keyboard and pointer and Ctrl+Alt+Win releases them. Games need it off to get relative mouse motion.") : Text.Get("当前运行组件是上游原版，没有自由鼠标。点击窗口捕获键盘和鼠标，按 Ctrl+Alt+Win 释放。用“一键准备运行环境”可安装带自由鼠标的运行组件。", "This runtime is upstream's own and has no free pointer. A click captures keyboard and pointer; Ctrl+Alt+Win releases them. One-click setup installs the runtime that has it.");
+        FullScreenButton.Visibility = vm.Engine.SupportsFullScreen ? Visibility.Visible : Visibility.Collapsed;
+        string keys = vm.Engine.SupportsSuperKey
+            ? Text.Get("鼠标在虚拟机画面内时 Win 键交给 macOS（即 Command 键），其余 Windows 快捷键照常可用", "while the pointer is inside the VM the Windows key goes to macOS as Command, and Windows keeps its other shortcuts")
+            : Text.Get("Windows 快捷键照常可用", "Windows keeps its shortcuts");
+        PointerHint.Text = FreePointer.IsEnabled ? Text.Get("开启后鼠标可直接移出窗口，", "When on, the pointer moves freely in and out of the window; ") + keys + Text.Get("；关闭后点击窗口捕获键盘和鼠标，按 Ctrl+Alt+Win 释放。游戏需要关闭此项才能使用相对鼠标。", ". When off, a click captures keyboard and pointer and Ctrl+Alt+Win releases them. Games need it off to get relative mouse motion.") : Text.Get("当前运行组件是上游原版，没有自由鼠标。点击窗口捕获键盘和鼠标，按 Ctrl+Alt+Win 释放。用“一键准备运行环境”可安装带自由鼠标的运行组件。", "This runtime is upstream's own and has no free pointer. A click captures keyboard and pointer; Ctrl+Alt+Win releases them. One-click setup installs the runtime that has it.");
+        _ = ShowMacModel();
+    }
+    // Which Mac the selected VM presents is read out of its boot image, the one place that holds it.
+    async Task ShowMacModel()
+    {
+        var c = vm.Selected; string? model = null;
+        MacModelPicker.Items.Refresh();
+        if (c != null) try { model = await Task.Run(() => BootImage.Read(c.OpenCore).Model); } catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException) { }
+        if (c != vm.Selected) return;
+        var known = MacModel.Find(model); bool own = c?.BootSet == VmConfig.OwnBootFiles;
+        MacModelPicker.SelectedItem = shownMacModel = known;
+        MacModelPicker.IsEnabled = MacModelButton.IsEnabled = model != null && !own;
+        MacModelNow.Text = c == null ? ""
+            : own ? Text.Get("此虚拟机用的是你自己提供的引导文件，机型请在你的 OpenCore 配置里改。", "This VM runs on boot files of your own; change the model in your OpenCore configuration.")
+            : model == null ? Text.Get("读不出此虚拟机引导镜像里的机型。", "The model could not be read from this VM's boot image.")
+            : Text.Get("现在是：", "Now: ") + (known?.Name ?? model) + (vm.Engine.SupportsMacModels ? "" : Text.Get("。当前运行组件只能生成 iMac 的引导镜像，更新运行组件后才能选 MacBook Pro。", ". This runtime makes boot images for the iMac alone; update the runtime to choose the MacBook Pro."));
+    }
+    MacModel.Choice? shownMacModel;
+    async void SwitchMacModel(object sender, RoutedEventArgs e)
+    {
+        if (vm.Busy || vm.Selected is not { } c || MacModelPicker.SelectedItem is not MacModel.Choice choice) return;
+        if (choice == shownMacModel) { vm.Message = Text.Get($"此虚拟机已经是 {choice.Name}。", $"The Mac model already is {choice.Name}."); return; }
+        if (MessageBox.Show(this, Text.Get($"把此虚拟机改为 {choice.Name}？\n\n· macOS 会把它当作另一台 Mac：序列号会换，iCloud、iMessage 和 App Store 会把它当作新设备，可能要重新登录。\n· 如果 macOS 里登录了 Apple 账户，更稳妥的做法是先在 macOS 里退出登录，换好机型后再登录。\n· 磁盘、系统 UUID 和网卡地址不变。\n· 以后切回原来的机型，会用回它原来的序列号。\n· 现在的引导镜像留作备份（OpenCore.img.previous）。",
+                $"Change this VM's Mac model to {choice.Name}?\n\n· macOS takes it for another Mac: the serial number changes, so iCloud, iMessage and the App Store see a new device and may ask you to sign in again.\n· If macOS is signed in to an Apple Account, the safer order is to sign out in macOS first and sign in again after the change.\n· The disk, the system UUID and the network address stay.\n· Going back to the earlier model brings back the serial number it had.\n· The present boot image is kept as a backup (OpenCore.img.previous)."),
+                Text.Get("Weims · 更换 Mac 机型", "Weims · Change the Mac model"), MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) { await ShowMacModel(); return; }
+        await Work(async () =>
+        {
+            await VmService.RequireStopped(c);
+            bool changed = await MacModel.Switch(c, vm.Engine, choice.Id, vm.DataDirectory, new Progress<string>(s => vm.Message = s), CancellationToken.None);
+            vm.Message = changed ? Text.Get($"已改为 {choice.Name}，下次启动生效。", $"The Mac model is now {choice.Name}. It applies at the next start.") : Text.Get($"此虚拟机已经是 {choice.Name}。", $"The Mac model already is {choice.Name}.");
+        });
+        await ShowMacModel();
     }
     void CloseWindow(object sender, RoutedEventArgs e) => Close();
     void MinimizeWindow(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     void MaximizeWindow(object sender, RoutedEventArgs e) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-    async void MachineChanged(object sender, SelectionChangedEventArgs e) { if (IsLoaded && !vm.Busy) await vm.Refresh(); }
+    async void MachineChanged(object sender, SelectionChangedEventArgs e) { if (!IsLoaded) return; if (!vm.Busy) await vm.Refresh(); await ShowMacModel(); }
     async void RefreshState(object sender, RoutedEventArgs e) => await Work(async () => { UpdateCapability(); await vm.Refresh(); vm.Message = vm.Status; });
     async void ImportVm(object sender, RoutedEventArgs e)
     {
@@ -89,6 +126,12 @@ public partial class MainWindow : Window
         vm.Message = Text.Get("已启动独立显示窗口。日志：", "Separate display started. Logs: ") + run;
     });
     async void ShutdownVm(object sender, RoutedEventArgs e) => await Work(async () => { await VmService.Shutdown(Current()); vm.Message = Text.Get("已请求 macOS 关机。有未保存的文档时 macOS 会先询问；关机完成后虚拟机窗口自动关闭。", "Asked macOS to shut down. It asks about unsaved documents first; the VM window closes when it has powered off."); });
+    async void ToggleFullScreen(object sender, RoutedEventArgs e) => await Work(() =>
+    {
+        VmService.ToggleFullScreen(Current());
+        vm.Message = Text.Get("已切换虚拟机窗口的全屏状态。在虚拟机窗口里按 Ctrl+Alt+Enter 也可以切换；全屏时把鼠标停在屏幕顶部中间，会出现带“最小化”和“返回窗口”的小工具条。", "Asked the VM window to enter or leave full screen. Ctrl+Alt+Enter in the VM window does the same; in full screen, rest the pointer at the top centre of the screen for a small bar with Minimize and Back to window.");
+        return Task.CompletedTask;
+    });
     async void ForceStop(object sender, RoutedEventArgs e)
     {
         if (vm.Busy) return;

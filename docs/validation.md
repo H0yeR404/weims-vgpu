@@ -1,5 +1,36 @@
 # Validation scope
 
+## Mac models, 2026-11-29
+
+Checked on one Windows 11 host (NVIDIA GeForce RTX 4090 Laptop GPU) with a macOS 26.7.2 guest, an installed system on a test copy of its disk, with a runtime built from this tree. The guest had no network: QEMU's user network in restricted mode.
+
+- **Automated tests.** 138 core checks, 14 of them new: the arguments reims-util is given for a new VM of either model and for a change of model, the serial numbers kept for each model, what a runtime without the capability refuses. 88 WPF checks, one new: the model picker is on the hardware page. reims-util's own unit tests do not build on Windows, with or without the patch (one of them uses Unix-only calls), so the patched program was checked by running it: a MacBookPro16,1 image has a serial number and a logic board serial of that model's codes, an identity given comes back unchanged, and a model without a table is refused.
+- **A change of model without a VM,** through `Weims.Cli model` on a made-up VM folder: iMac to MacBook Pro, back, and to the MacBook Pro again. Each model kept its own serial number, the UUID and the ROM stayed, the picker and SIP settings were carried over, the image replaced stayed as `OpenCore.img.previous`, and neither the output nor the configuration held a serial number. The runtime of 1.2.0 refused the MacBook Pro and left the image alone.
+- **In the guest, one boot as each model, on the same disk.** macOS reported the model and its board (`Mac-CFF7D910A743CAAF` as the iMac20,1, `Mac-E1008331FDC96864` as the MacBookPro16,1), the three guest drivers were loaded, the display was Metal 3, and RgfxGate's AppleGVA preference was set. Upstream's `decode_md5` decoded five streams made with ffmpeg on the hardware decoder, every frame equal to ffmpeg's own decode, as each model: H.264 High at 720p and 1080p, HEVC Main at 720p and 1080p, HEVC Main 10 at 720p. A session that may take any decoder got the hardware one for all five. VideoToolbox listed a hardware H.264 encoder and no hardware HEVC encoder, as each model. As the MacBook Pro, macOS listed no battery.
+
+| Stream | Frames a second, iMac20,1 | MacBookPro16,1 |
+| --- | --- | --- |
+| H.264 1080p | 418 | 444 |
+| H.264 720p | 586 | 842 |
+| HEVC 1080p | 317 | 267 |
+| HEVC 720p | 260 | 273 |
+| HEVC Main 10 720p | 252 | 266 |
+
+One timed run a stream, of three decodes after the hashed one; the guest's window was 1616 × 1106 at the iMac's boot and 1920 × 1080 at the MacBook Pro's.
+
+- **Back to the iMac** after the test: the VM's boot image presented the Mac it had presented before, in every field.
+
+Not checked: the **Change model** button clicked by hand (the change was made with `Weims.Cli model`, which runs the same code); a VM installed from recovery as a MacBook Pro; signing in to an Apple Account as either model, the guest being offline; anything a MacBook's lid, battery or built-in display would do beyond the battery line above; frame rates of the desktop as a MacBook Pro; other macOS versions; Intel and AMD GPUs; the release packages.
+
+## The Windows key and full screen while the VM runs, 2026-11-27
+
+Checked on one Windows 11 host (NVIDIA GPU) with a macOS 26.7.2 guest, with a runtime built from this tree and the Manager of this tree, the free pointer on:
+
+- **Automated tests.** 127 tests of the window crate, 9 of them new: who a Windows key belongs to from its down to its up, when the bar shows and hides and where its buttons are, and the chord for full screen. Also 124 core and 87 WPF checks.
+- **By hand, by the project's owner, in one session.** The Windows key reached macOS as Command with the pointer inside the image and opened the Start menu with the pointer outside; Alt+Tab stayed Windows's. The window entered full screen and left it without a restart. The bar showed with the pointer at the top centre of the screen and hid again. The owner was given a list of steps (the chord, Manager's **Full screen / window**, the bar's two buttons, minimizing and coming back from the task bar) and reported all of it working. The window's log of that session shows one entry into full screen and one way out, so the three ways to switch were not each used both ways; which were used is not recorded.
+
+Not checked: each way of switching full screen in both directions; several displays; a second host screen and screens of different scale; the mode where a click captures input, in full screen; a VM that starts borderless and then leaves full screen; games that lock the pointer; Intel and AMD GPUs; how long the session ran after a minimize (the freeze after a minimize reported in Issue #4 did not show, in one try); and the release packages.
+
 ## Moving from the 1.2.0-pre.1 runtime to 1.2.0, 2026-11-25
 
 Tested with the 1.2.0 Manager build and the packaged runtime ZIP, on one Windows 11 host with a macOS 26.7.2 guest:

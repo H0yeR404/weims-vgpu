@@ -4,11 +4,13 @@
     "url": "https://github.com/steelbrain/reims-vgpu",
     "base": "c8419476fb175f6b76e19f8dbc84e32cff8fa8d8",
     "patch": "manager/patches/window.patch",
-    "sha256": "8e11ada74b37001658d66a4df076729caed639858f41930a6999732de8890a6e"
+    "sha256": "2663fb768b8f198f83c91dd7a7f2493da9dc77fc386d05cc4f5021bb668b42cd"
   },
   {
     "name": "reims-util",
     "url": "https://github.com/steelbrain/reims-util",
-    "base": "7867384c0ab703b4c6aae36cbbb1a35fcffc8321"
+    "base": "7867384c0ab703b4c6aae36cbbb1a35fcffc8321",
+    "patch": "manager/patches/util.patch",
+    "sha256": "8d948c53db63242fe6b2447b0c48fda085f0a695380c41fa8024792fcde6f929"
   }
 ]

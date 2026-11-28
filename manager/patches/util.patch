@@ -1,0 +1,91 @@
+diff --git a/README.md b/README.md
+index a516b71..8c0f003 100644
+--- a/README.md
++++ b/README.md
+@@ -72,10 +72,11 @@ and ROM, which it prints when it's done. Keep them if you'll want the same ident
+ image (`--serial`, `--mlb`, `--uuid`, `--rom`). The model is an iMac20,1 unless you ask for
+ another with `--model`:
+ 
+-| Model      | Runs                 |
+-| ---------- | -------------------- |
+-| iMac20,1   | macOS 10.15.6 to 26  |
+-| iMacPro1,1 | macOS 10.13 to 15    |
++| Model          | Runs                 |
++| -------------- | -------------------- |
++| iMac20,1       | macOS 10.15.6 to 26  |
++| MacBookPro16,1 | macOS 10.15.1 to 26  |
++| iMacPro1,1     | macOS 10.13 to 15    |
+ 
+ What's in the image, and why:
+ 
+diff --git a/src/cli.rs b/src/cli.rs
+index 1b50002..ddc046c 100644
+--- a/src/cli.rs
++++ b/src/cli.rs
+@@ -68,7 +68,8 @@ pub struct OpencoreArgs {
+     /// The image to write: qcow2 for a .qcow2 name, else a raw disk image
+     #[arg(short, long, default_value = "OpenCore.qcow2")]
+     pub output: PathBuf,
+-    /// The Mac model to claim to be: iMac20,1 (macOS 10.15.6 to 26) or iMacPro1,1 (10.13 to 15)
++    /// The Mac model to claim to be: iMac20,1 (macOS 10.15.6 to 26), MacBookPro16,1 (10.15.1 to
++    /// 26) or iMacPro1,1 (10.13 to 15)
+     #[arg(long, default_value = "iMac20,1")]
+     pub model: String,
+     /// The serial number (default: a new one for the model)
+diff --git a/src/opencore/smbios.rs b/src/opencore/smbios.rs
+index 5857d7d..a7d4f50 100644
+--- a/src/opencore/smbios.rs
++++ b/src/opencore/smbios.rs
+@@ -24,7 +24,8 @@ pub struct Model {
+ }
+ 
+ /// iMac20,1 runs macOS 10.15.6 to 26: every x86-64 macOS a reims-vgpu guest runs. iMacPro1,1 runs
+-/// 10.13 to 15, for older guests.
++/// 10.13 to 15, for older guests. MacBookPro16,1, the 16-inch MacBook Pro of 2019, is the other
++/// Intel Mac with a Radeon that runs macOS 26.
+ pub const MODELS: &[Model] = &[
+     Model {
+         name: "iMac20,1",
+@@ -34,6 +35,14 @@ pub const MODELS: &[Model] = &[
+         model_code: "PN5T",
+         board_code: "PHC1",
+     },
++    Model {
++        name: "MacBookPro16,1",
++        runs: "macOS 10.15.1 to 26",
++        location: "C02",
++        years: &[2019, 2020, 2021],
++        model_code: "MD6N",
++        board_code: "N9PR",
++    },
+     Model {
+         name: "iMacPro1,1",
+         runs: "macOS 10.13 to 15",
+@@ -263,6 +272,9 @@ mod tests {
+         // digit.
+         let p = model("imacpro1,1").unwrap();
+         assert_eq!(serial(p, 2017, 5, 3399).unwrap(), "C02T5ZZZHX87");
++        // The second half of 2019 is Z.
++        let b = model("MacBookPro16,1").unwrap();
++        assert_eq!(serial(b, 2019, 30, 1000).unwrap(), "C02Z40VEMD6N");
+     }
+ 
+     #[test]
+diff --git a/src/tui.rs b/src/tui.rs
+index 38a4aca..ee7fede 100644
+--- a/src/tui.rs
++++ b/src/tui.rs
+@@ -773,10 +773,10 @@ fn opencore_lines(out: &opencore::Outputs) -> Vec<Line<'static>> {
+         ),
+     ));
+     // The newest macOS the model runs.
+-    let name = if s.model == "iMac20,1" {
+-        "Tahoe"
+-    } else {
++    let name = if s.model == "iMacPro1,1" {
+         "Sequoia"
++    } else {
++        "Tahoe"
+     };
+     v.push(next_line(&format!(
+         "reims-ctl create mac --opencore {} --installer macOS-{name}-online-installer.dmg",

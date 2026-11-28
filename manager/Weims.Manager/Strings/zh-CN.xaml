@@ -25,6 +25,8 @@
 <sys:String x:Key="S23">独立显示窗口 · 原生 Vulkan 图形</sys:String>
 <sys:String x:Key="S24">启动虚拟机</sys:String>
 <sys:String x:Key="S25">正常关机</sys:String>
+<sys:String x:Key="FullScreenToggle">全屏 / 窗口</sys:String>
+<sys:String x:Key="FullScreenHint">在虚拟机窗口里按 Ctrl+Alt+Enter 也可以切换。全屏时把鼠标停在屏幕顶部中间，会出现工具条。</sys:String>
 <sys:String x:Key="S26">开始使用</sys:String>
 <sys:String x:Key="S27">创建虚拟机</sys:String>
 <sys:String x:Key="S28">从恢复镜像安装 macOS</sys:String>
@@ -49,13 +51,13 @@
 <sys:String x:Key="S48">启动分辨率</sys:String>
 <sys:String x:Key="S49">参考机器已验证 2560 × 1440。自定义范围：800–4096 × 600–2160；更高分辨率需在你的设备上测试。</sys:String>
 <sys:String x:Key="S50">以无边框全屏启动</sys:String>
-<sys:String x:Key="S51">关闭后是普通窗口，可拖动边缘调整大小，macOS 的分辨率随之改变。</sys:String>
+<sys:String x:Key="S51">关闭后是普通窗口，可拖动边缘调整大小，macOS 的分辨率随之改变。虚拟机运行中可按 Ctrl+Alt+Enter 在两者之间切换。</sys:String>
 <sys:String x:Key="S52">鼠标与键盘</sys:String>
 <sys:String x:Key="S53">允许鼠标自由移出虚拟机窗口</sys:String>
 <sys:String x:Key="S54">需要本项目构建的运行组件；上游原版没有自由鼠标。</sys:String>
 <sys:String x:Key="S55">捕获模式释放快捷键</sys:String>
 <sys:String x:Key="S56">Ctrl + Alt + Win</sys:String>
-<sys:String x:Key="S57">自由鼠标模式保留宿主系统快捷键。鼠标移出不等于剪贴板共享或文件拖放。</sys:String>
+<sys:String x:Key="S57">自由鼠标模式保留 Windows 的快捷键，但鼠标在虚拟机画面内时 Win 键交给 macOS。鼠标移出不等于剪贴板共享或文件拖放。</sys:String>
 <sys:String x:Key="S58">保存显示设置</sys:String>
 <sys:String x:Key="S59">从你的恢复镜像开始，逐步准备 macOS。</sys:String>
 <sys:String x:Key="S60">创建新的虚拟机</sys:String>
@@ -200,7 +202,7 @@
 <sys:String x:Key="S200">高级选项 · 自备引导文件</sys:String>
 <sys:String x:Key="S201">使用自备引导文件与端口，替代自动准备</sys:String>
 <sys:String x:Key="S202">准备完成后，在独立恢复窗口中安装 macOS。</sys:String>
-<sys:String x:Key="S203">1.2.0 · 请为重要数据保留备份。</sys:String>
+<sys:String x:Key="S203">1.2.1 · 请为重要数据保留备份。</sys:String>
  <sys:String x:Key="UpdateTitle">软件更新</sys:String>
  <sys:String x:Key="UpdateCheck">检查更新</sys:String>
  <sys:String x:Key="RuntimeBannerAction">立即更新运行组件</sys:String>
@@ -210,12 +212,12 @@
  <sys:String x:Key="UpdateInstall">一键更新</sys:String>
  <sys:String x:Key="UpdateNotes">更新说明</sys:String>
  <sys:String x:Key="UpdateHelp">从官方 GitHub 仓库下载并校验 SHA256 后安装。安装前请关闭所有虚拟机；管理器将重新启动。免安装版会安装到当前用户的 Weims Manager 文件夹；虚拟机磁盘和运行环境路径保留。</sys:String>
- <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Weims Manager 1.2.0
+ <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Weims Manager 1.2.1
 
-• Guest Tools：在 Windows 和 macOS 之间共享剪贴板（文本和文件），并把这台电脑上的文件夹挂载到 macOS 里。
-• 运行组件 1.2.0，直接基于上游 Reims vGPU 构建：macOS 有声音，分辨率跟随窗口，关闭虚拟机或关机后 QEMU 立即退出。
-• 必须更新运行组件。升级后请点击“立即更新运行组件”，更新之前虚拟机无法启动。用早先版本创建的虚拟机在第一次启动时会换上新的引导文件，Mac 身份保持不变。
-• 更新频道：可以选择正式版，或预览版和正式版。</sys:String>
+• 鼠标在虚拟机画面内时，Windows 键相当于 Command。
+• 运行中切换全屏：在虚拟机窗口里按 Ctrl+Alt+Enter，或在管理器里点击“全屏 / 窗口”。
+• Mac 机型：虚拟机可以是 iMac（27 英寸，2020）或 MacBook Pro（16 英寸，2019）。创建虚拟机时选择，或在关机状态下到“硬件与网络”更换。
+• 以上功能需要运行组件 1.2.1。升级后请点击“立即更新运行组件”。早于 1.2.0 的运行组件必须更新，更新之前虚拟机无法启动。</sys:String>
  <sys:String x:Key="RuntimeWelcome">把环境准备交给 Weims</sys:String>
  <sys:String x:Key="RuntimeAutomatic">自动下载所需组件、校验并保存全部路径，无需查找文件或手动填写。</sys:String>
  <sys:String x:Key="RuntimeComponents">虚拟机运行组件</sys:String>
@@ -248,6 +250,11 @@
 <sys:String x:Key="G18">macOS 到 Windows 的上传限速（MiB/s）</sys:String>
 <sys:String x:Key="G19">macOS 每秒最多发往这台电脑的数据量，包括写入共享文件夹和取回复制的文件；默认是 0，表示不限。如果 macOS 写大文件时虚拟机画面卡顿，可以设一个上限。从 Windows 读取始终不限速。</sys:String>
 <sys:String x:Key="G20">应用</sys:String>
+<sys:String x:Key="Mac1">MAC 机型</sys:String>
+<sys:String x:Key="Mac2">Mac 机型</sys:String>
+<sys:String x:Key="Mac3">macOS 把这台虚拟机当作哪款 Mac。换机型会换序列号，iCloud、iMessage 和 App Store 会把它当作新设备，可能要重新登录；磁盘、系统 UUID 和网卡地址不变。切回某个机型时，会用回它原来的序列号。</sys:String>
+<sys:String x:Key="Mac4">更换机型</sys:String>
+<sys:String x:Key="Mac5">macOS 把这台虚拟机当作哪款 Mac。以后可以在“硬件与网络”页更换。使用自己的引导文件（见下）时，机型由那些文件决定。</sys:String>
 <sys:String x:Key="G21">在 Windows 和 macOS 之间复制粘贴文件</sys:String>
 <sys:String x:Key="G22">在 Windows 里复制的文件和文件夹，在 macOS 里粘贴时直接从这台电脑读取，不限大小。在 macOS 里复制的，在你离开虚拟机窗口时取回，每次最多 256 MiB，取回后才能在 Windows 里粘贴；更大的请用共享文件夹。</sys:String>
 </ResourceDictionary>

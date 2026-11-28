@@ -6,15 +6,15 @@ try
 {
     if (args.Length == 0 || args[0] is "--help" or "help")
     {
-        Console.WriteLine("Weims 1.2.0 — Windows x64\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg]\n  Without --recovery, download Tahoe recovery from Apple.\nWeims.Cli start --config PATH\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only for a VM started by 1.1.0 or older, after guest shutdown)\nWeims.Cli tools-enable|tools-disable --config PATH (Guest Tools: clipboard sharing with macOS; off by default)\nWeims.Cli tools-status --config PATH\nWeims.Cli tools-install --config PATH (puts the Guest Tools install disk into the running VM; installing from it pairs without input)\nWeims.Cli tools-pair --config PATH (pairs with Weims Guest Tools in macOS: both show a four-digit number to compare)\nWeims.Cli tools-reset-pairing --config PATH\nWeims.Cli tools-share --config PATH --folder PATH [--name NAME] [--access write|read] (shares a Windows folder with macOS, where Guest Tools mounts it; an existing name is replaced)\nWeims.Cli tools-unshare --config PATH --name NAME\nWeims.Cli tools-upload-limit --config PATH --mib N (most the guest may send to this PC, in MiB per second; 0, the default, for no limit)\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown asks macOS to quit all apps and shut down; it asks about unsaved documents first. QEMU exits when the guest has powered off.");
+        Console.WriteLine("Weims 1.2.1 — Windows x64\n\nWeims.Cli setup [--data-dir PATH]\nWeims.Cli create --destination PATH [--name macOS-Tahoe] [--disk-gib 200] [--recovery BaseSystem.dmg] [--model iMac20,1|MacBookPro16,1]\n  Without --recovery, download Tahoe recovery from Apple. Without --model, the VM is an iMac.\nWeims.Cli model --config PATH [--model iMac20,1|MacBookPro16,1] (shows which Mac the VM presents to macOS, or changes it while the VM is stopped; another model has another serial number, so Apple's services see another computer, and each model keeps its own)\nWeims.Cli start --config PATH\nWeims.Cli status --config PATH\nWeims.Cli shutdown --config PATH\nWeims.Cli stop --config PATH (only for a VM started by 1.1.0 or older, after guest shutdown)\nWeims.Cli tools-enable|tools-disable --config PATH (Guest Tools: clipboard sharing with macOS; off by default)\nWeims.Cli tools-status --config PATH\nWeims.Cli tools-install --config PATH (puts the Guest Tools install disk into the running VM; installing from it pairs without input)\nWeims.Cli tools-pair --config PATH (pairs with Weims Guest Tools in macOS: both show a four-digit number to compare)\nWeims.Cli tools-reset-pairing --config PATH\nWeims.Cli tools-share --config PATH --folder PATH [--name NAME] [--access write|read] (shares a Windows folder with macOS, where Guest Tools mounts it; an existing name is replaced)\nWeims.Cli tools-unshare --config PATH --name NAME\nWeims.Cli tools-upload-limit --config PATH --mib N (most the guest may send to this PC, in MiB per second; 0, the default, for no limit)\nAll commands accept --data-dir PATH (same preferences as Manager).\nShutdown asks macOS to quit all apps and shut down; it asks about unsaved documents first. QEMU exits when the guest has powered off.");
         return 0;
     }
     string command = args[0];
-    if (command is not ("setup" or "create" or "start" or "status" or "shutdown" or "stop" or "tools-enable" or "tools-disable" or "tools-status" or "tools-install" or "tools-pair" or "tools-reset-pairing" or "tools-share" or "tools-unshare" or "tools-upload-limit")) throw new ArgumentException("Unknown command. Use --help.");
+    if (command is not ("setup" or "create" or "model" or "start" or "status" or "shutdown" or "stop" or "tools-enable" or "tools-disable" or "tools-status" or "tools-install" or "tools-pair" or "tools-reset-pairing" or "tools-share" or "tools-unshare" or "tools-upload-limit")) throw new ArgumentException("Unknown command. Use --help.");
     var options = new Dictionary<string,string>();
     for (int i = 1; i < args.Length; i += 2)
     {
-        if (i + 1 == args.Length || !new[] { "--data-dir", "--destination", "--name", "--disk-gib", "--recovery", "--config", "--display-mode", "--folder", "--access", "--mib" }.Contains(args[i]) || !options.TryAdd(args[i], args[i + 1]))
+        if (i + 1 == args.Length || !new[] { "--data-dir", "--destination", "--name", "--disk-gib", "--recovery", "--config", "--display-mode", "--folder", "--access", "--mib", "--model" }.Contains(args[i]) || !options.TryAdd(args[i], args[i + 1]))
             throw new ArgumentException("Invalid or duplicate option. Use --help.");
     }
     string Required(string key) => options.TryGetValue(key, out var value) ? value : throw new ArgumentException("Required: " + key);
@@ -32,7 +32,7 @@ try
     }
     else if (command == "create")
     {
-        var c = await GuidedSetup.Create(options.GetValueOrDefault("--name", "macOS-Tahoe"), Path.GetFullPath(Required("--destination")), options.GetValueOrDefault("--recovery"), int.Parse(options.GetValueOrDefault("--disk-gib", "200")), engine, data, progress, cancel.Token);
+        var c = await GuidedSetup.Create(options.GetValueOrDefault("--name", "macOS-Tahoe"), Path.GetFullPath(Required("--destination")), options.GetValueOrDefault("--recovery"), int.Parse(options.GetValueOrDefault("--disk-gib", "200")), engine, data, progress, cancel.Token, options.GetValueOrDefault("--model"));
         var library = Path.Combine(data, "library.json"); var paths = File.Exists(library) ? JsonSerializer.Deserialize<List<string>>(File.ReadAllText(library))! : [];
         if (!paths.Contains(c.ConfigPath)) paths.Add(c.ConfigPath); JsonFiles.Write(library, paths);
         Console.WriteLine("Ready: " + c.ConfigPath);
@@ -49,6 +49,21 @@ try
             await VmService.RequireStopped(c);
             await BootImage.EnsureCurrent(c, engine, data, progress, cancel.Token);
             Console.WriteLine("Logs: " + await VmService.Start(c, engine, "", Path.Combine(AppContext.BaseDirectory, "launch-vm.ps1")));
+        }
+        else if (command == "model")
+        {
+            if (options.TryGetValue("--model", out var model))
+            {
+                await VmService.RequireStopped(c);
+                bool changed = await MacModel.Switch(c, engine, model, data, progress, cancel.Token);
+                Console.WriteLine(changed ? "Done. At the next start macOS sees: " + MacModel.Find(model)!.English + "." : "The Mac model already is " + MacModel.Find(model)!.English + ".");
+            }
+            else
+            {
+                string now = BootImage.Read(c.OpenCore).Model;
+                Console.WriteLine("Mac model: " + (MacModel.Find(now) is { } known ? $"{known.Id}, {known.English}" : now));
+                Console.WriteLine("To choose from: " + string.Join("; ", MacModel.Choices.Select(m => $"{m.Id}, {m.English}")));
+            }
         }
         else if (command == "status")
         {

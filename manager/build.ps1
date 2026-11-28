@@ -38,7 +38,7 @@ Copy-Item -LiteralPath "$root/NOTICE.md" -Destination "$out/NOTICE.md"
 Copy-Item -LiteralPath "$PSScriptRoot/README.zh-CN.md" -Destination "$out/使用说明.md"
 Copy-Item -LiteralPath "$PSScriptRoot/README.md" -Destination "$out/README.md"
 Copy-Item -LiteralPath "$PSScriptRoot/README.ja.md" -Destination "$out/README.ja.md"
-Get-ChildItem "$root/docs/release-1.2.0*.md" | Copy-Item -Destination $out
+Get-ChildItem "$root/docs/release-1.2.1*.md" | Copy-Item -Destination $out
 if ($SelfContained) {
     $cacheLine = (& $DotNet nuget locals global-packages --list --force-english-output | Select-Object -First 1)
     $cache = $cacheLine -replace '^global-packages:\s*', ''

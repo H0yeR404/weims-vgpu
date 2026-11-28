@@ -1,6 +1,6 @@
 # Building the runtime and Manager from source
 
-The runtime is upstream [Reims vGPU](https://github.com/steelbrain/reims-vgpu) at the commit `sources.json` names, with one patch, `manager/patches/window.patch`. The patch adds the free pointer and makes the window take a size the guest fills after you resize it. QEMU is that commit's `vendor/qemu` submodule and metal2vulkan one of its Cargo dependencies; the build fetches both at the revisions the commit names, and neither is patched.
+The runtime is upstream [Reims vGPU](https://github.com/steelbrain/reims-vgpu) at the commit `sources.json` names, with one patch, `manager/patches/window.patch`. The patch adds the free pointer, gives the guest the Windows key while the pointer is over its image, makes the window take a size the guest fills after you resize it, and switches full screen while the VM runs, with a bar at the top of the screen. QEMU is that commit's `vendor/qemu` submodule and metal2vulkan one of its Cargo dependencies; the build fetches both at the revisions the commit names, and neither is patched.
 
 Releases up to 1.2.0-pre.1 used a Windows port of an earlier Reims that this project carried as three large patches. Upstream has supported Windows hosts itself since 2026-11-15, so the port is gone from the tree. Its sources are in the tags of those releases.
 
@@ -28,9 +28,9 @@ pwsh -File scripts/fetch.ps1
 pwsh -File scripts/build.ps1
 ```
 
-`fetch.ps1` fetches `sources/reims-vgpu` and `sources/reims-util` at the pinned commits, checks the patch's SHA-256 and applies it. It refuses a source directory that already exists.
+`fetch.ps1` fetches `sources/reims-vgpu` and `sources/reims-util` at the pinned commits, checks each patch's SHA-256 and applies it. It refuses a source directory that already exists.
 
-`build.ps1` runs upstream's own installer, `sources/reims-vgpu/scripts/install-ctl.sh`, in the CLANG64 shell. That builds the graphics library, links QEMU with it, collects the DLLs QEMU loads, and installs `reims-util` at the commit upstream names. What the installer would put in your user profile goes under `build/upstream` instead, so a reims-ctl you installed for yourself is not touched. The log is `logs/upstream-build.log`. A first build took about ten minutes on the tested host; later ones rebuild only what changed.
+`build.ps1` runs upstream's own installer, `sources/reims-vgpu/scripts/install-ctl.sh`, in the CLANG64 shell. That builds the graphics library, links QEMU with it, collects the DLLs QEMU loads, and installs upstream's own `reims-util` beside its reims-ctl, which this project does not use. What the installer would put in your user profile goes under `build/upstream` instead, so a reims-ctl you installed for yourself is not touched. `build.ps1` then builds `reims-util` from `sources/reims-util`, which carries `manager/patches/util.patch`, on the toolchain the installer set up. The logs are `logs/upstream-build.log` and `logs/util-build.log`. A first build took about ten minutes on the tested host; later ones rebuild only what changed.
 
 The script then assembles `build/weims-runtime`, the folder Manager runs:
 
@@ -39,10 +39,10 @@ The script then assembles `build/weims-runtime`, the folder Manager runs:
 | `qemu-system-x86_64.exe`, `qemu-img.exe` | QEMU 11 with the `reims-graphics-pci` device; the graphics library is linked in |
 | `reims-vgpu-compile.exe` | the library's helper process, which it starts from beside QEMU |
 | `*.dll` | the CLANG64 libraries those programs load |
-| `reims-util.exe` | makes OpenCore images and downloads Apple's recovery image |
+| `reims-util.exe` | makes OpenCore images, for an iMac20,1 or a MacBookPro16,1, and downloads Apple's recovery image |
 | `boot/` | the guest drivers (Graft, ReimsGraphics, RgfxGate), their `set.toml`, and the option ROM |
 | `pc-bios/` | the firmware files QEMU reads |
-| `weims-runtime.json` | says this is a build of this project, with the free pointer |
+| `weims-runtime.json` | says this is a build of this project, and names what the patches add |
 
 The folder runs with nothing but Windows around it. `pwsh -File scripts/build.ps1 -AssembleOnly` assembles it again without building.
 

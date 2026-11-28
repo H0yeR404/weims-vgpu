@@ -36,6 +36,7 @@ internal static class Program
             for(int i=0;i<7;i++) { model.Page=i; Pump(); Shot(w,Path.Combine(output,$"page-{i}.png")); }
             model.Page=1; Pump();
             Check(w.FindName("Qmp")==null,"QMP port is no longer a user setting");
+            Check(w.FindName("MacModelPicker") is ComboBox models && models.Items.Count==2 && w.FindName("MacModelButton") is Button, "the hardware page offers the Mac models");
             var ssh=(TextBox)w.FindName("Ssh"); ssh.SetCurrentValue(TextBox.TextProperty,"not-a-port"); ssh.GetBindingExpression(TextBox.TextProperty)!.UpdateSource(); Pump();
             Check(Validation.GetHasError(ssh),"invalid port exposes inline WPF validation");
             model.Page=0; Pump(); bool rejected=false; try { model.Selected!.Validate(); }catch(InvalidDataException){rejected=true;}
@@ -46,6 +47,8 @@ internal static class Program
             var save=Descendants(w).OfType<Button>().Single(b=>Equals(b.Content,"保存显示设置")); save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Pump();
             Check(VmConfig.Load(config.ConfigPath).Resolution=="2560x1440","display save accepts tested 1440p through actual button handler");
             Check(!((CheckBox)w.FindName("FreePointer")).IsEnabled,"unsupported free pointer disabled");
+            Check(((Button)w.FindName("FullScreenButton")).Visibility==Visibility.Collapsed,"full-screen button hidden for a runtime without it");
+            Check(VmWindow.Find(Environment.ProcessId).Contains(new System.Windows.Interop.WindowInteropHelper(w).Handle),"a process's visible top-level window is found as a display window");
             model.CanEdit=false; Pump(); Check(!save.IsEnabled,"running-state configuration disabled");
             // Guest Tools: its own section on this page, usable while the VM runs, stored without touching other fields.
             bool Until(Func<bool> done) { for(int i=0;i<150&&!done();i++) { Pump(); System.Threading.Thread.Sleep(20); } return done(); }

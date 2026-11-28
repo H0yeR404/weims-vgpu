@@ -25,6 +25,8 @@
 <sys:String x:Key="S23">Separate display · Native Vulkan graphics</sys:String>
 <sys:String x:Key="S24">Start VM</sys:String>
 <sys:String x:Key="S25">Shut down</sys:String>
+<sys:String x:Key="FullScreenToggle">Full screen / window</sys:String>
+<sys:String x:Key="FullScreenHint">Also Ctrl+Alt+Enter in the VM window. In full screen, rest the pointer at the top centre of the screen for the bar.</sys:String>
 <sys:String x:Key="S26">GET STARTED</sys:String>
 <sys:String x:Key="S27">Create VM</sys:String>
 <sys:String x:Key="S28">Install macOS from recovery</sys:String>
@@ -49,13 +51,13 @@
 <sys:String x:Key="S48">Startup resolution</sys:String>
 <sys:String x:Key="S49">2560 × 1440 has been tested on the reference machine. Custom sizes: 800–4096 × 600–2160; higher modes need testing on your device.</sys:String>
 <sys:String x:Key="S50">Start in borderless fullscreen</sys:String>
-<sys:String x:Key="S51">Turn off to get a window whose edges you can drag; macOS takes the new size as its resolution.</sys:String>
+<sys:String x:Key="S51">Turn off to get a window whose edges you can drag; macOS takes the new size as its resolution. While the VM runs, Ctrl+Alt+Enter switches between the two.</sys:String>
 <sys:String x:Key="S52">MOUSE &amp; KEYBOARD</sys:String>
 <sys:String x:Key="S53">Allow the pointer to leave the VM window freely</sys:String>
 <sys:String x:Key="S54">Needs the runtime this project builds; upstream's own has no free pointer.</sys:String>
 <sys:String x:Key="S55">Release captured input</sys:String>
 <sys:String x:Key="S56">Ctrl + Alt + Win</sys:String>
-<sys:String x:Key="S57">Free-pointer mode preserves host shortcuts. It does not enable clipboard sharing or file drag-and-drop.</sys:String>
+<sys:String x:Key="S57">Free-pointer mode leaves Windows its shortcuts, except the Windows key while the pointer is inside the VM. It does not enable clipboard sharing or file drag-and-drop.</sys:String>
 <sys:String x:Key="S58">Save display settings</sys:String>
 <sys:String x:Key="S59">Prepare macOS step by step using your recovery image.</sys:String>
 <sys:String x:Key="S60">Create a new virtual machine</sys:String>
@@ -200,7 +202,7 @@
 <sys:String x:Key="S200">Advanced · bring your own boot files</sys:String>
 <sys:String x:Key="S201">Use my boot files and ports instead of automatic preparation</sys:String>
 <sys:String x:Key="S202">After preparation, start recovery and install macOS in its own window.</sys:String>
-<sys:String x:Key="S203">1.2.0 · Keep backups of important data.</sys:String>
+<sys:String x:Key="S203">1.2.1 · Keep backups of important data.</sys:String>
  <sys:String x:Key="UpdateTitle">Software updates</sys:String>
  <sys:String x:Key="UpdateCheck">Check for updates</sys:String>
  <sys:String x:Key="RuntimeBannerAction">Update runtime now</sys:String>
@@ -210,12 +212,12 @@
  <sys:String x:Key="UpdateInstall">Update now</sys:String>
  <sys:String x:Key="UpdateNotes">Release notes</sys:String>
  <sys:String x:Key="UpdateHelp">Downloads from the official GitHub repository and verifies SHA256 before installing. Close all VMs before installation. The manager will restart. Portable copies install into the per-user Weims Manager folder; VM disks and runtime paths are preserved.</sys:String>
- <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Weims Manager 1.2.0
+ <sys:String x:Key="UpdateCurrentNotes" xml:space="preserve">Weims Manager 1.2.1
 
-• Guest Tools: share the clipboard between Windows and macOS (text and files) and mount folders of this computer in macOS.
-• Runtime 1.2.0, built directly from upstream Reims vGPU: macOS has sound, its resolution follows the window, and QEMU exits at once when a VM is closed or shut down.
-• The runtime must be updated. After upgrading, click Update runtime now; VMs cannot start before that. A VM made with an earlier version gets new boot files at its first start and keeps its Mac identity.
-• Update channel: choose stable releases, or preview and stable releases.</sys:String>
+• The Windows key works as Command while the pointer is inside the VM's image.
+• Full screen while the VM runs: Ctrl+Alt+Enter in the VM's window, or Full screen / window in Manager.
+• Mac model: a VM can be an iMac (27-inch, 2020) or a MacBook Pro (16-inch, 2019). Choose in Create VM, or change it under Hardware &amp; Network while the VM is stopped.
+• These need runtime 1.2.1. After upgrading, click Update runtime now. A runtime older than 1.2.0 must be updated before VMs can start.</sys:String>
  <sys:String x:Key="RuntimeWelcome">Let Weims handle the setup</sys:String>
  <sys:String x:Key="RuntimeAutomatic">Weims downloads the required components, verifies them, and saves every path for you. No manual file selection is needed.</sys:String>
  <sys:String x:Key="RuntimeComponents">Virtual machine components</sys:String>
@@ -248,6 +250,11 @@
 <sys:String x:Key="G18">Upload limit, macOS to Windows (MiB/s)</sys:String>
 <sys:String x:Key="G19">Most that macOS may send to this PC per second, into shared folders and when copied files are fetched; 0, the default, means no limit. Set one if the VM's picture stutters while macOS writes large files. Reading from Windows is never limited.</sys:String>
 <sys:String x:Key="G20">Apply</sys:String>
+<sys:String x:Key="Mac1">MAC MODEL</sys:String>
+<sys:String x:Key="Mac2">Mac model</sys:String>
+<sys:String x:Key="Mac3">Which Mac macOS takes this VM for. Another model comes with another serial number, so iCloud, iMessage and the App Store see a new device and may ask you to sign in again; the disk, the system UUID and the network address stay. Going back to a model brings back the serial number it had.</sys:String>
+<sys:String x:Key="Mac4">Change model</sys:String>
+<sys:String x:Key="Mac5">Which Mac macOS takes this VM for. It can be changed later on the Hardware &amp; Network page. Boot files of your own (below) say it themselves.</sys:String>
 <sys:String x:Key="G21">Copy and paste files between Windows and macOS</sys:String>
 <sys:String x:Key="G22">Files and folders copied in Windows are pasted in macOS straight from this PC, at any size. Those copied in macOS are fetched when you leave the VM's window, up to 256 MiB at a time, and can be pasted in Windows once they are here; for more, use a shared folder.</sys:String>
 </ResourceDictionary>

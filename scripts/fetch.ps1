@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Fetches the upstream sources sources.json pins and applies this project's patches to them.
 # QEMU is reims-vgpu's vendor/qemu submodule and metal2vulkan a Cargo dependency of it: the build fetches
-# both at the commits that reims-vgpu commit names. reims-util is fetched for the source archive; the build
-# installs it itself, at the commit reims-vgpu names, which sources.json must repeat.
+# both at the commits that reims-vgpu commit names. reims-util is fetched at the commit reims-vgpu names, which
+# sources.json must repeat, and is built from here with this project's patch (scripts/build.ps1).
 param([string]$Destination = (Join-Path $PSScriptRoot '../sources'))
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot

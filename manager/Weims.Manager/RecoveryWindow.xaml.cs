@@ -15,6 +15,7 @@ public partial class RecoveryWindow : Window
         this.engine = engine; data = dataDirectory ?? ProfileDirectory.Resolve(null, AppContext.BaseDirectory); InitializeComponent();
         SourceInitialized += (_, _) => ((App)Application.Current).ApplyTitleBar(this);
         ParentPath.Text = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Weims VMs");
+        ModelPicker.ItemsSource = MacModel.Choices; ModelPicker.SelectedIndex = 0;
         if (repo != null) RomPath.Text = Path.Combine(repo, "sources", "reims", "firmware", "prebuilt", "ReimsGraphics.rom");
         Closing += (_, e) => { if (cancellation != null) { e.Cancel = true; cancellation.Cancel(); Status.Text = Text.Get("正在取消，等待镜像工具退出…", "Cancelling; waiting for the image tool to exit…"); } };
     }
@@ -39,7 +40,7 @@ public partial class RecoveryWindow : Window
             cancellation = new(); Form.IsEnabled = false; CreateButton.IsEnabled = false; Progress.IsIndeterminate = true;
             var progress = new Progress<string>(message => Status.Text = message);
             if (ManualBoot.IsChecked != true)
-                Created = await GuidedSetup.Create(name, destination, DownloadRecovery.IsChecked == true ? null : ImagePath.Text, size, engine, data, progress, cancellation.Token);
+                Created = await GuidedSetup.Create(name, destination, DownloadRecovery.IsChecked == true ? null : ImagePath.Text, size, engine, data, progress, cancellation.Token, (ModelPicker.SelectedItem as MacModel.Choice)?.Id);
             else
             {
                 if (DownloadRecovery.IsChecked == true) throw new InvalidDataException(Text.Get("手动模式请选择本地恢复镜像。", "Select a local recovery image for manual mode."));

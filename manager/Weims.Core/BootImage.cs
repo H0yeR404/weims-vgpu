@@ -40,14 +40,24 @@ public static class BootImage
     public static Task EnsureCurrent(VmConfig c, EngineSettings engine, string data, IProgress<string> progress, CancellationToken token) =>
         Outdated(c, engine) ? Renew(c, engine, data, progress, token) : Task.CompletedTask;
 
-    /// <summary>The arguments that make reims-util write an image with this runtime's drivers.</summary>
-    public static List<string> HelperArguments(EngineSettings engine, string output, BootSettings? keep = null)
+    /// <summary>
+    /// The arguments that make reims-util write an image with this runtime's drivers: for a new VM, a Mac of
+    /// its own of <paramref name="model"/> (reims-util's default where none is named); otherwise the Mac
+    /// <paramref name="keep"/>, where an empty serial asks for a new serial and logic board serial of its model.
+    /// </summary>
+    public static List<string> HelperArguments(EngineSettings engine, string output, BootSettings? keep = null, string? model = null)
     {
         var args = new List<string> { "--json", "opencore", "-o", output };
-        if (keep == null) args.AddRange(["--show-picker", "--text-picker", "--disable-sip"]);
+        if (keep == null)
+        {
+            args.AddRange(["--show-picker", "--text-picker", "--disable-sip"]);
+            if (model != null && model != MacModel.Default) args.AddRange(["--model", model]);
+        }
         else
         {
-            args.AddRange(["--no-ovmf", "--model", keep.Model, "--serial", keep.Serial, "--mlb", keep.Mlb, "--uuid", keep.Uuid, "--rom", keep.Rom]);
+            args.AddRange(["--no-ovmf", "--model", keep.Model]);
+            if (keep.Serial.Length > 0) args.AddRange(["--serial", keep.Serial, "--mlb", keep.Mlb]);
+            args.AddRange(["--uuid", keep.Uuid, "--rom", keep.Rom]);
             if (keep.ShowPicker) args.Add("--show-picker");
             if (keep.TextPicker) args.Add("--text-picker");
             if (keep.SipDisabled) args.Add("--disable-sip");
@@ -119,25 +129,37 @@ public static class BootImage
     /// </summary>
     public static async Task Renew(VmConfig c, EngineSettings engine, string data, IProgress<string> progress, CancellationToken token)
     {
-        string id = SetId(engine) ?? throw new FileNotFoundException(Text.Get("运行组件不含客户机驱动。", "The runtime has no guest drivers."));
         progress.Report(Text.Get("正在为当前运行组件更新此虚拟机的引导文件，Mac 身份保持不变…", "Updating this VM's boot files for the current runtime; its Mac identity stays the same…"));
-        var keep = Read(c.OpenCore);
+        await Replace(c, engine, Read(c.OpenCore), data, token);
+    }
+
+    /// <summary>
+    /// Puts in place of the VM's OpenCore image one that presents the Mac <paramref name="want"/>, with this
+    /// runtime's drivers and its option ROM beside it, and returns what the new image presents. An empty
+    /// serial in <paramref name="want"/> asks for a new serial and logic board serial of its model
+    /// (MacModel.Switch). Nothing is replaced unless the new image presents what was asked.
+    /// </summary>
+    public static async Task<BootSettings> Replace(VmConfig c, EngineSettings engine, BootSettings want, string data, CancellationToken token)
+    {
+        string id = SetId(engine) ?? throw new FileNotFoundException(Text.Get("运行组件不含客户机驱动。", "The runtime has no guest drivers."));
         string work = Path.Combine(Path.GetDirectoryName(c.OpenCore)!, ".renew-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(work);
         try
         {
             string made = Path.Combine(work, "OpenCore.img");
             // The helper's own lines name the identity; they are not passed on.
-            await GuidedSetup.RunHelper(engine, HelperArguments(engine, made, keep), data, new Quiet(), token);
+            await GuidedSetup.RunHelper(engine, HelperArguments(engine, made, want), data, new Quiet(), token);
             var now = Read(made);
-            if (now with { ShowPicker = keep.ShowPicker, TextPicker = keep.TextPicker, SipDisabled = keep.SipDisabled } != keep)
-                throw new InvalidDataException(Text.Get("新引导镜像的 Mac 身份与原镜像不一致，未做任何更改。", "The new boot image does not present the same Mac; nothing was changed."));
+            var asked = want.Serial.Length > 0 ? want : want with { Serial = now.Serial, Mlb = now.Mlb };
+            if (now with { ShowPicker = want.ShowPicker, TextPicker = want.TextPicker, SipDisabled = want.SipDisabled } != asked)
+                throw new InvalidDataException(Text.Get("新引导镜像呈现的 Mac 与要求的不一致，未做任何更改。", "The new boot image does not present the Mac it was asked to; nothing was changed."));
             // The ROM goes beside the image, in the VM's own folder: the old one may be a file other VMs share.
             string rom = Path.Combine(Path.GetDirectoryName(c.OpenCore)!, "ReimsGraphics.rom");
             File.Copy(c.OpenCore, c.OpenCore + Previous, true);
             if (File.Exists(rom)) File.Copy(rom, rom + Previous, true);
             File.Move(made, c.OpenCore, true); File.Copy(Path.Combine(GuidedSetup.BootFiles(engine), "ReimsGraphics.rom"), rom, true);
             c.Rom = rom; c.BootSet = id; c.SaveOnly("rom", "boot_set");
+            return now;
         }
         finally { try { Directory.Delete(work, true); } catch (IOException) { } }
     }
