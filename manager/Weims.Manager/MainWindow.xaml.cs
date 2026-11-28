@@ -62,44 +62,101 @@ public partial class MainWindow : Window
         if (UsbList == null) return;
         try
         {
-            var saved = vm.Selected?.UsbDevices ?? [];
             var scan = await Task.Run(() => UsbHost.Scan(vm.Engine));
+            var saved = UsbHost.Resolve(vm.Selected?.UsbDevices ?? [], scan.Devices);
             var rows = new List<UsbRow>();
-            var seen = new HashSet<string>();
+            var taken = new bool[saved.Count];
             foreach (var device in scan.Devices)
             {
-                seen.Add(device.Bus + ":" + device.Port);
-                rows.Add(new UsbRow(device.Bus, device.Port, device.Name, $"{device.Name} · {device.Vendor:X4}:{device.Product:X4} · {device.Bus}/{device.Port}", saved.Any(s => s.Bus == device.Bus && s.Port == device.Port)));
+                var match = -1;
+                for (var i = 0; i < saved.Count; i++)
+                {
+                    if (taken[i]) continue;
+                    var item = saved[i];
+                    var samePort = item.Bus == device.Bus && item.Port == device.Port;
+                    var sameDevice = item.Vendor != 0 && item.Vendor == device.Vendor && (item.Vendor == UsbHost.AppleVendor || item.Product == device.Product);
+                    if (samePort || sameDevice) { match = i; break; }
+                }
+                if (match >= 0) taken[match] = true;
+                rows.Add(new UsbRow(device.Bus, device.Port, device.Vendor, device.Product, match >= 0 ? saved[match].Slot : -1, device.Name, $"{device.Name} · {device.Vendor:X4}:{device.Product:X4} · {device.Bus}/{device.Port}", match >= 0));
             }
-            foreach (var device in saved.Where(s => !seen.Contains(s.Bus + ":" + s.Port)))
-                rows.Add(new UsbRow(device.Bus, device.Port, UsbHost.Label(device.Label), $"{UsbHost.Label(device.Label)} · {device.Bus}/{device.Port} · {Text.Get("当前没插上", "not plugged in")}", true));
+            for (var i = 0; i < saved.Count; i++)
+            {
+                if (taken[i]) continue;
+                var device = saved[i];
+                var label = UsbHost.Label(device.Label);
+                rows.Add(new UsbRow(device.Bus, device.Port, device.Vendor, device.Product, device.Slot, label, $"{label} · {device.Bus}/{device.Port} · {Text.Get("当前没插上", "not plugged in")}", true));
+            }
             UsbList.ItemsSource = rows.Select(row => new CheckBox { Content = row.Caption, IsChecked = row.Selected, Margin = new Thickness(0, 6, 0, 0), Tag = row }).ToList();
             foreach (CheckBox box in UsbList.ItemsSource) { box.Checked += UsbBoxChanged; box.Unchecked += UsbBoxChanged; }
             UsbStatus.Text = scan.Problem ?? (rows.Count == 0 ? Text.Get("没有可传入的 USB 设备。插上后点刷新。", "No USB device can be passed in. Plug one in and click Refresh.") : "");
-            InstallUsbDk.Visibility = UsbHost.DriverInstalled ? Visibility.Collapsed : Visibility.Visible;
         }
         catch (Exception e) { UsbStatus.Text = e.Message; }
     }
-    async void InstallUsbDriver(object sender, RoutedEventArgs e) => await Work(async () =>
+    bool usbApplying;
+    async void UsbBoxChanged(object sender, RoutedEventArgs e)
     {
-        int code;
-        try { code = await UsbHost.Install(); }
-        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
-        {
-            vm.Message = Text.Get("没有获得管理员权限，USB 驱动未安装。", "Administrator permission was not granted. The USB driver was not installed.");
-            return;
-        }
-        if (code is not (0 or 3010)) throw new IOException(Text.Get($"USB 驱动安装没有完成（msiexec {code}）。", $"The USB driver install did not finish (msiexec {code})."));
-        vm.Message = code == 3010
-            ? Text.Get("USB 驱动已安装。如果刷新后仍然列不出设备，请重启 Windows。", "The USB driver is installed. If a refresh still lists nothing, restart Windows.")
-            : Text.Get("USB 驱动已安装。", "The USB driver is installed.");
-        await LoadUsb();
-    });
-    void UsbBoxChanged(object sender, RoutedEventArgs e)
-    {
+        if (usbApplying) return;
         if (sender is not CheckBox box || box.Tag is not UsbRow row || vm.Selected is not { } config || UsbList.ItemsSource is not IEnumerable<CheckBox> boxes) return;
         row.Choose(box.IsChecked == true);
-        config.UsbDevices = boxes.Select(item => (UsbRow)item.Tag).Where(item => item.Selected).Select(item => new UsbHost.Selection(item.Bus, item.Port, item.Label)).ToList();
+        var next = boxes.Select(item => (UsbRow)item.Tag).Where(item => item.Selected).Select(item => UsbSelection(config, item)).ToList();
+        if (UsbHost.Problem(next) is { } problem)
+        {
+            RevertUsb(box, row);
+            vm.Message = problem;
+            return;
+        }
+        if (vm.Busy) { RevertUsb(box, row); return; }
+        if (!vm.CanPower)
+        {
+            if (!vm.CanEdit) { RevertUsb(box, row); vm.Message = vm.Status; return; }
+            config.UsbDevices = next;
+            return;
+        }
+        bool give = box.IsChecked == true;
+        UsbList.IsEnabled = false;
+        try
+        {
+            await Work(async () =>
+            {
+                try
+                {
+                    await VmService.RetargetUsb(config, vm.Engine, next);
+                    await LoadUsb();
+                    vm.Message = give
+                        ? Text.Get("已把 USB 设备交给 macOS。", "The USB device was given to macOS.")
+                        : Text.Get("已把 USB 设备交还 Windows。", "The USB device was returned to Windows.");
+                }
+                catch
+                {
+                    if (!UsbMatches(config.UsbDevices, next)) RevertUsb(box, row);
+                    throw;
+                }
+            });
+        }
+        finally { UsbList.IsEnabled = true; }
+    }
+    static bool UsbMatches(IReadOnlyList<UsbHost.Selection> current, IReadOnlyList<UsbHost.Selection> wanted) =>
+        current.Count == wanted.Count && current.All(device => wanted.Any(device.Matches));
+    static UsbHost.Selection UsbSelection(VmConfig config, UsbRow item)
+    {
+        var slot = item.Slot;
+        if (slot < 0)
+        {
+            var known = config.UsbDevices.FirstOrDefault(device =>
+                item.Vendor != 0
+                    ? device.Vendor == item.Vendor && (item.Vendor == UsbHost.AppleVendor || device.Product == item.Product)
+                    : device.Bus == item.Bus && device.Port == item.Port);
+            if (known != null) slot = known.Slot;
+        }
+        return new UsbHost.Selection(item.Bus, item.Port, item.Label, item.Vendor, item.Product, slot);
+    }
+    void RevertUsb(CheckBox box, UsbRow row)
+    {
+        var held = usbApplying;
+        usbApplying = true;
+        try { box.IsChecked = box.IsChecked != true; row.Choose(box.IsChecked == true); }
+        finally { usbApplying = held; }
     }
     async void RefreshState(object sender, RoutedEventArgs e) => await Work(async () => { UpdateCapability(); await vm.Refresh(); vm.Message = vm.Status; });
     async void ImportVm(object sender, RoutedEventArgs e)
@@ -281,10 +338,13 @@ sealed class UsbRow
 {
     public int Bus { get; }
     public string Port { get; }
+    public int Vendor { get; }
+    public int Product { get; }
+    public int Slot { get; }
     public string Label { get; }
     public string Caption { get; }
     public bool Selected { get; private set; }
-    public UsbRow(int bus, string port, string label, string caption, bool selected)
-    { Bus = bus; Port = port; Label = label; Caption = caption; Selected = selected; }
+    public UsbRow(int bus, string port, int vendor, int product, int slot, string label, string caption, bool selected)
+    { Bus = bus; Port = port; Vendor = vendor; Product = product; Slot = slot; Label = label; Caption = caption; Selected = selected; }
     public void Choose(bool selected) => Selected = selected;
 }

@@ -141,22 +141,32 @@ try
     var usbArgs = LaunchPlan.Build(c, engine, temp, new string('s', 64), "test").Arguments;
     Check(usbArgs.Contains("usb-host,id=usbhost0,bus=xhci.0,hostbus=2,hostport=1.4") && usbArgs.Contains("usb-host,id=usbhost1,bus=xhci.0,hostbus=1,hostport=3"), "chosen USB ports are usb-host devices on the guest controller");
     c.Save(); Check(VmConfig.Load(c.ConfigPath).UsbDevices.Select(d => d.Port).SequenceEqual(["1.4", "3"]), "USB ports survive a save");
+    Check(new UsbHost.Selection(4, "13", "iPhone", 0x05AC, 0x12A8).Device(0) == "usb-host,id=usbhost0,bus=xhci.0,vendorid=0x05ac", "an Apple device follows the vendor id after its port and product id change");
+    Check(new UsbHost.Selection(4, "9", "Disk", 0x0951, 0x1666).Device(1) == "usb-host,id=usbhost1,bus=xhci.0,vendorid=0x0951,productid=0x1666", "another device follows its vendor and product");
+    c.UsbDevices = [new UsbHost.Selection(4, "13", "iPhone", 0x05AC, 0x12A8)];
+    c.Save();
+    var apple = VmConfig.Load(c.ConfigPath).UsbDevices[0];
+    Check(apple.Vendor == 0x05AC && apple.Product == 0x12A8 && !apple.Device(0).Contains("hostport"), "the Apple identity survives a save");
+    var moved = UsbHost.Resolve([new UsbHost.Selection(4, "9", "Apple Mobile Device USB Device")], [new UsbHost.Seen(4, "13", 0x05AC, 0x12A8, "NCM Data")]);
+    Check(moved.Count == 1 && moved[0].Port == "13" && moved[0].Vendor == 0x05AC, "a saved iPhone is found again after it moves to another port");
+    var stolen = UsbHost.Resolve([new UsbHost.Selection(4, "9", "Apple iPhone")], [new UsbHost.Seen(4, "9", 0x0951, 0x1666, "DataTraveler"), new UsbHost.Seen(4, "13", 0x05AC, 0x12A8, "iPhone")]);
+    Check(stolen[0].Vendor == 0x05AC && stolen[0].Port == "13", "an Apple selection does not follow a port another device took");
+    var slotted = UsbHost.AssignSlots([new UsbHost.Selection(1, "1", "a"), new UsbHost.Selection(1, "2", "b", 0x1111, 0x2222, 3)]);
+    Check(slotted[0].Slot == 0 && slotted[1].Slot == 3 && slotted[1].Device(9).Contains("id=usbhost3") && !slotted[1].Device(9).Contains("usbhost9") && slotted[1].Plug(9)["id"]!.GetValue<string>() == "usbhost3", "a USB slot is kept and a hot-plug uses it");
+    c.UsbDevices = [new UsbHost.Selection(4, "13", "iPhone", 0x05AC, 0x12A8, 2)];
+    c.Save();
+    Check(VmConfig.Load(c.ConfigPath).UsbDevices[0].Slot == 2, "a USB slot survives a save");
+    c.UsbDevices = [new UsbHost.Selection(1, "1", "a", 0, 0, 1), new UsbHost.Selection(1, "2", "b", 0, 0, 1)];
+    Reject(() => c.Validate(false), "two USB devices in one slot rejected");
+    c.UsbDevices = [new UsbHost.Selection(4, "13", "a", 0x05AC, 0x12A8), new UsbHost.Selection(4, "14", "b", 0x05AC, 0x12AB)];
+    Reject(() => c.Validate(false), "two Apple devices are one match");
     c.Data["usb_devices"] = new JsonArray(new JsonObject { ["bus"] = 1, ["port"] = "1,id=evil" });
     Reject(() => c.Validate(false), "a USB port that could change the QEMU option is rejected");
     c.UsbDevices = [new UsbHost.Selection(0, "1", "bad")]; Reject(() => c.Validate(false), "USB bus 0 rejected");
     c.UsbDevices = Enumerable.Range(1, UsbHost.Limit + 1).Select(n => new UsbHost.Selection(1, n.ToString(), "d")).ToList();
     Reject(() => c.Validate(false), "too many USB devices rejected");
     c.Data.Remove("usb_devices"); Check(c.UsbDevices.Count == 0 && !LaunchPlan.Build(c, engine, temp, new string('s', 64), "test").Arguments.Any(a => a.Contains("usb-host")), "a configuration without the USB key passes nothing through");
-    var junkInstaller = Path.Combine(temp, "bad.msi"); File.WriteAllBytes(junkInstaller, [1, 2, 3, 4]);
-    Check(!UsbHost.InstallerMatches(junkInstaller), "a substituted UsbDk installer is refused");
-    string? usbdkDir = AppContext.BaseDirectory; bool foundInstaller = false;
-    for (var hop = 0; hop < 8 && usbdkDir != null; hop++)
-    {
-        var bundled = Path.Combine(usbdkDir, "manager", "third_party", "UsbDk", UsbHost.InstallerName);
-        if (File.Exists(bundled)) { Check(UsbHost.InstallerMatches(bundled), "the bundled UsbDk installer matches its hash"); foundInstaller = true; break; }
-        usbdkDir = Path.GetDirectoryName(usbdkDir);
-    }
-    Check(foundInstaller, "the bundled UsbDk installer is in the tree");
+    Check(new UsbHost.Selection(1, "1", "keyboard", 0x05AC, 0x024F).Device(0).Contains("productid=0x024f"), "an Apple device that is not an iPhone keeps its product id");
     var req=new RecoveryRequest("test",Path.Combine(temp,"newvm"),FileAt("installer.iso"),200,c.OpenCore,c.FirmwareCode,c.FirmwareVars,c.Rom,4550,2330);
     Reject(()=>RecoveryService.Validate(req), "ISO rejected");
     Reject(()=>RecoveryService.Validate(req with { Image=c.Recovery, Destination=temp }), "existing recovery destination rejected");

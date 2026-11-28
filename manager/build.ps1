@@ -25,12 +25,6 @@ if (Test-Path -LiteralPath "$prebuilt/SHA256SUMS") {
         Copy-Item -LiteralPath "$prebuilt/$name" -Destination "$out/guest-tools/$name"
     }
 } else { Write-Warning 'Nothing in guest-tools/prebuilt: Manager will not offer to install Guest Tools.' }
-# UsbDk is the official 1.0.22 x64 installer. The same hash is UsbHost.InstallerSha256, checked again before it runs.
-$usbdk = Join-Path $PSScriptRoot 'third_party/UsbDk/UsbDk_1.0.22_x64.msi'
-if ((Get-FileHash -LiteralPath $usbdk -Algorithm SHA256).Hash -ne '91F6F695E1E13C656024E6D3B55620BF08D8835EF05EE0496935BA6BB62466A5') { throw 'UsbDk installer does not match its recorded hash' }
-New-Item -ItemType Directory -Force "$out/licenses/UsbDk" | Out-Null
-Copy-Item -LiteralPath "$PSScriptRoot/third_party/UsbDk/LICENSE.txt" -Destination "$out/licenses/UsbDk/LICENSE.txt"
-Copy-Item -LiteralPath "$PSScriptRoot/third_party/UsbDk/README.md" -Destination "$out/licenses/UsbDk/README.md"
 # SMBLibrary (LGPL-3.0-or-later) is two assemblies beside the broker. Its license, the GPL that license refers to,
 # and the note on where its source is and how to replace it go with them.
 $smb=Join-Path $out 'licenses/SMBLibrary'

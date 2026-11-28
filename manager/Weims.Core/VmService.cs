@@ -140,18 +140,37 @@ public static class VmService
         await RequireStopped(c); CheckPorts(c);
         if (c.UsbDevices.Count > 0) { using var usb = new CancellationTokenSource(TimeSpan.FromSeconds(10)); await UsbHost.RequireSupport(engine, usb.Token); }
         var run = Path.Combine(c.DirectoryPath, "logs", DateTime.Now.ToString("yyyyMMdd-HHmmss-fff"));
-        var name = "weims-" + Guid.NewGuid().ToString("N");
-        var plan = LaunchPlan.Build(c, engine, run, osk, name);
-        // RequireStopped has confirmed the previous QEMU is gone, so its leftover socket file can be removed.
-        QmpEndpoint.Prepare(plan.QmpSocket, RuntimeSocket(Runtime(c)));
-        c.Save(); Directory.CreateDirectory(run);
-        var args = plan.Arguments.Select(a => a.StartsWith("isa-applesmc,osk=") ? "isa-applesmc,osk=<redacted>" : a).ToArray();
-        var file = Path.Combine(run, "command.json");
-        JsonFiles.Write(file, new { executable = engine.Qemu, arguments = args, runtime = c.RuntimePath, run_directory = run, qmp_socket = plan.QmpSocket, qmp_name = name });
-        var env = new Dictionary<string,string>(plan.Environment) { ["WEIMS_OSK"] = osk };
-        using var startupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        try { await ProcessRunner.Run(engine.PowerShell, new[] { "-NoProfile", "-NonInteractive", "-File", launcher, "-Plan", file }, env, startupTimeout.Token, captureOutput: false); }
-        catch (IOException e) { throw new IOException(Text.Get("虚拟机启动失败，请查看：", "VM startup failed. See: ") + Path.Combine(run, "stderr.log"), e); }
+        Directory.CreateDirectory(run);
+        UsbHost.Handoff? handoff = null;
+        try
+        {
+            if (c.UsbDevices.Count > 0)
+            {
+                var scan = UsbHost.Scan(engine);
+                if (scan.Problem != null) throw new IOException(scan.Problem);
+                c.UsbDevices = UsbHost.AssignSlots(UsbHost.Resolve(c.UsbDevices, scan.Devices));
+                handoff = await UsbHost.Handoff.Open(engine, c.UsbDevices, run);
+            }
+            var name = "weims-" + Guid.NewGuid().ToString("N");
+            var plan = LaunchPlan.Build(c, engine, run, osk, name);
+            // RequireStopped has confirmed the previous QEMU is gone, so its leftover socket file can be removed.
+            QmpEndpoint.Prepare(plan.QmpSocket, RuntimeSocket(Runtime(c)));
+            c.Save();
+            var args = plan.Arguments.Select(a => a.StartsWith("isa-applesmc,osk=") ? "isa-applesmc,osk=<redacted>" : a).ToArray();
+            var file = Path.Combine(run, "command.json");
+            JsonFiles.Write(file, new { executable = engine.Qemu, arguments = args, runtime = c.RuntimePath, run_directory = run, qmp_socket = plan.QmpSocket, qmp_name = name });
+            var env = new Dictionary<string,string>(plan.Environment) { ["WEIMS_OSK"] = osk };
+            using var startupTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            try { await ProcessRunner.Run(engine.PowerShell, new[] { "-NoProfile", "-NonInteractive", "-File", launcher, "-Plan", file }, env, startupTimeout.Token, captureOutput: false); }
+            catch (IOException e) { throw new IOException(Text.Get("虚拟机启动失败，请查看：", "VM startup failed. See: ") + Path.Combine(run, "stderr.log"), e); }
+            if (handoff != null)
+            {
+                var rt = Runtime(c) ?? throw new IOException(Text.Get("虚拟机已启动，但没有运行记录，USB 设备已交还 Windows。", "The VM started but left no runtime record, so the USB device was returned to Windows."));
+                handoff.Attach(rt["pid"]!.GetValue<int>());
+            }
+        }
+        catch { handoff?.Dispose(); throw; }
+        handoff?.Dispose();
         // Guest Tools are optional. The VM is already running here, and a broker that cannot be started must
         // not turn a successful start into a failure; whoever polls the state will try again.
         if (c.IntegrationEnabled)
@@ -159,6 +178,88 @@ public static class VmService
             catch (Exception e) when (e is IOException or System.ComponentModel.Win32Exception or InvalidOperationException)
             { try { File.AppendAllText(Path.Combine(run, "broker.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} not started: {e.Message}{Environment.NewLine}"); } catch (IOException) { } }
         return run;
+    }
+
+    /// <summary>
+    /// The USB selection, applied at once when the VM is running and remembered either way.
+    /// Plugging asks Windows to let go, then adds the device. Unplugging removes it and lets Windows bind it again.
+    /// </summary>
+    public static async Task RetargetUsb(VmConfig c, EngineSettings engine, IReadOnlyList<UsbHost.Selection> next)
+    {
+        if (UsbHost.Problem(next) is { } problem) throw new InvalidDataException(problem);
+        var state = await State(c);
+        if (!state.Running)
+        {
+            if (!state.CanEdit) throw new IOException(state.Label);
+            c.UsbDevices = next;
+            return;
+        }
+        var scan = UsbHost.Scan(engine);
+        if (scan.Problem != null) throw new IOException(scan.Problem);
+        var resolved = UsbHost.Resolve(next, scan.Devices);
+        var previous = c.UsbDevices.ToList();
+        var seeded = new List<UsbHost.Selection>(resolved.Count);
+        foreach (var device in resolved)
+        {
+            if (device.Slot >= 0) { seeded.Add(device); continue; }
+            var index = previous.FindIndex(device.Matches);
+            seeded.Add(index < 0 ? device : device with { Slot = previous[index].Slot >= 0 ? previous[index].Slot : index });
+        }
+        resolved = UsbHost.AssignSlots(seeded);
+        if (UsbHost.Problem(resolved) is { } seededProblem) throw new InvalidDataException(seededProblem);
+        var removed = previous.Where(device => !resolved.Any(device.Matches)).ToList();
+        var added = resolved.Where(device => !previous.Any(device.Matches)).ToList();
+        var rt = Runtime(c) ?? throw new IOException(Text.Get("没有运行记录。", "No runtime record."));
+        var run = rt["run_directory"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(run) || !Directory.Exists(run)) throw new IOException(Text.Get("这次启动没有运行目录，重新启动虚拟机后才能在运行中更改 USB。", "This launch has no run directory. Restart the VM before changing USB while it runs."));
+        int qemuPid = rt["pid"]!.GetValue<int>();
+        using var support = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        if (added.Count > 0) await UsbHost.RequireSupport(engine, support.Token);
+        var applied = false;
+        try
+        {
+            if (removed.Count > 0)
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+                using var qmp = await OpenQmp(c, timeout.Token);
+                foreach (var device in removed)
+                {
+                    var id = device.QemuId(previous.IndexOf(device));
+                    try { await qmp.Execute("device_del", new JsonObject { ["id"] = id }, timeout.Token); }
+                    catch (IOException e) when (e.Message.Contains("not found", StringComparison.OrdinalIgnoreCase)) { }
+                    await WaitUnplugged(qmp, id, timeout.Token);
+                }
+            }
+            await UsbHost.Handoff.Sync(engine, run, qemuPid, resolved);
+            if (added.Count > 0)
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                using var qmp = await OpenQmp(c, timeout.Token);
+                foreach (var device in added) await qmp.Execute("device_add", device.Plug(0), timeout.Token);
+            }
+            c.UsbDevices = resolved;
+            applied = true;
+            c.SaveOnly("usb_devices");
+        }
+        catch
+        {
+            if (!applied) try { await UsbHost.Handoff.Sync(engine, run, qemuPid, previous); } catch (IOException) { }
+            throw;
+        }
+    }
+
+    /// <summary>device_del returns before QEMU has closed the host device. Wait until info usb no longer lists it.</summary>
+    static async Task WaitUnplugged(QmpClient qmp, string id, CancellationToken token)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (DateTime.UtcNow < deadline)
+        {
+            string text;
+            try { text = (await qmp.Execute("human-monitor-command", new JsonObject { ["command-line"] = "info usb" }, token))?.GetValue<string>() ?? ""; }
+            catch (Exception e) when (e is IOException or InvalidOperationException) { await Task.Delay(400, token); return; }
+            if (!text.Contains("ID: " + id, StringComparison.Ordinal)) return;
+            await Task.Delay(150, token);
+        }
     }
 }
 
