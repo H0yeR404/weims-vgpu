@@ -250,4 +250,7 @@
 <sys:String x:Key="G20">Apply</sys:String>
 <sys:String x:Key="G21">Copy and paste files between Windows and macOS</sys:String>
 <sys:String x:Key="G22">Files and folders copied in Windows are pasted in macOS straight from this PC, at any size. Those copied in macOS are fetched when you leave the VM's window, up to 256 MiB at a time, and can be pasted in Windows once they are here; for more, use a shared folder.</sys:String>
+<sys:String x:Key="Usb1">USB DEVICES</sys:String>
+<sys:String x:Key="Usb2">This can be changed while the VM is running. Checking a device asks for an administrator, switches that device to Windows' own driver and gives it to macOS; clearing the check, or shutting the VM down, puts the original driver back. The choice is remembered. An iPhone keeps going to macOS if it reconnects on another port. Keyboards, mice and Bluetooth are not in this list.</sys:String>
+<sys:String x:Key="Usb3">Refresh</sys:String>
 </ResourceDictionary>

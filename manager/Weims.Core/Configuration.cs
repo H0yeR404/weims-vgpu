@@ -83,6 +83,12 @@ public sealed class VmConfig : Observable, IDataErrorInfo
     /// </summary>
     public const int DefaultUploadLimitMiB = 0, MaxUploadLimitMiB = 1024;
     public int UploadLimitMiB { get => Number("upload_limit_mib", DefaultUploadLimitMiB); set => Write("upload_limit_mib", value); }
+    /// <summary>Host USB ports passed into the guest at the next start. Absent means none, as before this setting existed.</summary>
+    public IReadOnlyList<UsbHost.Selection> UsbDevices
+    {
+        get => Data["usb_devices"] is JsonArray a ? [.. a.Select(UsbHost.Selection.Read).OfType<UsbHost.Selection>()] : [];
+        set { Data["usb_devices"] = new JsonArray([.. value.Select(d => (JsonNode)d.ToJson())]); Changed(); }
+    }
     // Which runtime's guest drivers and option ROM the VM's boot files hold (BootImage.SetId), or OwnBootFiles for
     // files the user supplied, which are never replaced. Absent in a VM made by a version before the upstream engine.
     public const string OwnBootFiles = "own";
@@ -111,6 +117,9 @@ public sealed class VmConfig : Observable, IDataErrorInfo
         if (ShareConfig.Problem(Shares) is { } problem) throw new InvalidDataException(problem);
         if (UploadLimitMiB < 0 || UploadLimitMiB > MaxUploadLimitMiB)
             throw new InvalidDataException(Text.Get($"上传限速应为 0–{MaxUploadLimitMiB} MiB/s，0 表示不限。", $"The upload limit must be 0–{MaxUploadLimitMiB} MiB/s; 0 means no limit."));
+        if (Data["usb_devices"] is { } usb && (usb is not JsonArray usbList || UsbDevices.Count != usbList.Count))
+            throw new InvalidDataException(Text.Get("USB 设备设置无法读取。", "The USB device settings cannot be read."));
+        if (UsbHost.Problem(UsbDevices) is { } usbProblem) throw new InvalidDataException(usbProblem);
         if (!Regex.IsMatch(Mac, @"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")) throw new InvalidDataException(Text.Get("MAC 地址格式错误。", "Invalid MAC address format."));
         foreach (var path in new[] { Disk, OpenCore, FirmwareCode, FirmwareVars, Rom }.Concat(RecoveryAttached ? new[] { Recovery } : Array.Empty<string>()))
         {

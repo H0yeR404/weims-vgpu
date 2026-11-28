@@ -250,4 +250,7 @@
 <sys:String x:Key="G20">应用</sys:String>
 <sys:String x:Key="G21">在 Windows 和 macOS 之间复制粘贴文件</sys:String>
 <sys:String x:Key="G22">在 Windows 里复制的文件和文件夹，在 macOS 里粘贴时直接从这台电脑读取，不限大小。在 macOS 里复制的，在你离开虚拟机窗口时取回，每次最多 256 MiB，取回后才能在 Windows 里粘贴；更大的请用共享文件夹。</sys:String>
+<sys:String x:Key="Usb1">USB 设备</sys:String>
+<sys:String x:Key="Usb2">虚拟机开着也可以改。勾上时 Windows 会要求管理员权限，把这台设备临时换成系统自带的驱动并交给 macOS；取消或虚拟机关机后，原来的驱动会装回来。选择会被记住。iPhone 换了端口也会继续交给 macOS。键盘、鼠标和蓝牙不会出现在这个列表里。</sys:String>
+<sys:String x:Key="Usb3">刷新</sys:String>
 </ResourceDictionary>

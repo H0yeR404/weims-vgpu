@@ -111,7 +111,7 @@ public partial class MainWindow
             foreach (var machine in vm.Machines) machine.RefreshLanguage();
             foreach (var item in new[] { (VmNameText, "Name", "S21"), (VmSummaryText, "Summary", "S22"), (VmRecoveryText, "Recovery", "S64") })
                 item.Item1.SetBinding(System.Windows.Controls.TextBlock.TextProperty, new System.Windows.Data.Binding("Selected." + item.Item2) { TargetNullValue = FindResource(item.Item3) });
-            UpdateCapability(); RefreshUpdateText(); RefreshRuntimeSummary();
+            UpdateCapability(); RefreshUpdateText(); RefreshRuntimeSummary(); await LoadUsb();
             await vm.Refresh();
             vm.Message = Text.Get("已切换为简体中文。", "Switched to English.");
         }
